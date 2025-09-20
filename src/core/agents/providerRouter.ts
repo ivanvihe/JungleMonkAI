@@ -7,16 +7,107 @@ import {
 } from '../../utils/aiProviders';
 import { isSupportedProvider } from '../../utils/globalSettings';
 import { ChatContentPart, ChatMessage } from '../messages/messageTypes';
+import type { CoordinationStrategyId, MultiAgentContext } from '../orchestration';
 import { AgentDefinition } from './agentRegistry';
 
 export const AGENT_SYSTEM_PROMPT =
   'Actúas como parte de un colectivo de agentes creativos. Responde de forma concisa, en español cuando sea posible, y especifica los supuestos importantes que utilices al contestar.';
 
+const buildSystemPrompt = (context: MultiAgentContext | undefined): string => {
+  if (!context) {
+    return AGENT_SYSTEM_PROMPT;
+  }
+
+  const extras: string[] = [];
+
+  if (context.role?.role) {
+    extras.push(`Asumes el rol de ${context.role.role}.`);
+  }
+
+  if (context.role?.objective) {
+    extras.push(`Objetivo actual: ${context.role.objective}.`);
+  }
+
+  if (context.strategyId) {
+    extras.push(`La estrategia coordinada en vigor es «${context.strategyId}».`);
+  }
+
+  if (!extras.length) {
+    return AGENT_SYSTEM_PROMPT;
+  }
+
+  return [AGENT_SYSTEM_PROMPT, ...extras].join('\n\n');
+};
+
+const buildPromptWithContext = (
+  agent: AgentDefinition,
+  prompt: string,
+  context: MultiAgentContext | undefined,
+): { prompt: string; systemPrompt: string } => {
+  const sanitizedPrompt = prompt.trim();
+  if (!context) {
+    return { prompt: sanitizedPrompt, systemPrompt: AGENT_SYSTEM_PROMPT };
+  }
+
+  const sections: string[] = [];
+
+  if (context.snapshot.sharedSummary) {
+    sections.push(`Resumen colectivo compartido:\n${context.snapshot.sharedSummary}`);
+  }
+
+  const otherSummaries = Object.entries(context.snapshot.agentSummaries)
+    .filter(([agentId]) => agentId !== agent.id)
+    .map(([, summary]) => summary)
+    .filter(Boolean);
+
+  if (otherSummaries.length) {
+    sections.push(`Aportes previos de otros agentes:\n- ${otherSummaries.slice(-3).join('\n- ')}`);
+  }
+
+  if (context.snapshot.lastConclusions.length) {
+    const latest = context.snapshot.lastConclusions
+      .slice(-3)
+      .map(entry => `${entry.author === 'system' ? 'Coordinador' : `Agente ${entry.agentId ?? 'desconocido'}`}: ${entry.content}`)
+      .join('\n');
+    sections.push(`Conclusiones recientes:\n${latest}`);
+  }
+
+  if (context.instructions?.length) {
+    sections.push(`Instrucciones del coordinador:\n- ${context.instructions.join('\n- ')}`);
+  }
+
+  if (context.bridgeMessages?.length) {
+    const bridgeSummary = context.bridgeMessages
+      .slice(-3)
+      .map(message => `${message.author === 'system' ? 'Sistema' : `Agente ${message.agentId ?? 'desconocido'}`}: ${message.content}`)
+      .join('\n');
+    sections.push(`Mensajes internos relevantes:\n${bridgeSummary}`);
+  }
+
+  sections.push(`Solicitud del usuario:\n${sanitizedPrompt}`);
+
+  return {
+    prompt: sections.join('\n\n'),
+    systemPrompt: buildSystemPrompt(context),
+  };
+};
+
 export interface FetchAgentReplyOptions {
   agent: AgentDefinition;
   prompt: string;
   apiKeys: ApiKeySettings;
-  fallback: (agent: AgentDefinition, prompt?: string) => string;
+  fallback: (agent: AgentDefinition, prompt?: string, context?: MultiAgentContext) => string;
+  context?: MultiAgentContext;
+  onTrace?: (trace: AgentExchangeTrace) => void;
+}
+
+export interface AgentExchangeTrace {
+  agentId: string;
+  agentName: string;
+  type: 'request' | 'response' | 'fallback';
+  payload: string;
+  timestamp: string;
+  strategyId?: CoordinationStrategyId;
 }
 
 export const fetchAgentReply = async ({
@@ -24,60 +115,129 @@ export const fetchAgentReply = async ({
   prompt,
   apiKeys,
   fallback,
+  context,
+  onTrace,
 }: FetchAgentReplyOptions): Promise<ChatProviderResponse> => {
   const providerKey = agent.provider.toLowerCase();
   if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
+    const fallbackContent = fallback(agent, prompt, context);
+    onTrace?.({
+      agentId: agent.id,
+      agentName: agent.name,
+      type: 'fallback',
+      payload: fallbackContent,
+      timestamp: new Date().toISOString(),
+      strategyId: context?.strategyId,
+    });
     return {
-      content: fallback(agent, prompt),
+      content: fallbackContent,
       modalities: ['text'],
     };
   }
 
   const apiKey = apiKeys[providerKey];
   if (!apiKey) {
+    const payload = `${agent.name} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`;
+    onTrace?.({
+      agentId: agent.id,
+      agentName: agent.name,
+      type: 'fallback',
+      payload,
+      timestamp: new Date().toISOString(),
+      strategyId: context?.strategyId,
+    });
     return {
-      content: `${agent.name} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`,
+      content: payload,
       modalities: ['text'],
     };
   }
 
   const sanitizedPrompt = prompt.trim();
   if (!sanitizedPrompt) {
+    const payload = 'Necesito un prompt válido para generar una respuesta.';
+    onTrace?.({
+      agentId: agent.id,
+      agentName: agent.name,
+      type: 'fallback',
+      payload,
+      timestamp: new Date().toISOString(),
+      strategyId: context?.strategyId,
+    });
     return {
-      content: 'Necesito un prompt válido para generar una respuesta.',
+      content: payload,
       modalities: ['text'],
     };
   }
 
-  if (providerKey === 'openai') {
-    return callOpenAIChat({
-      apiKey,
-      model: agent.model,
-      prompt: sanitizedPrompt,
-      systemPrompt: AGENT_SYSTEM_PROMPT,
+  const { prompt: decoratedPrompt, systemPrompt } = buildPromptWithContext(agent, sanitizedPrompt, context);
+  onTrace?.({
+    agentId: agent.id,
+    agentName: agent.name,
+    type: 'request',
+    payload: decoratedPrompt,
+    timestamp: new Date().toISOString(),
+    strategyId: context?.strategyId,
+  });
+
+  const runAndTrace = async (
+    executor: () => Promise<ChatProviderResponse>,
+  ): Promise<ChatProviderResponse> => {
+    const response = await executor();
+    onTrace?.({
+      agentId: agent.id,
+      agentName: agent.name,
+      type: 'response',
+      payload: contentToPlainText(response.content),
+      timestamp: new Date().toISOString(),
+      strategyId: context?.strategyId,
     });
+    return response;
+  };
+
+  if (providerKey === 'openai') {
+    return runAndTrace(() =>
+      callOpenAIChat({
+        apiKey,
+        model: agent.model,
+        prompt: decoratedPrompt,
+        systemPrompt,
+      }),
+    );
   }
 
   if (providerKey === 'anthropic') {
-    return callAnthropicChat({
-      apiKey,
-      model: agent.model,
-      prompt: sanitizedPrompt,
-      systemPrompt: AGENT_SYSTEM_PROMPT,
-    });
+    return runAndTrace(() =>
+      callAnthropicChat({
+        apiKey,
+        model: agent.model,
+        prompt: decoratedPrompt,
+        systemPrompt,
+      }),
+    );
   }
 
   if (providerKey === 'groq') {
-    return callGroqChat({
-      apiKey,
-      model: agent.model,
-      prompt: sanitizedPrompt,
-      systemPrompt: AGENT_SYSTEM_PROMPT,
-    });
+    return runAndTrace(() =>
+      callGroqChat({
+        apiKey,
+        model: agent.model,
+        prompt: decoratedPrompt,
+        systemPrompt,
+      }),
+    );
   }
 
+  const fallbackContent = fallback(agent, prompt, context);
+  onTrace?.({
+    agentId: agent.id,
+    agentName: agent.name,
+    type: 'fallback',
+    payload: fallbackContent,
+    timestamp: new Date().toISOString(),
+    strategyId: context?.strategyId,
+  });
   return {
-    content: fallback(agent, prompt),
+    content: fallbackContent,
     modalities: ['text'],
   };
 };

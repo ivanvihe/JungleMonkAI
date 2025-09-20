@@ -35,6 +35,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
     formatTimestamp,
   } = useMessages();
 
+  const publicMessages = useMemo(() => messages.filter(message => message.visibility !== 'internal'), [messages]);
+
   const handleAddAttachments = useCallback(
     (items: ChatAttachment[]) => {
       items.forEach(attachment => addAttachment(attachment));
@@ -119,25 +121,25 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
 
   const filteredMessages = useMemo(() => {
     if (actorFilter === 'all') {
-      return messages;
+      return publicMessages;
     }
 
     if (actorFilter === 'user') {
-      return messages.filter(message => message.author === 'user');
+      return publicMessages.filter(message => message.author === 'user');
     }
 
     if (actorFilter === 'system') {
-      return messages.filter(message => message.author === 'system');
+      return publicMessages.filter(message => message.author === 'system');
     }
 
     if (actorFilter.startsWith('agent:')) {
       const targetId = actorFilter.slice('agent:'.length);
-      return messages.filter(message => message.agentId === targetId);
+      return publicMessages.filter(message => message.agentId === targetId);
     }
 
     if (actorFilter.startsWith('kind:')) {
       const kind = actorFilter.slice('kind:'.length) as AgentKind;
-      return messages.filter(message => {
+      return publicMessages.filter(message => {
         if (!message.agentId) {
           return false;
         }
@@ -146,8 +148,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
       });
     }
 
-    return messages;
-  }, [actorFilter, agentMap, messages]);
+    return publicMessages;
+  }, [actorFilter, agentMap, publicMessages]);
 
   return (
     <>

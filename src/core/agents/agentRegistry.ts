@@ -16,6 +16,8 @@ export interface AgentDefinition {
   active: boolean;
   status: AgentStatus;
   apiKey?: string;
+  role?: string;
+  objective?: string;
 }
 
 export const INITIAL_AGENTS: AgentDefinition[] = [

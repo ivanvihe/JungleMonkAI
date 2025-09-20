@@ -9,6 +9,7 @@ interface AgentContextValue {
   agentMap: Map<string, AgentDefinition>;
   toggleAgent: (agentId: string) => void;
   updateLocalAgentState: (agentId: string, status: AgentStatus, active?: boolean) => void;
+  assignAgentRole: (agentId: string, updates: { role?: string; objective?: string }) => void;
 }
 
 const AgentContext = createContext<AgentContextValue | undefined>(undefined);
@@ -96,6 +97,26 @@ export const AgentProvider: React.FC<AgentProviderProps> = ({ apiKeys, children 
     [],
   );
 
+  const assignAgentRole = useCallback((agentId: string, updates: { role?: string; objective?: string }) => {
+    setAgents(prev =>
+      prev.map(agent => {
+        if (agent.id !== agentId) {
+          return agent;
+        }
+
+        if (agent.role === updates.role && agent.objective === updates.objective) {
+          return agent;
+        }
+
+        return {
+          ...agent,
+          role: updates.role,
+          objective: updates.objective,
+        };
+      }),
+    );
+  }, []);
+
   const value = useMemo(() => {
     const activeAgents = agents.filter(agent => agent.active);
     const agentMap = new Map<string, AgentDefinition>();
@@ -107,8 +128,9 @@ export const AgentProvider: React.FC<AgentProviderProps> = ({ apiKeys, children 
       agentMap,
       toggleAgent,
       updateLocalAgentState,
+      assignAgentRole,
     };
-  }, [agents, toggleAgent, updateLocalAgentState]);
+  }, [agents, toggleAgent, updateLocalAgentState, assignAgentRole]);
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
 };

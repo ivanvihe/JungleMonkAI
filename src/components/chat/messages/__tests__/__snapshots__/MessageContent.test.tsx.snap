@@ -1,0 +1,67 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MessageContent > renders fenced code blocks with actions 1`] = `
+<div>
+  <p
+    class="message-card-content"
+  >
+    Respuesta:
+
+
+  </p>
+  <div
+    class="message-code-block"
+  >
+    <div
+      class="message-code-toolbar"
+    >
+      <span
+        class="message-code-language"
+      >
+        ts
+      </span>
+      <div
+        aria-label="Acciones del bloque de código"
+        class="message-actions"
+        role="group"
+      >
+        <button
+          class="message-action"
+          type="button"
+        >
+          Copiar
+        </button>
+        <button
+          class="message-action"
+          type="button"
+        >
+          Añadir al compositor
+        </button>
+      </div>
+    </div>
+    <pre>
+      <code>
+        const saludo: string = 'hola';
+console.log(saludo);
+      </code>
+    </pre>
+  </div>
+  <p
+    class="message-card-content"
+  >
+    
+
+Fin.
+  </p>
+</div>
+`;
+
+exports[`MessageContent > renders plain text segments 1`] = `
+<div>
+  <p
+    class="message-card-content"
+  >
+    Hola mundo
+  </p>
+</div>
+`;

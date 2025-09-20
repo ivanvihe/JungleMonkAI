@@ -430,7 +430,7 @@ export const PluginHostProvider: React.FC<PluginHostProviderProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [runtimePlugins, settings.pluginSettings, transport]);
+  }, [runtimePlugins, settings.pluginSettings, settings.enabledPlugins, settings.approvedManifests, transport]);
 
   const updatePluginSettings = useCallback(
     (pluginId: string, updater: (entry: PluginSettingsEntry | undefined) => PluginSettingsEntry) => {

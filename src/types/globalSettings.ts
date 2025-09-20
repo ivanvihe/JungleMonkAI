@@ -8,6 +8,23 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = ['openai', 'anthropic', 'gro
 
 export type ApiKeySettings = Record<string, string>;
 
+export type McpTransport = 'ws' | 'osc' | 'rest';
+
+export interface McpProfileEndpoint {
+  id: string;
+  transport: McpTransport;
+  url: string;
+}
+
+export interface McpProfile {
+  id: string;
+  label: string;
+  description?: string;
+  autoConnect: boolean;
+  token?: string;
+  endpoints: McpProfileEndpoint[];
+}
+
 export interface CommandPresetSettings {
   temperature?: number;
   maxTokens?: number;
@@ -52,6 +69,7 @@ export interface GlobalSettings {
   enabledPlugins: string[];
   approvedManifests: AgentManifestCache;
   pluginSettings: PluginSettingsMap;
+  mcpProfiles: McpProfile[];
   workspacePreferences: WorkspacePreferences;
 }
 

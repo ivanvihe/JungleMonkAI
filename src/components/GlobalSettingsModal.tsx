@@ -189,6 +189,7 @@ const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
               { id: 'fullscreen', label: 'Monitors', icon: '🖥️' },
               { id: 'visual', label: 'Visuals', icon: '🎨' },
               { id: 'system', label: 'System', icon: '🔧' },
+              { id: 'integrations', label: 'Integrations', icon: '🧠' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -258,6 +259,18 @@ const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
                 onQueryChange={onVideoQueryChange}
                 onClearCache={onVideoCacheClear}
               />
+            )}
+
+            {activeTab === 'integrations' && (
+              <div className="settings-section">
+                <h3>Plugins y perfiles MCP</h3>
+                <p>
+                  La gestión avanzada de integraciones vive en el panel «Ajustes globales de IA».
+                  Desde allí puedes habilitar plugins, configurar sus credenciales y crear perfiles MCP
+                  personalizados. Abre ese panel desde la barra lateral principal para acceder a todas
+                  las opciones.
+                </p>
+              </div>
             )}
 
             {activeTab === 'fullscreen' && (

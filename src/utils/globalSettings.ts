@@ -5,6 +5,8 @@ import {
   CommandPreset,
   DefaultRoutingRules,
   GlobalSettings,
+  McpProfile,
+  McpProfileEndpoint,
   PluginSettingsEntry,
   PluginSettingsMap,
   RoutingRule,
@@ -20,7 +22,7 @@ import type {
 } from '../types/agents';
 
 const STORAGE_KEY = 'global-settings';
-const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
 
@@ -115,6 +117,35 @@ const pluginSettingsEntrySchema: JSONSchemaType<PluginSettingsEntry> = {
   additionalProperties: false,
 };
 
+const mcpProfileEndpointSchema: JSONSchemaType<McpProfileEndpoint> = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    transport: { type: 'string', enum: ['ws', 'osc', 'rest'] },
+    url: { type: 'string' },
+  },
+  required: ['id', 'transport', 'url'],
+  additionalProperties: false,
+};
+
+const mcpProfileSchema: JSONSchemaType<McpProfile> = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    label: { type: 'string' },
+    description: { type: 'string', nullable: true },
+    autoConnect: { type: 'boolean' },
+    token: { type: 'string', nullable: true },
+    endpoints: {
+      type: 'array',
+      items: mcpProfileEndpointSchema,
+      minItems: 1,
+    },
+  },
+  required: ['id', 'label', 'autoConnect', 'endpoints'],
+  additionalProperties: false,
+};
+
 const sidePanelPreferencesSchema: JSONSchemaType<SidePanelPreferences> = {
   type: 'object',
   properties: {
@@ -199,6 +230,10 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
       required: [],
       additionalProperties: pluginSettingsEntrySchema,
     } as unknown as JSONSchemaType<PluginSettingsMap>,
+    mcpProfiles: {
+      type: 'array',
+      items: mcpProfileSchema,
+    },
     workspacePreferences: workspacePreferencesSchema,
   },
   required: [
@@ -209,6 +244,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     'enabledPlugins',
     'approvedManifests',
     'pluginSettings',
+    'mcpProfiles',
     'workspacePreferences',
   ],
   additionalProperties: false,
@@ -511,6 +547,108 @@ const normalizePluginSettings = (
   return normalized;
 };
 
+const normalizeMcpProfileEndpoints = (
+  input: unknown,
+  profileId: string,
+): McpProfileEndpoint[] => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+
+  return input.reduce<McpProfileEndpoint[]>((acc, entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      return acc;
+    }
+
+    const candidate = entry as Partial<McpProfileEndpoint> & { url?: string; transport?: string };
+    const url = typeof candidate.url === 'string' ? candidate.url.trim() : '';
+    if (!url) {
+      return acc;
+    }
+
+    const transport = candidate.transport === 'osc' || candidate.transport === 'rest' ? candidate.transport : 'ws';
+
+    let endpointId = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+    if (!endpointId) {
+      endpointId = `${profileId}-endpoint-${index}`;
+    }
+
+    let uniqueId = endpointId;
+    let counter = 1;
+    while (seen.has(uniqueId)) {
+      uniqueId = `${endpointId}-${counter}`;
+      counter += 1;
+    }
+
+    seen.add(uniqueId);
+
+    acc.push({
+      id: uniqueId,
+      transport,
+      url,
+    });
+
+    return acc;
+  }, []);
+};
+
+const normalizeMcpProfiles = (input: McpProfile[] | undefined): McpProfile[] => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+
+  return input.reduce<McpProfile[]>((acc, entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      return acc;
+    }
+
+    let id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    if (!id) {
+      id = `mcp-profile-${index}`;
+    }
+
+    let uniqueId = id;
+    let counter = 1;
+    while (seen.has(uniqueId)) {
+      uniqueId = `${id}-${counter}`;
+      counter += 1;
+    }
+
+    const endpoints = normalizeMcpProfileEndpoints(entry.endpoints, uniqueId);
+    if (!endpoints.length) {
+      return acc;
+    }
+
+    const label =
+      typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : uniqueId;
+
+    const description =
+      typeof entry.description === 'string' && entry.description.trim()
+        ? entry.description.trim()
+        : undefined;
+
+    const token =
+      typeof entry.token === 'string' && entry.token.trim() ? entry.token.trim() : undefined;
+
+    const autoConnect = typeof entry.autoConnect === 'boolean' ? entry.autoConnect : false;
+
+    seen.add(uniqueId);
+    acc.push({
+      id: uniqueId,
+      label,
+      description,
+      autoConnect,
+      token,
+      endpoints,
+    });
+    return acc;
+  }, []);
+};
+
 const mergeEnabledPluginList = (
   enabled: string[],
   pluginSettings: PluginSettingsMap,
@@ -560,6 +698,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   enabledPlugins: [],
   approvedManifests: {},
   pluginSettings: {},
+  mcpProfiles: [],
   workspacePreferences: {
     sidePanel: {
       position: 'right',
@@ -590,6 +729,7 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     enabledPlugins,
     approvedManifests: normalizeApprovedManifests(raw?.approvedManifests as AgentManifestCache),
     pluginSettings,
+    mcpProfiles: normalizeMcpProfiles(raw?.mcpProfiles as McpProfile[]),
     workspacePreferences: normalizeWorkspacePreferences(
       raw?.workspacePreferences as WorkspacePreferences,
     ),
@@ -661,6 +801,7 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       commandPresets: normalizeCommandPresets(settings.commandPresets),
       defaultRoutingRules: normalizeRoutingRules(settings.defaultRoutingRules),
       pluginSettings: normalizePluginSettings(settings.pluginSettings),
+      mcpProfiles: normalizeMcpProfiles(settings.mcpProfiles),
       enabledPlugins: mergeEnabledPluginList(
         normalizeEnabledPlugins(settings.enabledPlugins),
         normalizePluginSettings(settings.pluginSettings),
@@ -676,3 +817,12 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
 
 export const getSupportedProviders = (): SupportedProvider[] =>
   getAllSupportedProviders() as SupportedProvider[];
+
+export type { PersistedSettings as PersistedGlobalSettings };
+
+export const validateGlobalSettingsPayload = (payload: unknown): payload is GlobalSettings =>
+  validateGlobalSettings(payload as GlobalSettings);
+
+export const migratePersistedGlobalSettings = (
+  raw: PersistedSettings | undefined,
+): GlobalSettings => migrateSettings(raw);

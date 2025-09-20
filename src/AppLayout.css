@@ -1,3 +1,10 @@
+:root {
+  --chat-density-spacing-standard: 20px;
+  --chat-density-spacing-compact: 12px;
+  --chat-density-panel-padding-standard: 24px;
+  --chat-density-panel-padding-compact: 16px;
+}
+
 .app-container {
   position: relative;
   width: 100vw;

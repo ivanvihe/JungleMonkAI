@@ -61,4 +61,25 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   modalities?: ChatModality[];
   transcriptions?: ChatTranscription[];
+  feedback?: MessageFeedback;
+  correctionId?: string;
+}
+
+export interface MessageFeedback {
+  hasError?: boolean;
+  notes?: string;
+  tags?: string[];
+  lastUpdatedAt?: string;
+}
+
+export interface MessageCorrection {
+  id: string;
+  messageId: string;
+  agentId?: string;
+  reviewerId?: string;
+  createdAt: string;
+  updatedAt: string;
+  correctedText: string;
+  notes?: string;
+  tags?: string[];
 }

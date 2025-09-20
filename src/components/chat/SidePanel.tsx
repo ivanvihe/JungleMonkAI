@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { AgentPresenceEntry } from '../../core/agents/presence';
 import { useMessages } from '../../core/messages/MessageContext';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { ModelGallery } from '../models/ModelGallery';
 import { AgentPresenceList } from '../agents/AgentPresenceList';
+import { ChatMessage } from '../../core/messages/messageTypes';
+import { QualityDashboard } from '../quality/QualityDashboard';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
@@ -20,11 +22,79 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   onRefreshAgentPresence,
 }) => {
   const { agents, agentMap, toggleAgent } = useAgents();
-  const { quickCommands, appendToDraft, agentResponses, formatTimestamp } = useMessages();
+  const {
+    quickCommands,
+    appendToDraft,
+    agentResponses,
+    formatTimestamp,
+    toPlainText,
+    feedbackByMessage,
+    markMessageFeedback,
+    submitCorrection,
+  } = useMessages();
 
   const recentActivity = useMemo(
     () => agentResponses.slice(-6).reverse().map(message => ({ message, agent: message.agentId ? agentMap.get(message.agentId) : undefined })),
     [agentMap, agentResponses],
+  );
+
+  const handleMarkIncorrect = useCallback(
+    (message: ChatMessage) => {
+      const currentFeedback = feedbackByMessage[message.id];
+
+      if (currentFeedback?.hasError) {
+        const shouldClear = window.confirm('La respuesta ya está marcada como incorrecta. ¿Quieres retirar la marca?');
+        if (shouldClear) {
+          markMessageFeedback(message.id, { hasError: false });
+        }
+        return;
+      }
+
+      const reason = window.prompt('Describe el problema detectado en la respuesta', currentFeedback?.notes ?? '');
+      if (reason === null) {
+        return;
+      }
+
+      const tagsInput = window.prompt(
+        'Asigna etiquetas de seguimiento (separadas por comas)',
+        currentFeedback?.tags?.join(', ') ?? '',
+      );
+      const tags = tagsInput !== null ? tagsInput.split(',').map(tag => tag.trim()).filter(Boolean) : currentFeedback?.tags;
+
+      markMessageFeedback(message.id, {
+        hasError: true,
+        notes: reason.trim() ? reason.trim() : undefined,
+        tags,
+      });
+    },
+    [feedbackByMessage, markMessageFeedback],
+  );
+
+  const handleEditAndResend = useCallback(
+    (message: ChatMessage) => {
+      const plain = toPlainText(message.content);
+      const proposal = window.prompt('Edita la respuesta antes de reenviarla al agente o revisor', plain);
+      if (proposal === null) {
+        return;
+      }
+
+      const trimmedProposal = proposal.trim();
+      if (!trimmedProposal) {
+        alert('La corrección no puede estar vacía.');
+        return;
+      }
+
+      const currentFeedback = feedbackByMessage[message.id];
+      const notes = window.prompt('Notas adicionales para contextualizar la corrección', currentFeedback?.notes ?? '') ?? '';
+      const tagsInput = window.prompt(
+        'Etiquetas asociadas (separadas por comas)',
+        currentFeedback?.tags?.join(', ') ?? '',
+      );
+      const tags = tagsInput ? tagsInput.split(',').map(tag => tag.trim()).filter(Boolean) : currentFeedback?.tags;
+
+      void submitCorrection(message.id, trimmedProposal, notes.trim() ? notes.trim() : undefined, tags);
+    },
+    [feedbackByMessage, submitCorrection, toPlainText],
   );
 
   return (
@@ -90,6 +160,8 @@ export const SidePanel: React.FC<SidePanelProps> = ({
           <ModelGallery />
         </section>
 
+        <QualityDashboard />
+
         <section className="panel-section">
           <header className="panel-section-header">
             <h2>Comandos frecuentes</h2>
@@ -136,8 +208,22 @@ export const SidePanel: React.FC<SidePanelProps> = ({
                     <div className="activity-title">
                       <strong>{agent.name}</strong>
                       <span>{formatTimestamp(message.timestamp)}</span>
+                      {feedbackByMessage[message.id]?.hasError && (
+                        <span className="activity-flag">Revisión pendiente</span>
+                      )}
                     </div>
                     <p>{preview}</p>
+                    {feedbackByMessage[message.id]?.notes && (
+                      <p className="activity-note">{feedbackByMessage[message.id]?.notes}</p>
+                    )}
+                    <div className="activity-actions">
+                      <button type="button" className="activity-action" onClick={() => handleMarkIncorrect(message)}>
+                        {feedbackByMessage[message.id]?.hasError ? 'Desmarcar error' : 'Marcar como incorrecto'}
+                      </button>
+                      <button type="button" className="activity-action" onClick={() => handleEditAndResend(message)}>
+                        Editar y reenviar
+                      </button>
+                    </div>
                   </div>
                 </li>
               );

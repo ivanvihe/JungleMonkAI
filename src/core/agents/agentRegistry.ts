@@ -74,6 +74,17 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     active: false,
     status: 'Cargando',
   },
+  {
+    id: 'openai-quality-review',
+    model: 'gpt-4o-mini',
+    name: 'Quality Reviewer',
+    provider: 'OpenAI',
+    description: 'Agente dedicado a auditar correcciones y validar respuestas revisadas.',
+    kind: 'cloud',
+    accent: '#FF4F81',
+    active: false,
+    status: 'Disponible',
+  },
 ];
 
 export const syncAgentWithApiKeys = (

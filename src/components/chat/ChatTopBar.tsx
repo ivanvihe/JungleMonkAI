@@ -18,6 +18,7 @@ interface ChatTopBarProps {
   onOpenGlobalSettings: () => void;
   onOpenPlugins: () => void;
   onOpenMcp: () => void;
+  onOpenModelManager: () => void;
   activeView: 'chat' | 'repo';
   onChangeView: (view: 'chat' | 'repo') => void;
 }
@@ -60,6 +61,7 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   onOpenGlobalSettings,
   onOpenPlugins,
   onOpenMcp,
+  onOpenModelManager,
   activeView,
   onChangeView,
 }) => {
@@ -186,6 +188,14 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
             aria-label="Ver estadísticas de la conversación"
           >
             📊
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onOpenModelManager}
+            aria-label="Abrir gestor de modelos"
+          >
+            💾
           </button>
         </div>
 

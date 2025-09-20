@@ -41,6 +41,11 @@ interface UseLocalModelsResult {
 
 const isTauri = () => typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
 
+export interface UseLocalModelsOptions {
+  storageDir?: string | null;
+  syncToken?: number;
+}
+
 const statusToAgentStatus = (status: LocalModelStatus, active: boolean): 'Disponible' | 'Inactivo' | 'Cargando' => {
   if (status === 'downloading') {
     return 'Cargando';
@@ -51,7 +56,9 @@ const statusToAgentStatus = (status: LocalModelStatus, active: boolean): 'Dispon
   return 'Inactivo';
 };
 
-export const useLocalModels = (): UseLocalModelsResult => {
+export const useLocalModels = (
+  { storageDir = null, syncToken }: UseLocalModelsOptions = {},
+): UseLocalModelsResult => {
   const { agents, updateLocalAgentState } = useAgents();
   const [rawModels, setRawModels] = useState<LocalModel[]>([]);
   const [progressMap, setProgressMap] = useState<Record<string, number>>({});
@@ -102,7 +109,11 @@ export const useLocalModels = (): UseLocalModelsResult => {
     setError(null);
     try {
       const { invoke } = await import('@tauri-apps/api/tauri');
-      const result = await invoke<BackendModelSummary[]>('list_models');
+      const args: Record<string, unknown> = {};
+      if (storageDir) {
+        args.storageDir = storageDir;
+      }
+      const result = await invoke<BackendModelSummary[]>('list_models', args);
       setRawModels(
         result.map(model => ({
           id: model.id,
@@ -123,7 +134,7 @@ export const useLocalModels = (): UseLocalModelsResult => {
     } finally {
       setIsLoading(false);
     }
-  }, [agents]);
+  }, [agents, storageDir]);
 
   const download = useCallback(
     async (modelId: string) => {
@@ -146,13 +157,17 @@ export const useLocalModels = (): UseLocalModelsResult => {
               : model,
           ),
         );
-        await invoke('download_model', { modelId });
+        const args: Record<string, unknown> = { modelId };
+        if (storageDir) {
+          args.storageDir = storageDir;
+        }
+        await invoke('download_model', args);
       } catch (err) {
         console.error('Error downloading model', err);
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [],
+    [storageDir],
   );
 
   const activate = useCallback(
@@ -171,14 +186,18 @@ export const useLocalModels = (): UseLocalModelsResult => {
       try {
         setError(null);
         const { invoke } = await import('@tauri-apps/api/tauri');
-        await invoke('activate_model', { modelId });
+        const args: Record<string, unknown> = { modelId };
+        if (storageDir) {
+          args.storageDir = storageDir;
+        }
+        await invoke('activate_model', args);
         await refresh();
       } catch (err) {
         console.error('Error activating model', err);
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [refresh, updateLocalAgentState],
+    [refresh, storageDir, updateLocalAgentState],
   );
 
   useEffect(() => {
@@ -230,7 +249,7 @@ export const useLocalModels = (): UseLocalModelsResult => {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, syncToken]);
 
   return {
     models,

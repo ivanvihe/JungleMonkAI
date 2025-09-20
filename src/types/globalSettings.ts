@@ -86,6 +86,17 @@ export interface DataLocationSettings {
   lastMigrationAt?: string;
 }
 
+export interface HuggingFacePreferences {
+  apiBaseUrl: string;
+  maxResults: number;
+  useStoredToken: boolean;
+}
+
+export interface ModelPreferences {
+  storageDir: string | null;
+  huggingFace: HuggingFacePreferences;
+}
+
 export interface GlobalSettings {
   version: number;
   apiKeys: ApiKeySettings;
@@ -97,6 +108,7 @@ export interface GlobalSettings {
   mcpProfiles: McpProfile[];
   workspacePreferences: WorkspacePreferences;
   dataLocation: DataLocationSettings;
+  modelPreferences: ModelPreferences;
   projectProfiles: ProjectProfile[];
   activeProjectId: string | null;
   githubDefaultOwner?: string;

@@ -189,6 +189,7 @@ describe('Gestión de proyectos y modelos', () => {
           onOpenGlobalSettings={vi.fn()}
           onOpenPlugins={vi.fn()}
           onOpenMcp={vi.fn()}
+          onOpenModelManager={vi.fn()}
           activeView="chat"
           onChangeView={vi.fn()}
         />

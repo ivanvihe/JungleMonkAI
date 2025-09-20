@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiKeySettings, GlobalSettings } from '../../types/globalSettings';
 import { providerSecretExists, storeProviderSecret } from '../../utils/secrets';
-import { ModelGallery } from '../models/ModelGallery';
 import { OverlayModal } from '../common/OverlayModal';
 import './GlobalSettingsDialog.css';
 
@@ -33,6 +32,7 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
   const [githubStored, setGithubStored] = useState(false);
   const [gitlabStored, setGitlabStored] = useState(false);
+  const [huggingFaceStored, setHuggingFaceStored] = useState(false);
   const [githubInput, setGithubInput] = useState('');
   const [gitlabInput, setGitlabInput] = useState('');
   const [secretError, setSecretError] = useState<string | null>(null);
@@ -56,6 +56,13 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
         setGitlabStored(storedGitlab);
       } catch {
         setGitlabStored(false);
+      }
+
+      try {
+        const storedHuggingFace = await providerSecretExists('huggingface');
+        setHuggingFaceStored(storedHuggingFace);
+      } catch {
+        setHuggingFaceStored(false);
       }
     };
 
@@ -101,6 +108,96 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
     [onSettingsChange],
   );
 
+  const updateModelPreferences = useCallback(
+    (
+      updater: (
+        previous: GlobalSettings['modelPreferences'],
+      ) => GlobalSettings['modelPreferences'],
+    ) => {
+      onSettingsChange(prev => ({
+        ...prev,
+        modelPreferences: updater(prev.modelPreferences),
+      }));
+    },
+    [onSettingsChange],
+  );
+
+  const handleModelStorageDirChange = useCallback(
+    (value: string | null) => {
+      updateModelPreferences(prev => ({
+        ...prev,
+        storageDir: value && value.trim() ? value.trim() : null,
+      }));
+    },
+    [updateModelPreferences],
+  );
+
+  const handleModelStorageBrowse = useCallback(async () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const { open } = await import('@tauri-apps/api/dialog');
+      const selection = await open({ directory: true, multiple: false });
+      if (typeof selection === 'string' && selection.trim()) {
+        handleModelStorageDirChange(selection);
+        return;
+      }
+    } catch (error) {
+      console.warn('No se pudo abrir el selector de carpetas', error);
+    }
+
+    const fallback = window.prompt(
+      'Selecciona la carpeta de almacenamiento para modelos locales',
+      settings.modelPreferences.storageDir ?? '',
+    );
+    if (typeof fallback === 'string') {
+      handleModelStorageDirChange(fallback);
+    }
+  }, [handleModelStorageDirChange, settings.modelPreferences.storageDir]);
+
+  const handleHuggingFaceApiBaseChange = useCallback(
+    (value: string) => {
+      updateModelPreferences(prev => ({
+        ...prev,
+        huggingFace: {
+          ...prev.huggingFace,
+          apiBaseUrl: value.trim(),
+        },
+      }));
+    },
+    [updateModelPreferences],
+  );
+
+  const handleHuggingFaceMaxResultsChange = useCallback(
+    (value: number) => {
+      updateModelPreferences(prev => ({
+        ...prev,
+        huggingFace: {
+          ...prev.huggingFace,
+          maxResults: Number.isFinite(value)
+            ? Math.min(200, Math.max(10, Math.round(value)))
+            : prev.huggingFace.maxResults,
+        },
+      }));
+    },
+    [updateModelPreferences],
+  );
+
+  const handleUseStoredTokenChange = useCallback(
+    (value: boolean) => {
+      updateModelPreferences(prev => ({
+        ...prev,
+        huggingFace: {
+          ...prev.huggingFace,
+          useStoredToken: value && huggingFaceStored ? value : false,
+        },
+      }));
+    },
+    [huggingFaceStored, updateModelPreferences],
+  );
+
   useEffect(() => {
     const currentDefault = settings.githubDefaultOwner ?? '';
     const previousDefault = previousGithubOwnerRef.current;
@@ -117,6 +214,12 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
       }));
     }
   }, [onSettingsChange, settings.githubDefaultOwner]);
+
+  useEffect(() => {
+    if (!huggingFaceStored && settings.modelPreferences.huggingFace.useStoredToken) {
+      handleUseStoredTokenChange(false);
+    }
+  }, [handleUseStoredTokenChange, huggingFaceStored, settings.modelPreferences.huggingFace.useStoredToken]);
 
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
 
@@ -146,6 +249,10 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
       : 'Usando la ruta predeterminada del sistema';
   }, [settings]);
 
+  const modelStorageDir = settings.modelPreferences.storageDir ?? '';
+  const huggingFacePrefs = settings.modelPreferences.huggingFace;
+  const huggingFaceTokenStatus = huggingFaceStored ? 'Token almacenado disponible' : 'Token no encontrado';
+
   return (
     <OverlayModal title="Ajustes globales" isOpen={isOpen} onClose={onClose} width={880}>
       <div className="global-settings-dialog">
@@ -162,7 +269,7 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
             className={activeTab === 'models' ? 'is-active' : ''}
             onClick={() => setActiveTab('models')}
           >
-            💾 Modelos locales
+            💾 Preferencias de modelos
           </button>
           <button
             type="button"
@@ -255,9 +362,84 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
 
           {activeTab === 'models' && (
             <div className="settings-section">
-              <h3>Modelos locales</h3>
-              <p>Descarga y activa modelos compatibles con la orquestación local.</p>
-              <ModelGallery />
+              <h3>Preferencias de modelos</h3>
+              <p>Ajusta el directorio local y la conexión con la galería de Hugging Face.</p>
+
+              <div className="model-preferences">
+                <div className="model-preferences__field">
+                  <label htmlFor="model-storage-dir">Directorio de modelos locales</label>
+                  <div className="model-preferences__input-row">
+                    <input
+                      id="model-storage-dir"
+                      type="text"
+                      value={modelStorageDir}
+                      placeholder="Usar directorio predeterminado"
+                      onChange={event => handleModelStorageDirChange(event.target.value)}
+                    />
+                    <button type="button" onClick={() => void handleModelStorageBrowse()}>
+                      Seleccionar…
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleModelStorageDirChange(null)}
+                      disabled={!modelStorageDir}
+                    >
+                      Restablecer
+                    </button>
+                  </div>
+                  <p className="model-preferences__hint">
+                    El gestor de modelos utilizará esta carpeta para guardar descargas locales.
+                  </p>
+                </div>
+
+                <div className="model-preferences__field">
+                  <label htmlFor="huggingface-api-base">URL base de la API de Hugging Face</label>
+                  <input
+                    id="huggingface-api-base"
+                    type="url"
+                    value={huggingFacePrefs.apiBaseUrl}
+                    onChange={event => handleHuggingFaceApiBaseChange(event.target.value)}
+                    placeholder="https://huggingface.co"
+                  />
+                </div>
+
+                <div className="model-preferences__field model-preferences__field--compact">
+                  <label htmlFor="huggingface-max-results">Máximo de resultados por búsqueda</label>
+                  <input
+                    id="huggingface-max-results"
+                    type="number"
+                    min={10}
+                    max={200}
+                    value={huggingFacePrefs.maxResults}
+                    onChange={event => handleHuggingFaceMaxResultsChange(Number(event.target.value))}
+                  />
+                  <p className="model-preferences__hint">
+                    Limita el tamaño de página utilizado en la galería para optimizar las peticiones.
+                  </p>
+                </div>
+
+                <div className="model-preferences__field model-preferences__token">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={huggingFacePrefs.useStoredToken && huggingFaceStored}
+                      onChange={event => handleUseStoredTokenChange(event.target.checked)}
+                      disabled={!huggingFaceStored}
+                    />
+                    <span>Usar token almacenado de Hugging Face</span>
+                  </label>
+                  <span
+                    className={`model-preferences__token-status ${huggingFaceStored ? 'is-available' : 'is-missing'}`}
+                  >
+                    {huggingFaceTokenStatus}
+                  </span>
+                  {!huggingFaceStored && (
+                    <p className="model-preferences__hint">
+                      Guarda tu token de Hugging Face en la pestaña de proveedores para activar esta opción.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

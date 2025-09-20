@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
@@ -25,6 +25,7 @@ import { OverlayModal } from './components/common/OverlayModal';
 import { PluginSummary } from './components/settings/PluginSummary';
 import { McpSummary } from './components/settings/McpSummary';
 import { ProjectProvider } from './core/projects/ProjectContext';
+import { ModelManagerModal } from './components/models/ModelManagerModal';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -48,6 +49,20 @@ const AppContent: React.FC<AppContentProps> = ({
   const [isPluginsOpen, setPluginsOpen] = useState(false);
   const [isMcpOpen, setMcpOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
+  const [isModelManagerOpen, setModelManagerOpen] = useState(false);
+
+  const handleModelStorageDirChange = useCallback(
+    (nextPath: string | null) => {
+      onSettingsChange(prev => ({
+        ...prev,
+        modelPreferences: {
+          ...prev.modelPreferences,
+          storageDir: nextPath,
+        },
+      }));
+    },
+    [onSettingsChange],
+  );
 
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
 
@@ -66,6 +81,7 @@ const AppContent: React.FC<AppContentProps> = ({
         onOpenGlobalSettings={() => setSettingsOpen(true)}
         onOpenPlugins={() => setPluginsOpen(true)}
         onOpenMcp={() => setMcpOpen(true)}
+        onOpenModelManager={() => setModelManagerOpen(true)}
         activeView={activeView}
         onChangeView={setActiveView}
       />
@@ -103,6 +119,14 @@ const AppContent: React.FC<AppContentProps> = ({
         apiKeys={apiKeys}
         onApiKeyChange={onApiKeyChange}
         onSettingsChange={onSettingsChange}
+      />
+
+      <ModelManagerModal
+        isOpen={isModelManagerOpen}
+        onClose={() => setModelManagerOpen(false)}
+        storageDir={settings.modelPreferences.storageDir}
+        huggingFacePreferences={settings.modelPreferences.huggingFace}
+        onStorageDirChange={handleModelStorageDirChange}
       />
 
       <OverlayModal

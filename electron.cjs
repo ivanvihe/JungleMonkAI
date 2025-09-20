@@ -3,6 +3,114 @@ const fs = require('fs');
 const path = require('path');
 const { PluginManager } = require('./plugin-manager.cjs');
 
+const PROVIDER_CONFIG = {
+  groq: {
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    displayName: 'Groq',
+    headers: apiKey => ({
+      Authorization: `Bearer ${apiKey}`
+    })
+  },
+  anthropic: {
+    endpoint: 'https://api.anthropic.com/v1/messages',
+    displayName: 'Anthropic',
+    headers: apiKey => ({
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    })
+  }
+};
+
+const extractProviderErrorMessage = payload => {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  if (typeof payload.error === 'string') {
+    return payload.error;
+  }
+
+  if (payload.error && typeof payload.error === 'object') {
+    if (typeof payload.error.message === 'string') {
+      return payload.error.message;
+    }
+    if (typeof payload.error.error === 'string') {
+      return payload.error.error;
+    }
+  }
+
+  if (typeof payload.message === 'string') {
+    return payload.message;
+  }
+
+  return undefined;
+};
+
+const performProviderChatRequest = async (providerId, request = {}) => {
+  const providerKey = typeof providerId === 'string' ? providerId.toLowerCase() : '';
+  const config = PROVIDER_CONFIG[providerKey];
+
+  if (!config) {
+    throw new Error(`Proveedor no soportado: ${providerId}`);
+  }
+
+  const apiKey = typeof request.apiKey === 'string' ? request.apiKey.trim() : '';
+  if (!apiKey) {
+    throw new Error(`Falta la API key para ${config.displayName}.`);
+  }
+
+  const body = request.body ?? {};
+
+  if (typeof fetch !== 'function') {
+    throw new Error('fetch no está disponible en el proceso principal de Electron.');
+  }
+
+  let response;
+  try {
+    response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...config.headers(apiKey)
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    const reason = error && typeof error === 'object' && 'message' in error ? error.message : String(error);
+    throw new Error(`No se pudo contactar a ${config.displayName}: ${reason}`);
+  }
+
+  const rawText = await response.text();
+  let payload;
+
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText);
+    } catch (error) {
+      if (!response.ok) {
+        const trimmed = rawText.trim();
+        if (trimmed) {
+          throw new Error(trimmed);
+        }
+      }
+      throw new Error(`Respuesta inválida de ${config.displayName}.`);
+    }
+  } else {
+    payload = {};
+  }
+
+  if (!response.ok) {
+    const message = extractProviderErrorMessage(payload);
+    if (message) {
+      throw new Error(message);
+    }
+
+    throw new Error(`Solicitud falló con estado ${response.status}`);
+  }
+
+  return payload;
+};
+
 let mainWindow;
 // Ventanas usadas para monitores secundarios en fullscreen
 let fullscreenWindows = [];
@@ -235,6 +343,18 @@ ipcMain.handle('toggle-fullscreen', (event, ids = []) => {
 });
 
 const net = require('net');
+
+ipcMain.handle('providers:chat', async (event, provider, payload) => {
+  try {
+    return await performProviderChatRequest(provider, payload);
+  } catch (error) {
+    const message = error && typeof error === 'object' && 'message' in error
+      ? error.message
+      : String(error);
+    console.error(`No se pudo completar la solicitud para ${provider}:`, message);
+    throw error instanceof Error ? error : new Error(message);
+  }
+});
 
 ipcMain.handle('plugin:list', async () => {
   const manager = await ensurePluginManager();

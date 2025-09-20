@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { open as openDialog } from '@tauri-apps/api/dialog';
+import { join } from '@tauri-apps/api/path';
 import {
   CodexEngine,
   CodexPlan,
@@ -9,6 +11,10 @@ import {
   useRepoWorkflow,
 } from '../../core/codex';
 import { useProjects } from '../../core/projects/ProjectContext';
+import { isTauriEnvironment } from '../../core/storage/userDataPathsClient';
+import { ProjectBindingPanel } from './ProjectBindingPanel';
+import { useGithubRepos } from '../../hooks/useGithubRepos';
+import type { GithubRepoSummary } from '../../hooks/useGithubRepos';
 import './RepoStudio.css';
 
 type RepoEntryKind = 'file' | 'directory';
@@ -33,6 +39,40 @@ interface CommitResult {
   message: string;
   id?: string;
 }
+
+interface RepoContextSummary {
+  branch?: string | null;
+  last_commit?: {
+    id: string;
+    message?: string | null;
+    author?: string | null;
+    time?: number | null;
+  } | null;
+  remote?: {
+    name: string;
+    url?: string | null;
+    branch?: string | null;
+  } | null;
+}
+
+const parseGithubRemote = (
+  url: string,
+): { owner?: string; name?: string; webUrl?: string } => {
+  const normalized = url.replace(/\.git$/i, '');
+  const sshMatch = normalized.match(/github\.com[:/](.+)$/i);
+  if (!sshMatch || !sshMatch[1]) {
+    return {};
+  }
+  const [owner, name] = sshMatch[1].split('/');
+  if (!owner || !name) {
+    return {};
+  }
+  return {
+    owner,
+    name,
+    webUrl: `https://github.com/${owner}/${name}`,
+  };
+};
 
 const engine = new CodexEngine({ defaultDryRun: true });
 
@@ -70,11 +110,25 @@ export const RepoStudio: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [patchContent, setPatchContent] = useState<string>('');
   const [patchDryRun, setPatchDryRun] = useState<boolean>(true);
+  const [repoContext, setRepoContext] = useState<RepoContextSummary | null>(null);
+  const [isContextLoading, setIsContextLoading] = useState<boolean>(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [cloneMessage, setCloneMessage] = useState<string | null>(null);
   const { pendingRequest, clearPendingRequest } = useRepoWorkflow();
   const [activeWorkflow, setActiveWorkflow] = useState<RepoWorkflowRequest | null>(null);
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [autoPrTriggered, setAutoPrTriggered] = useState<boolean>(false);
-  const { activeProject } = useProjects();
+  const { activeProject, upsertProject, selectProject } = useProjects();
+  const isDesktop = useMemo(() => isTauriEnvironment(), []);
+  const {
+    repos: remoteRepos,
+    isLoading: isRemoteLoading,
+    error: remoteError,
+    ownerFilter,
+    setOwnerFilter,
+    refresh: refreshRemoteRepos,
+    isSupported: remoteSupported,
+  } = useGithubRepos(activeProject?.gitOwner);
   const lastProjectIdRef = useRef<string | null>(null);
 
   const planReady = execution?.readyToExecute ?? false;
@@ -82,6 +136,33 @@ export const RepoStudio: React.FC = () => {
   const updateExecution = useCallback((currentPlan: CodexPlan | null, currentReviews: CodexReview[]) => {
     setExecution(ensurePlanApproval(currentPlan, currentReviews));
   }, []);
+
+  const remoteInfo = useMemo(() => {
+    const remoteUrl = repoContext?.remote?.url;
+    if (remoteUrl) {
+      return parseGithubRemote(remoteUrl);
+    }
+    if (prOwner && prRepository) {
+      return {
+        owner: prOwner,
+        name: prRepository,
+        webUrl: `https://github.com/${prOwner}/${prRepository}`,
+      };
+    }
+    return {};
+  }, [repoContext?.remote?.url, prOwner, prRepository]);
+
+  const lastCommitTimeLabel = useMemo(() => {
+    const timestamp = repoContext?.last_commit?.time;
+    if (!timestamp) {
+      return null;
+    }
+    try {
+      return new Date(timestamp * 1000).toLocaleString();
+    } catch {
+      return null;
+    }
+  }, [repoContext?.last_commit?.time]);
 
   useEffect(() => {
     const nextProjectId = activeProject?.id ?? null;
@@ -110,7 +191,20 @@ export const RepoStudio: React.FC = () => {
     const provider = activeProject.gitProvider === 'gitlab' ? 'gitlab' : 'github';
     setPrProvider(provider);
     setPushProvider(provider);
+    if (remoteSupported) {
+      void refreshRemoteRepos({ owner: activeProject.gitOwner ?? undefined });
+    }
   }, [activeProject]);
+
+  useEffect(() => {
+    if (!remoteSupported) {
+      return;
+    }
+    if (!activeProject?.gitOwner) {
+      return;
+    }
+    void refreshRemoteRepos({ owner: activeProject.gitOwner });
+  }, [activeProject?.gitOwner, refreshRemoteRepos, remoteSupported]);
 
   useEffect(() => {
     if (!pendingRequest) {
@@ -142,6 +236,7 @@ export const RepoStudio: React.FC = () => {
         repoPath,
       });
       setEntries(result);
+      void refreshContext();
     } catch (err) {
       setError((err as Error).message ?? 'No se pudieron listar los archivos');
     } finally {
@@ -155,12 +250,36 @@ export const RepoStudio: React.FC = () => {
     try {
       const result = await invoke<RepoStatus>('git_repository_status', { repoPath });
       setStatusEntries(result.entries);
+      void refreshContext();
     } catch (err) {
       setError((err as Error).message ?? 'No se pudo obtener el estado del repositorio');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const refreshContext = useCallback(async () => {
+    if (!repoPath) {
+      return;
+    }
+    setIsContextLoading(true);
+    setContextError(null);
+    try {
+      const context = await invoke<RepoContextSummary>('git_get_repository_context', { repoPath });
+      setRepoContext(context);
+    } catch (err) {
+      setContextError(
+        (err as Error).message ?? 'No se pudo obtener el contexto del repositorio.',
+      );
+      setRepoContext(null);
+    } finally {
+      setIsContextLoading(false);
+    }
+  }, [repoPath]);
+
+  useEffect(() => {
+    void refreshContext();
+  }, [refreshContext]);
 
   const previewDiff = async (entry: RepoEntry) => {
     if (entry.kind !== 'file') {
@@ -269,6 +388,7 @@ export const RepoStudio: React.FC = () => {
         },
       });
       setMessages(prev => [{ message: `Commit ${commitId} creado correctamente.`, id: commitId }, ...prev]);
+      await refreshContext();
     } catch (err) {
       setError((err as Error).message ?? 'Error al crear el commit');
     } finally {
@@ -294,12 +414,106 @@ export const RepoStudio: React.FC = () => {
         },
       });
       setMessages(prev => [{ message: `Push enviado a ${remoteName}/${remoteBranch || '(por defecto)'}` }, ...prev]);
+      await refreshContext();
     } catch (err) {
       setError((err as Error).message ?? 'No se pudo enviar el push');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const runPull = async () => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const result = await invoke<string>('git_pull_changes', {
+        repoPath,
+        remote: repoContext?.remote?.name || remoteName || undefined,
+        branch: repoContext?.remote?.branch || repoContext?.branch || remoteBranch || undefined,
+      });
+      const label = result?.trim() ? result.trim() : 'Pull ejecutado correctamente.';
+      setMessages(prev => [{ message: label }, ...prev]);
+      await fetchStatus();
+      await refreshContext();
+    } catch (err) {
+      setError((err as Error).message ?? 'No se pudo ejecutar git pull');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLinkRemote = useCallback(
+    async (repo: GithubRepoSummary) => {
+      if (!isDesktop) {
+        setError('La vinculación remota solo está disponible en la aplicación de escritorio.');
+        return;
+      }
+
+      const cloneUrl = repo.clone_url ?? repo.ssh_url;
+      if (!cloneUrl) {
+        setError('El repositorio remoto no expone una URL clonable.');
+        return;
+      }
+
+      try {
+        const selection = await openDialog({ directory: true, multiple: false });
+        if (typeof selection !== 'string') {
+          return;
+        }
+        const targetDir = await join(selection, repo.name);
+        setIsLoading(true);
+        setError(null);
+        setCloneMessage(null);
+
+        await invoke('git_clone_repository', {
+          payload: {
+            url: cloneUrl,
+            directory: targetDir,
+            provider: 'github',
+            reference: repo.default_branch ?? undefined,
+          },
+        });
+
+        const project = upsertProject(
+          {
+            name: repo.name,
+            repositoryPath: targetDir,
+            gitProvider: 'github',
+            gitOwner: repo.owner,
+            gitRepository: repo.name,
+            defaultRemote: 'origin',
+            defaultBranch: repo.default_branch ?? '',
+          },
+          { activate: true },
+        );
+
+        selectProject(project.id);
+        setRepoPath(project.repositoryPath);
+        setRemoteName(project.defaultRemote || 'origin');
+        setRemoteBranch(project.defaultBranch || '');
+        setPrOwner(project.gitOwner ?? repo.owner);
+        setPrRepository(project.gitRepository ?? repo.name);
+        setPrProvider('github');
+        setPushProvider('github');
+        setCloneMessage(`Repositorio ${repo.full_name} clonado en ${targetDir}`);
+        setOwnerFilter(repo.owner);
+        await refreshContext();
+        void refreshRemoteRepos({ owner: repo.owner });
+      } catch (err) {
+        setError((err as Error).message ?? 'No se pudo vincular el repositorio remoto');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      isDesktop,
+      refreshContext,
+      refreshRemoteRepos,
+      selectProject,
+      setOwnerFilter,
+      upsertProject,
+    ],
+  );
 
   const runPullRequest = async () => {
     if (!prTitle.trim() || !prHead.trim() || !prOwner.trim() || !prRepository.trim()) {
@@ -327,6 +541,7 @@ export const RepoStudio: React.FC = () => {
         },
       });
       setMessages(prev => [{ message: `PR/MR creado: ${response.url}` }, ...prev]);
+      await refreshContext();
     } catch (err) {
       setError((err as Error).message ?? 'No se pudo crear el PR/MR');
     } finally {
@@ -361,6 +576,7 @@ export const RepoStudio: React.FC = () => {
           },
         });
         setMessages(prev => [{ message: `Auto PR/MR creado: ${response.url}` }, ...prev]);
+        await refreshContext();
       } catch (err) {
         setError((err as Error).message ?? 'No se pudo crear el PR/MR automáticamente');
       } finally {
@@ -403,6 +619,7 @@ export const RepoStudio: React.FC = () => {
       setMessages(prev => [{ message: label }, ...prev]);
       if (!patchDryRun) {
         await fetchStatus();
+        await refreshContext();
       }
     } catch (err) {
       setError((err as Error).message ?? 'No se pudo aplicar el parche');
@@ -410,6 +627,52 @@ export const RepoStudio: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const repositoryUrl = remoteInfo.webUrl;
+  const contextBranch = repoContext?.branch || remoteBranch;
+  const remoteBranchLabel = repoContext?.remote?.branch || prBase;
+  const remoteDisplayName = repoContext?.remote?.name || remoteName;
+
+  const handleOpenRepository = useCallback(() => {
+    if (!repositoryUrl) {
+      return;
+    }
+    window.open(repositoryUrl, '_blank', 'noopener,noreferrer');
+  }, [repositoryUrl]);
+
+  const handleQuickPr = useCallback(() => {
+    const owner = prOwner || remoteInfo.owner;
+    const repoName = prRepository || remoteInfo.name;
+    if (!owner || !repoName) {
+      setError('Completa propietario y repositorio antes de lanzar el PR rápido.');
+      return;
+    }
+    if (!execution?.readyToExecute) {
+      setError('Confirma el plan antes de crear el PR.');
+      return;
+    }
+
+    if (contextBranch) {
+      setPrHead(contextBranch);
+    }
+    if (remoteBranchLabel) {
+      setPrBase(remoteBranchLabel);
+    }
+    setPrOwner(owner);
+    setPrRepository(repoName);
+    setTimeout(() => {
+      void runPullRequest();
+    }, 0);
+  }, [
+    contextBranch,
+    execution?.readyToExecute,
+    remoteBranchLabel,
+    remoteInfo.owner,
+    remoteInfo.name,
+    runPullRequest,
+    prOwner,
+    prRepository,
+  ]);
 
   return (
     <div className="repo-studio">
@@ -425,18 +688,110 @@ export const RepoStudio: React.FC = () => {
           <button type="button" onClick={fetchStatus} disabled={isLoading}>
             Git status
           </button>
+          <button type="button" onClick={() => void refreshContext()} disabled={isContextLoading}>
+            Actualizar contexto
+          </button>
         </div>
       </header>
 
-      <section className="repo-studio__controls">
-        <label>
-          Ruta del repositorio
-          <input value={repoPath} onChange={event => setRepoPath(event.target.value)} placeholder="/ruta/al/repositorio" />
-        </label>
-        <label>
-          Rama activa
-          <input value={remoteBranch} onChange={event => setRemoteBranch(event.target.value)} placeholder="main" />
-        </label>
+      <section className="repo-studio__management">
+        <div className="repo-studio__management-panel">
+          <ProjectBindingPanel />
+        </div>
+        <div className="repo-studio__management-columns">
+          <div className="repo-studio__workspace-card">
+            <h2>Repositorio activo</h2>
+            <div className="repo-studio__workspace-grid">
+              <label>
+                <span>Ruta local</span>
+                <input
+                  value={repoPath}
+                  onChange={event => setRepoPath(event.target.value)}
+                  placeholder="/ruta/al/repositorio"
+                />
+              </label>
+              <label>
+                <span>Rama de trabajo</span>
+                <input
+                  value={remoteBranch}
+                  onChange={event => setRemoteBranch(event.target.value)}
+                  placeholder="main"
+                />
+              </label>
+              <label>
+                <span>Remoto preferido</span>
+                <input
+                  value={remoteName}
+                  onChange={event => setRemoteName(event.target.value)}
+                  placeholder="origin"
+                />
+              </label>
+              <label>
+                <span>Propietario Git</span>
+                <input
+                  value={prOwner}
+                  onChange={event => setPrOwner(event.target.value)}
+                  placeholder="org o usuario"
+                />
+              </label>
+              <label>
+                <span>Repositorio remoto</span>
+                <input
+                  value={prRepository}
+                  onChange={event => setPrRepository(event.target.value)}
+                  placeholder="nombre-del-repo"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="repo-studio__context-card">
+            <header>
+              <h3>Contexto del repositorio</h3>
+              <span className="repo-studio__context-branch">{contextBranch || 'Rama desconocida'}</span>
+            </header>
+            {isContextLoading ? (
+              <p className="repo-studio__context-loading">Actualizando contexto…</p>
+            ) : null}
+            <ul className="repo-studio__context-list">
+              <li>
+                <strong>Remoto activo:</strong> {remoteDisplayName || 'Sin remoto configurado'}
+              </li>
+              <li>
+                <strong>Destino remoto:</strong>{' '}
+                {remoteInfo.owner && remoteInfo.name ? `${remoteInfo.owner}/${remoteInfo.name}` : 'Sin coordenadas'}
+              </li>
+              <li>
+                <strong>Último commit:</strong>{' '}
+                {repoContext?.last_commit?.message || 'Sin commits recientes'}
+              </li>
+              {repoContext?.last_commit?.author ? (
+                <li>
+                  <strong>Autor:</strong> {repoContext.last_commit.author}
+                </li>
+              ) : null}
+            </ul>
+            {lastCommitTimeLabel ? (
+              <p className="repo-studio__context-meta">Actualizado {lastCommitTimeLabel}</p>
+            ) : null}
+            {contextError ? <p className="repo-studio__error">{contextError}</p> : null}
+            <div className="repo-studio__context-actions">
+              <button type="button" onClick={runPull} disabled={isLoading}>
+                Git pull
+              </button>
+              <button type="button" onClick={handleOpenRepository} disabled={!repositoryUrl}>
+                Abrir en GitHub
+              </button>
+              <button type="button" onClick={handleQuickPr} disabled={isLoading || !execution?.readyToExecute}>
+                PR con rama actual
+              </button>
+            </div>
+            <div className="repo-studio__diff-panel">
+              <h4>Diff seleccionado</h4>
+              <pre>{diffPreview || 'Selecciona un archivo para previsualizar el diff.'}</pre>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="repo-studio__body">
@@ -460,11 +815,6 @@ export const RepoStudio: React.FC = () => {
               </li>
             ))}
           </ul>
-        </div>
-
-        <div className="repo-studio__column">
-          <h2>Diff seleccionado</h2>
-          <pre className="repo-studio__diff">{diffPreview || 'Selecciona un archivo para previsualizar el diff.'}</pre>
         </div>
 
         <div className="repo-studio__column">
@@ -552,6 +902,74 @@ export const RepoStudio: React.FC = () => {
             </footer>
           </div>
         ) : null}
+      </section>
+
+      <section className="repo-studio__remotes">
+        <header>
+          <div>
+            <h3>Repositorios remotos vinculables</h3>
+            <p>Usa tu token almacenado para descubrir proyectos y clonarlos rápidamente.</p>
+          </div>
+          <div className="repo-studio__remote-controls">
+            <input
+              value={ownerFilter}
+              onChange={event => setOwnerFilter(event.target.value)}
+              placeholder="Filtrar por owner"
+            />
+            <button
+              type="button"
+              onClick={() => void refreshRemoteRepos({ owner: ownerFilter })}
+              disabled={isRemoteLoading}
+            >
+              Actualizar listado
+            </button>
+          </div>
+        </header>
+
+        {!remoteSupported ? (
+          <p className="repo-studio__error">
+            El descubrimiento remoto solo está disponible en la aplicación de escritorio.
+          </p>
+        ) : null}
+
+        {remoteError ? <p className="repo-studio__error">{remoteError}</p> : null}
+        {cloneMessage ? <p className="repo-studio__success">{cloneMessage}</p> : null}
+
+        <ul className="repo-studio__remote-list">
+          {isRemoteLoading ? (
+            <li className="repo-studio__remote-item">Cargando repositorios…</li>
+          ) : remoteRepos.length ? (
+            remoteRepos.map(repo => (
+              <li key={repo.id} className="repo-studio__remote-item">
+                <div className="repo-studio__remote-header">
+                  <span className="repo-studio__remote-name">{repo.full_name}</span>
+                  <span className="repo-studio__remote-visibility">
+                    {repo.visibility ?? (repo.private ? 'Privado' : 'Público')}
+                  </span>
+                </div>
+                {repo.description ? <p className="repo-studio__remote-description">{repo.description}</p> : null}
+                <p className="repo-studio__remote-meta">
+                  <strong>Branch por defecto:</strong> {repo.default_branch ?? 'main'}
+                </p>
+                <div className="repo-studio__remote-actions">
+                  <button type="button" onClick={() => void handleLinkRemote(repo)} disabled={isLoading}>
+                    Vincular en local
+                  </button>
+                  {repo.html_url ? (
+                    <button
+                      type="button"
+                      onClick={() => window.open(repo.html_url as string, '_blank', 'noopener')}
+                    >
+                      Ver en GitHub
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))
+          ) : (
+            <li className="repo-studio__remote-item">No se encontraron repositorios disponibles.</li>
+          )}
+        </ul>
       </section>
 
       <section className="repo-studio__operations">

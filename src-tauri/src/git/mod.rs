@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use git2::{self, DiffFormat, Repository, Status};
+use git2::{self, BranchType, DiffFormat, Repository, Status};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use walkdir::WalkDir;
@@ -73,6 +73,351 @@ pub struct PullRequestResponse {
 #[derive(Debug, Serialize)]
 pub struct RepoStatus {
     pub entries: Vec<RepoEntry>,
+}
+
+#[tauri::command]
+pub fn get_repository_context(repo_path: String) -> Result<RepoContext, String> {
+    let repo = Repository::open(&repo_path).map_err(map_git_err)?;
+    let head = repo.head().ok();
+
+    let branch = head
+        .as_ref()
+        .and_then(|reference| reference.shorthand().map(|value| value.to_string()));
+
+    let last_commit = head
+        .as_ref()
+        .and_then(|reference| reference.peel_to_commit().ok())
+        .map(|commit| RepoCommitSummary {
+            id: commit.id().to_string(),
+            message: commit.summary().map(|value| value.to_string()),
+            author: commit.author().name().map(|value| value.to_string()),
+            time: Some(commit.time().seconds()),
+        });
+
+    let mut remote_summary = None;
+
+    if let Some(branch_name) = branch.clone() {
+        if let Ok(local_branch) = repo.find_branch(&branch_name, BranchType::Local) {
+            if let Ok(upstream) = local_branch.upstream() {
+                if let Ok(Some(full_name)) = upstream.name() {
+                    if let Some(stripped) = full_name.strip_prefix("refs/remotes/") {
+                        let mut parts = stripped.splitn(2, '/');
+                        if let Some(remote_name) = parts.next() {
+                            let remote_branch = parts.next().map(|value| value.to_string());
+                            let url = repo
+                                .find_remote(remote_name)
+                                .ok()
+                                .and_then(|remote| remote.url().map(|value| value.to_string()));
+                            remote_summary = Some(RepoRemoteSummary {
+                                name: remote_name.to_string(),
+                                url,
+                                branch: remote_branch,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if remote_summary.is_none() {
+        let remote_name = repo
+            .remotes()
+            .ok()
+            .and_then(|remotes| remotes.iter().flatten().next().map(|value| value.to_string()));
+
+        if let Some(name) = remote_name {
+            let url = repo
+                .find_remote(&name)
+                .ok()
+                .and_then(|remote| remote.url().map(|value| value.to_string()));
+            remote_summary = Some(RepoRemoteSummary {
+                name,
+                url,
+                branch: None,
+            });
+        }
+    }
+
+    Ok(RepoContext {
+        branch,
+        last_commit,
+        remote: remote_summary,
+    })
+}
+
+#[tauri::command]
+pub async fn list_user_repos(
+    request: Option<ListReposRequest>,
+    manager: State<'_, SecretManager>,
+) -> Result<Vec<RemoteRepositorySummary>, String> {
+    let request = request.unwrap_or(ListReposRequest {
+        provider: None,
+        owner: None,
+    });
+
+    let provider = request
+        .provider
+        .clone()
+        .unwrap_or_else(|| "github".to_string());
+
+    if provider.as_str() != "github" {
+        return Err(format!(
+            "El listado remoto solo está soportado para GitHub (recibido: {provider})"
+        ));
+    }
+
+    let token = manager
+        .read(&provider)
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .ok_or_else(|| "No se encontró un token almacenado para GitHub".to_string())?;
+
+    let owner_filter = request.owner.clone();
+    let mut collected = Vec::new();
+    let client = reqwest::Client::new();
+    let mut page = 1;
+
+    loop {
+        let url = format!(
+            "https://api.github.com/user/repos?per_page=100&page={page}&affiliation=owner,collaborator,organization_member"
+        );
+
+        let response = client
+            .get(url)
+            .header("Authorization", format!("token {token}"))
+            .header("User-Agent", "JungleMonkAI-Tauri")
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "Error al obtener repositorios desde GitHub ({status}): {text}"
+            ));
+        }
+
+        let payload: Vec<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let mut batch = Vec::new();
+
+        for repo in payload.into_iter() {
+            let owner_login = repo
+                .get("owner")
+                .and_then(|owner| owner.get("login"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+
+            if let Some(filter) = owner_filter.as_ref() {
+                if owner_login.to_lowercase() != filter.to_lowercase() {
+                    continue;
+                }
+            }
+
+            let summary = RemoteRepositorySummary {
+                id: repo
+                    .get("id")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default(),
+                name: repo
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                full_name: repo
+                    .get("full_name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                owner: owner_login.to_string(),
+                description: repo
+                    .get("description")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                default_branch: repo
+                    .get("default_branch")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                html_url: repo
+                    .get("html_url")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                clone_url: repo
+                    .get("clone_url")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                ssh_url: repo
+                    .get("ssh_url")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                private: repo
+                    .get("private")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                visibility: repo
+                    .get("visibility")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+            };
+
+            batch.push(summary);
+        }
+
+        let count = batch.len();
+        collected.extend(batch);
+
+        if count < 100 {
+            break;
+        }
+
+        page += 1;
+    }
+
+    Ok(collected)
+}
+
+#[tauri::command]
+pub async fn clone_repository(
+    payload: CloneRepositoryRequest,
+    manager: State<'_, SecretManager>,
+) -> Result<(), String> {
+    let CloneRepositoryRequest {
+        url,
+        directory,
+        provider,
+        token,
+        reference,
+    } = payload;
+
+    let provider = provider.unwrap_or_else(|| "github".to_string());
+    let stored_token = match token {
+        Some(value) => Some(value),
+        None => manager
+            .read(&provider)
+            .map_err(|error| error.to_string())?
+            .flatten(),
+    };
+
+    let clone_reference = reference.clone();
+    let auth_token = stored_token.clone();
+    let task = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        if let Some(token) = auth_token.clone() {
+            callbacks.credentials(move |_, username_from_url, _| {
+                let username = username_from_url.unwrap_or("oauth2");
+                git2::Cred::userpass_plaintext(username, &token)
+                    .or_else(|_| git2::Cred::userpass_plaintext("oauth2", &token))
+            });
+        }
+
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+
+        let mut builder = git2::build::RepoBuilder::new();
+        builder.fetch_options(fetch_options);
+
+        if let Some(reference) = clone_reference.as_ref() {
+            builder.branch(reference);
+        }
+
+        builder
+            .clone(&url, Path::new(&directory))
+            .map_err(map_git_err)?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    task
+}
+
+#[tauri::command]
+pub async fn pull_changes(
+    repo_path: String,
+    remote: Option<String>,
+    branch: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut command = std::process::Command::new("git");
+        command.current_dir(&repo_path);
+        command.arg("pull");
+
+        if let Some(remote_name) = remote {
+            command.arg(remote_name);
+        }
+
+        if let Some(branch_name) = branch {
+            command.arg(branch_name);
+        }
+
+        let output = command.output().map_err(|error| error.to_string())?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct RepoContext {
+    pub branch: Option<String>,
+    pub last_commit: Option<RepoCommitSummary>,
+    pub remote: Option<RepoRemoteSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RepoCommitSummary {
+    pub id: String,
+    pub message: Option<String>,
+    pub author: Option<String>,
+    pub time: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RepoRemoteSummary {
+    pub name: String,
+    pub url: Option<String>,
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemoteRepositorySummary {
+    pub id: u64,
+    pub name: String,
+    pub full_name: String,
+    pub owner: String,
+    pub description: Option<String>,
+    pub default_branch: Option<String>,
+    pub html_url: Option<String>,
+    pub clone_url: Option<String>,
+    pub ssh_url: Option<String>,
+    pub private: bool,
+    pub visibility: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListReposRequest {
+    pub provider: Option<String>,
+    pub owner: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloneRepositoryRequest {
+    pub url: String,
+    pub directory: String,
+    pub provider: Option<String>,
+    pub token: Option<String>,
+    pub reference: Option<String>,
 }
 
 #[tauri::command]

@@ -1,7 +1,35 @@
 export type SupportedProvider = 'openai' | 'anthropic' | 'groq';
 
-export type ApiKeySettings = Record<SupportedProvider, string>;
+export const BUILTIN_PROVIDERS: SupportedProvider[] = ['openai', 'anthropic', 'groq'];
+
+export type ApiKeySettings = Record<string, string>;
+
+export interface CommandPresetSettings {
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export interface CommandPreset {
+  id: string;
+  label: string;
+  prompt: string;
+  description?: string;
+  provider?: string;
+  model?: string;
+  settings?: CommandPresetSettings;
+}
+
+export interface RoutingRule {
+  provider: string;
+  model: string;
+  commandPresetId?: string;
+}
+
+export type DefaultRoutingRules = Record<string, RoutingRule>;
 
 export interface GlobalSettings {
+  version: number;
   apiKeys: ApiKeySettings;
+  commandPresets: CommandPreset[];
+  defaultRoutingRules: DefaultRoutingRules;
 }

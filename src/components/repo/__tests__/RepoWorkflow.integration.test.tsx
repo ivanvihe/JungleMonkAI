@@ -8,6 +8,7 @@ import { RepoStudio } from '../RepoStudio';
 import type { ChatMessage } from '../../../core/messages/messageTypes';
 import { PluginHostProvider } from '../../../core/plugins/PluginHostProvider';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
+import { ProjectProvider } from '../../../core/projects/ProjectContext';
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
@@ -58,24 +59,42 @@ describe('Repo workflow integration', () => {
       const [settings, setSettings] = React.useState(() => ({
         ...JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)),
       }));
+    return (
+      <PluginHostProvider settings={settings} onSettingsChange={setSettings}>
+        {children}
+      </PluginHostProvider>
+    );
+  };
+
+    const ProjectWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+      const [settings, setSettings] = React.useState(() => ({
+        ...DEFAULT_GLOBAL_SETTINGS,
+        projectProfiles: [
+          { id: 'proj-1', name: 'Demo', repositoryPath: '/tmp/demo', defaultBranch: 'main' },
+        ],
+        activeProjectId: 'proj-1',
+      }));
+
       return (
-        <PluginHostProvider settings={settings} onSettingsChange={setSettings}>
+        <ProjectProvider settings={settings} onSettingsChange={setSettings}>
           {children}
-        </PluginHostProvider>
+        </ProjectProvider>
       );
     };
 
     const { container } = render(
-      <AgentProvider apiKeys={{}}>
-        <RepoWorkflowProvider>
-          <PluginWrapper>
-            <div>
-              <MessageActions messageId="message-123" value={canonicalSnippet} />
-              <RepoStudio />
-            </div>
-          </PluginWrapper>
-        </RepoWorkflowProvider>
-      </AgentProvider>,
+      <ProjectWrapper>
+        <AgentProvider apiKeys={{}}>
+          <RepoWorkflowProvider>
+            <PluginWrapper>
+              <div>
+                <MessageActions messageId="message-123" value={canonicalSnippet} />
+                <RepoStudio />
+              </div>
+            </PluginWrapper>
+          </RepoWorkflowProvider>
+        </AgentProvider>
+      </ProjectWrapper>,
     );
 
     fireEvent.click(screen.getByText('Enviar a Repo Studio'));

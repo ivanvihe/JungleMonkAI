@@ -1,11 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import './SidePanel.css';
 import { useAgents } from '../../core/agents/AgentContext';
 import { AgentPresenceEntry, AgentPresenceStatus } from '../../core/agents/presence';
 import { useMessages } from '../../core/messages/MessageContext';
-import { ApiKeySettings } from '../../types/globalSettings';
+import { ApiKeySettings, ProjectProfile } from '../../types/globalSettings';
 import { useLocalModels } from '../../hooks/useLocalModels';
 import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
+import { useProjects, ProjectDraft } from '../../core/projects/ProjectContext';
 
 interface ProviderSummary {
   id: string;
@@ -28,6 +29,16 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   groq: 'Groq',
 };
+
+const createDraftFromProject = (project?: ProjectProfile | null): ProjectDraft => ({
+  id: project?.id,
+  name: project?.name ?? '',
+  repositoryPath: project?.repositoryPath ?? '',
+  defaultBranch: project?.defaultBranch ?? '',
+  instructions: project?.instructions ?? '',
+  preferredProvider: project?.preferredProvider ?? '',
+  preferredModel: project?.preferredModel ?? '',
+});
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
@@ -52,6 +63,10 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     formatTimestamp,
   } = useMessages();
   const { models } = useLocalModels();
+  const { projects, activeProject, selectProject, upsertProject, removeProject } = useProjects();
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(activeProject?.id ?? 'new');
+  const [projectForm, setProjectForm] = useState<ProjectDraft>(() => createDraftFromProject(activeProject));
+  const [formError, setFormError] = useState<string | null>(null);
 
   const configuredProviders = useMemo(() => {
     const map = new Map<string, string>();
@@ -69,6 +84,104 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     });
     return map;
   }, [apiKeys]);
+
+  useEffect(() => {
+    if (!projects.length) {
+      setSelectedProjectId('new');
+      setProjectForm(createDraftFromProject());
+      return;
+    }
+
+    if (!activeProject) {
+      if (!projects.some(project => project.id === selectedProjectId)) {
+        const [first] = projects;
+        if (first) {
+          setSelectedProjectId(first.id);
+          setProjectForm(createDraftFromProject(first));
+          setFormError(null);
+        }
+      }
+      return;
+    }
+
+    if (selectedProjectId === 'new' || selectedProjectId === activeProject.id) {
+      setSelectedProjectId(activeProject.id);
+      setProjectForm(createDraftFromProject(activeProject));
+      setFormError(null);
+      return;
+    }
+
+    if (!projects.some(project => project.id === selectedProjectId)) {
+      setSelectedProjectId(activeProject.id);
+      setProjectForm(createDraftFromProject(activeProject));
+      setFormError(null);
+    }
+  }, [activeProject, projects, selectedProjectId]);
+
+  const handleProjectSelectChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const value = event.target.value;
+      setFormError(null);
+      if (value === 'new') {
+        setSelectedProjectId('new');
+        setProjectForm(createDraftFromProject());
+        return;
+      }
+
+      setSelectedProjectId(value);
+      const match = projects.find(project => project.id === value) ?? null;
+      setProjectForm(createDraftFromProject(match));
+    },
+    [projects],
+  );
+
+  const updateFormField = useCallback(
+    (field: keyof ProjectDraft) =>
+      (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { value } = event.target;
+        setProjectForm(prev => ({ ...prev, [field]: value }));
+        setFormError(null);
+      },
+    [],
+  );
+
+  const handleSaveProject = useCallback(() => {
+    if (!projectForm.name?.trim() || !projectForm.repositoryPath?.trim()) {
+      setFormError('Indica al menos nombre y ruta del repositorio.');
+      return;
+    }
+
+    try {
+      const saved = upsertProject(projectForm, { activate: selectedProjectId === 'new' });
+      setSelectedProjectId(saved.id);
+      setProjectForm(createDraftFromProject(saved));
+      setFormError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar el proyecto.';
+      setFormError(message);
+    }
+  }, [projectForm, selectedProjectId, upsertProject]);
+
+  const handleActivateProject = useCallback(() => {
+    if (selectedProjectId === 'new') {
+      return;
+    }
+    selectProject(selectedProjectId);
+    setFormError(null);
+  }, [selectProject, selectedProjectId]);
+
+  const handleDeleteProject = useCallback(() => {
+    if (selectedProjectId === 'new') {
+      setProjectForm(createDraftFromProject());
+      setFormError(null);
+      return;
+    }
+
+    removeProject(selectedProjectId);
+    setSelectedProjectId('new');
+    setProjectForm(createDraftFromProject());
+    setFormError(null);
+  }, [removeProject, selectedProjectId]);
 
   const providerSummaries = useMemo<ProviderSummary[]>(() => {
     const grouped = new Map<
@@ -209,6 +322,105 @@ export const SidePanel: React.FC<SidePanelProps> = ({
 
   return (
     <div className="sidebar">
+      <section className="sidebar-section">
+        <header>
+          <h2>Proyectos</h2>
+          <p>Configura repositorios y preferencias activas.</p>
+        </header>
+        <div className="project-manager">
+          <label htmlFor="project-selector">Proyecto</label>
+          <select
+            id="project-selector"
+            value={selectedProjectId}
+            onChange={handleProjectSelectChange}
+          >
+            <option value="new">Nuevo proyecto…</option>
+            {projects.map(project => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor="project-name">Nombre</label>
+          <input
+            id="project-name"
+            type="text"
+            value={projectForm.name ?? ''}
+            onChange={updateFormField('name')}
+            placeholder="Nombre descriptivo"
+          />
+
+          <label htmlFor="project-path">Repositorio</label>
+          <input
+            id="project-path"
+            type="text"
+            value={projectForm.repositoryPath ?? ''}
+            onChange={updateFormField('repositoryPath')}
+            placeholder="/ruta/al/repositorio"
+          />
+
+          <label htmlFor="project-branch">Rama por defecto</label>
+          <input
+            id="project-branch"
+            type="text"
+            value={projectForm.defaultBranch ?? ''}
+            onChange={updateFormField('defaultBranch')}
+            placeholder="main"
+          />
+
+          <label htmlFor="project-provider">Proveedor preferido</label>
+          <input
+            id="project-provider"
+            type="text"
+            value={projectForm.preferredProvider ?? ''}
+            onChange={updateFormField('preferredProvider')}
+            placeholder="openai"
+          />
+
+          <label htmlFor="project-model">Modelo preferido</label>
+          <input
+            id="project-model"
+            type="text"
+            value={projectForm.preferredModel ?? ''}
+            onChange={updateFormField('preferredModel')}
+            placeholder="gpt-4"
+          />
+
+          <label htmlFor="project-instructions">Instrucciones fijas</label>
+          <textarea
+            id="project-instructions"
+            value={projectForm.instructions ?? ''}
+            onChange={updateFormField('instructions')}
+            placeholder="Notas clave para este repositorio"
+            rows={3}
+          />
+
+          {formError && <p className="project-error">{formError}</p>}
+
+          <div className="project-actions">
+            <button type="button" onClick={handleSaveProject}>
+              Guardar
+            </button>
+            <button
+              type="button"
+              onClick={handleActivateProject}
+              disabled={selectedProjectId === 'new' || activeProject?.id === selectedProjectId}
+            >
+              Activar
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onClick={handleDeleteProject}
+              disabled={selectedProjectId === 'new'}
+            >
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section className="sidebar-section">
         <header>
           <h2>Proveedores</h2>

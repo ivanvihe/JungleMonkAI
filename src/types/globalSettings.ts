@@ -61,6 +61,16 @@ export interface WorkspacePreferences {
   sidePanel: SidePanelPreferences;
 }
 
+export interface ProjectProfile {
+  id: string;
+  name: string;
+  repositoryPath: string;
+  defaultBranch?: string;
+  instructions?: string;
+  preferredProvider?: string;
+  preferredModel?: string;
+}
+
 export interface DataLocationSettings {
   useCustomPath: boolean;
   customPath?: string;
@@ -81,6 +91,8 @@ export interface GlobalSettings {
   mcpProfiles: McpProfile[];
   workspacePreferences: WorkspacePreferences;
   dataLocation: DataLocationSettings;
+  projectProfiles: ProjectProfile[];
+  activeProjectId: string | null;
 }
 
 export interface PluginSettingsEntry {

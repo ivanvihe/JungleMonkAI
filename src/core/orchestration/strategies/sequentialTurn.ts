@@ -3,6 +3,7 @@ import {
   AgentRoleAssignment,
   InternalBridgeMessage,
   MultiAgentContext,
+  OrchestrationProjectContext,
   SharedConversationSnapshot,
 } from '../types';
 import { AgentDefinition } from '../../agents/agentRegistry';
@@ -49,19 +50,21 @@ const buildContext = (
   role: AgentRoleAssignment | undefined,
   snapshot: SharedConversationSnapshot,
   userPrompt: string,
+  project: OrchestrationProjectContext | undefined,
 ): MultiAgentContext => ({
   strategyId: 'sequential-turn',
   snapshot,
   role,
   instructions: buildInstructions(agent, role, snapshot, userPrompt),
   userPrompt,
+  project,
 });
 
 export const sequentialTurnStrategy: CoordinationStrategy = {
   id: 'sequential-turn',
   label: 'Turno secuencial',
   description: 'Cada agente responde en orden compartiendo el contexto acumulado.',
-  buildPlan: ({ userPrompt, agents, snapshot, roles, agentPrompts }): OrchestrationPlan => {
+  buildPlan: ({ userPrompt, agents, snapshot, roles, agentPrompts, project }): OrchestrationPlan => {
     const timestamp = new Date().toISOString();
     const sharedBridge: InternalBridgeMessage = {
       id: `bridge-system-${timestamp}`,
@@ -73,7 +76,13 @@ export const sequentialTurnStrategy: CoordinationStrategy = {
     const steps = agents.map(agent => ({
       agent,
       prompt: agentPrompts?.[agent.id] ?? userPrompt,
-      context: buildContext(agent, roles[agent.id], snapshot, agentPrompts?.[agent.id] ?? userPrompt),
+      context: buildContext(
+        agent,
+        roles[agent.id],
+        snapshot,
+        agentPrompts?.[agent.id] ?? userPrompt,
+        project,
+      ),
     }));
 
     return {

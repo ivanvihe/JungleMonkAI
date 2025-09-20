@@ -14,6 +14,17 @@ import { getAgentDisplayName } from '../../utils/agentDisplay';
 export const AGENT_SYSTEM_PROMPT =
   'Actúas como parte de un colectivo de agentes creativos. Responde de forma concisa, en español cuando sea posible, y especifica los supuestos importantes que utilices al contestar.';
 
+const extractProjectInstructions = (project: MultiAgentContext['project'] | undefined): string[] => {
+  if (!project?.instructions) {
+    return [];
+  }
+
+  return project.instructions
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+};
+
 const buildSystemPrompt = (context: MultiAgentContext | undefined): string => {
   if (!context) {
     return AGENT_SYSTEM_PROMPT;
@@ -31,6 +42,27 @@ const buildSystemPrompt = (context: MultiAgentContext | undefined): string => {
 
   if (context.strategyId) {
     extras.push(`La estrategia coordinada en vigor es «${context.strategyId}».`);
+  }
+
+  if (context.project) {
+    const repoLabel = context.project.defaultBranch
+      ? `${context.project.repositoryPath}@${context.project.defaultBranch}`
+      : context.project.repositoryPath;
+    extras.push(`Proyecto activo: ${context.project.name} (${repoLabel}).`);
+
+    if (context.project.preferredProvider || context.project.preferredModel) {
+      const preference = [context.project.preferredProvider, context.project.preferredModel]
+        .filter(Boolean)
+        .join(' · ');
+      if (preference) {
+        extras.push(`Preferencia de agente: ${preference}.`);
+      }
+    }
+
+    const projectInstructions = extractProjectInstructions(context.project);
+    if (projectInstructions.length) {
+      extras.push(`Guías del proyecto:\n- ${projectInstructions.join('\n- ')}`);
+    }
   }
 
   if (!extras.length) {
@@ -71,6 +103,29 @@ const buildPromptWithContext = (
       .map(entry => `${entry.author === 'system' ? 'Coordinador' : `Agente ${entry.agentId ?? 'desconocido'}`}: ${entry.content}`)
       .join('\n');
     sections.push(`Conclusiones recientes:\n${latest}`);
+  }
+
+  if (context.project) {
+    const repoLabel = context.project.defaultBranch
+      ? `${context.project.repositoryPath}@${context.project.defaultBranch}`
+      : context.project.repositoryPath;
+    const lines: string[] = [`Repositorio activo: ${repoLabel}`];
+
+    if (context.project.preferredProvider || context.project.preferredModel) {
+      const preference = [context.project.preferredProvider, context.project.preferredModel]
+        .filter(Boolean)
+        .join(' · ');
+      if (preference) {
+        lines.push(`Preferencia de ejecución: ${preference}`);
+      }
+    }
+
+    const projectInstructions = extractProjectInstructions(context.project);
+    if (projectInstructions.length) {
+      lines.push(`Instrucciones del proyecto:\n- ${projectInstructions.join('\n- ')}`);
+    }
+
+    sections.push(`Contexto del proyecto ${context.project.name}:\n${lines.join('\n')}`);
   }
 
   if (context.instructions?.length) {

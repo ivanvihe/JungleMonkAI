@@ -28,6 +28,16 @@ export interface InternalBridgeMessage {
   timestamp: string;
 }
 
+export interface OrchestrationProjectContext {
+  id: string;
+  name: string;
+  repositoryPath: string;
+  defaultBranch?: string;
+  instructions?: string;
+  preferredProvider?: string;
+  preferredModel?: string;
+}
+
 export interface MultiAgentContext {
   strategyId: CoordinationStrategyId;
   snapshot: SharedConversationSnapshot;
@@ -35,6 +45,7 @@ export interface MultiAgentContext {
   instructions?: string[];
   bridgeMessages?: InternalBridgeMessage[];
   userPrompt: string;
+  project?: OrchestrationProjectContext;
 }
 
 export interface OrchestrationStepPlan {
@@ -70,6 +81,7 @@ export interface CoordinationStrategy {
     snapshot: SharedConversationSnapshot;
     roles: Record<string, AgentRoleAssignment | undefined>;
     agentPrompts?: Record<string, string | undefined>;
+    project?: OrchestrationProjectContext;
   }) => OrchestrationPlan;
 }
 

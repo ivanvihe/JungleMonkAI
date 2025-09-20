@@ -10,6 +10,7 @@ import {
   McpProfileEndpoint,
   PluginSettingsEntry,
   PluginSettingsMap,
+  ProjectProfile,
   RoutingRule,
   SidePanelPreferences,
   SupportedProvider,
@@ -24,7 +25,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
 
@@ -169,6 +170,21 @@ const workspacePreferencesSchema: JSONSchemaType<WorkspacePreferences> = {
   additionalProperties: false,
 };
 
+const projectProfileSchema: JSONSchemaType<ProjectProfile> = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    repositoryPath: { type: 'string' },
+    defaultBranch: { type: 'string', nullable: true },
+    instructions: { type: 'string', nullable: true },
+    preferredProvider: { type: 'string', nullable: true },
+    preferredModel: { type: 'string', nullable: true },
+  },
+  required: ['id', 'name', 'repositoryPath'],
+  additionalProperties: false,
+};
+
 const dataLocationSchema: JSONSchemaType<DataLocationSettings> = {
   type: 'object',
   properties: {
@@ -252,6 +268,11 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     },
     workspacePreferences: workspacePreferencesSchema,
     dataLocation: dataLocationSchema,
+    projectProfiles: {
+      type: 'array',
+      items: projectProfileSchema,
+    },
+    activeProjectId: { type: 'string', nullable: true },
   },
   required: [
     'version',
@@ -264,6 +285,8 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     'mcpProfiles',
     'workspacePreferences',
     'dataLocation',
+    'projectProfiles',
+    'activeProjectId',
   ],
   additionalProperties: false,
 };
@@ -743,6 +766,81 @@ const normalizeDataLocation = (
   };
 };
 
+const normalizeProjectProfiles = (input: unknown): ProjectProfile[] => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: ProjectProfile[] = [];
+
+  input.forEach(entry => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+
+    const candidate = entry as ProjectProfile;
+    const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+    const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+    const repositoryPath =
+      typeof candidate.repositoryPath === 'string' ? candidate.repositoryPath.trim() : '';
+
+    if (!id || !name || !repositoryPath || seen.has(id)) {
+      return;
+    }
+
+    const profile: ProjectProfile = {
+      id,
+      name,
+      repositoryPath,
+    };
+
+    const defaultBranch =
+      typeof candidate.defaultBranch === 'string' ? candidate.defaultBranch.trim() : '';
+    if (defaultBranch) {
+      profile.defaultBranch = defaultBranch;
+    }
+
+    const instructions =
+      typeof candidate.instructions === 'string' ? candidate.instructions.trim() : '';
+    if (instructions) {
+      profile.instructions = instructions;
+    }
+
+    const preferredProvider =
+      typeof candidate.preferredProvider === 'string' ? candidate.preferredProvider.trim() : '';
+    if (preferredProvider) {
+      profile.preferredProvider = preferredProvider;
+      registerExternalProviders([preferredProvider]);
+    }
+
+    const preferredModel =
+      typeof candidate.preferredModel === 'string' ? candidate.preferredModel.trim() : '';
+    if (preferredModel) {
+      profile.preferredModel = preferredModel;
+    }
+
+    normalized.push(profile);
+    seen.add(id);
+  });
+
+  return normalized;
+};
+
+const normalizeActiveProjectId = (
+  candidate: unknown,
+  projects: ProjectProfile[],
+): string | null => {
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    if (trimmed && projects.some(project => project.id === trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return projects.length > 0 ? projects[0].id : null;
+};
+
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   version: CURRENT_SCHEMA_VERSION,
   apiKeys: normalizeApiKeys({}),
@@ -768,6 +866,8 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     lastMigrationFrom: undefined,
     lastMigrationAt: undefined,
   },
+  projectProfiles: [],
+  activeProjectId: null,
 };
 
 export const isSupportedProvider = (value: string): value is SupportedProvider =>
@@ -782,6 +882,8 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     pluginSettings,
   );
 
+  const projectProfiles = normalizeProjectProfiles(raw?.projectProfiles);
+
   return {
     version: CURRENT_SCHEMA_VERSION,
     apiKeys: normalizeApiKeys(raw?.apiKeys as ApiKeySettings),
@@ -795,6 +897,8 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
       raw?.workspacePreferences as WorkspacePreferences,
     ),
     dataLocation: normalizeDataLocation(raw?.dataLocation as DataLocationSettings),
+    projectProfiles,
+    activeProjectId: normalizeActiveProjectId(raw?.activeProjectId, projectProfiles),
   };
 };
 
@@ -857,6 +961,8 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
   }
 
   try {
+    const projectProfiles = normalizeProjectProfiles(settings.projectProfiles);
+
     const payload: GlobalSettings = {
       version: CURRENT_SCHEMA_VERSION,
       apiKeys: normalizeApiKeys(settings.apiKeys),
@@ -871,6 +977,8 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       approvedManifests: normalizeApprovedManifests(settings.approvedManifests),
       workspacePreferences: normalizeWorkspacePreferences(settings.workspacePreferences),
       dataLocation: normalizeDataLocation(settings.dataLocation),
+      projectProfiles,
+      activeProjectId: normalizeActiveProjectId(settings.activeProjectId, projectProfiles),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     void persistGlobalSettingsToUserDir(payload);

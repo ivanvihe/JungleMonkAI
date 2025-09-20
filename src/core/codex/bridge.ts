@@ -23,8 +23,6 @@ export interface RepoWorkflowSubmission {
   tags: string[];
 }
 
-const DEFAULT_REPOSITORY_PATH = '.';
-
 const contentPartToText = (part: ChatContentPart | string): string => {
   if (!part) {
     return '';
@@ -92,7 +90,7 @@ const buildCodexRequest = (
 ): CodexRequest => ({
   prompt,
   context: {
-    repositoryPath: options?.repositoryPath ?? DEFAULT_REPOSITORY_PATH,
+    repositoryPath: options?.repositoryPath ?? '.',
     branch: options?.branch,
     actor,
     riskLevel: options?.riskLevel ?? 'medium',
@@ -158,13 +156,24 @@ export const buildRepoWorkflowSubmission = (
     canonicalCode?: string;
     engine?: CodexEngine;
     options?: CodexBridgeOptions;
+    defaultRepositoryPath?: string;
   },
 ): RepoWorkflowSubmission => {
-  const { message, canonicalCode, engine, options } = params;
+  const { message, canonicalCode, engine, options, defaultRepositoryPath } = params;
   const { prompt, canonical } = normalizePrompt(message, canonicalCode);
-  const actor = deriveActor(message, options?.actor);
+  const sanitizedBranch = options?.branch?.trim() || undefined;
+  const sanitizedActor = options?.actor?.trim() || undefined;
+  const repositoryPath =
+    options?.repositoryPath?.trim() || defaultRepositoryPath?.trim() || '.';
+  const effectiveOptions: CodexBridgeOptions = {
+    ...options,
+    repositoryPath,
+    branch: sanitizedBranch,
+    actor: sanitizedActor,
+  };
+  const actor = deriveActor(message, effectiveOptions.actor);
 
-  const request = buildCodexRequest(prompt, options, actor);
+  const request = buildCodexRequest(prompt, effectiveOptions, actor);
   const codexEngine = engine ?? new CodexEngine({ defaultDryRun: true });
   const plan = codexEngine.createPlan(request);
 
@@ -185,5 +194,3 @@ export const buildRepoWorkflowSubmission = (
   submission.prBody = buildPrBody(submission);
   return submission;
 };
-
-export { DEFAULT_REPOSITORY_PATH };

@@ -31,6 +31,73 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
 }
 
+.project-manager {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.project-manager label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.project-manager input,
+.project-manager select,
+.project-manager textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.project-manager select {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.project-manager textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.project-manager .project-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ff8a80;
+}
+
+.project-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.project-actions button {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.project-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.project-actions button.danger {
+  background: rgba(255, 82, 82, 0.35);
+}
+
 .sidebar-section header h2 {
   font-size: 16px;
   font-weight: 600;

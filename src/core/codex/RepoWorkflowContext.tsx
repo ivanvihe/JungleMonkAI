@@ -3,7 +3,8 @@ import type { CodexRequest } from './types';
 import type { ChatMessage } from '../messages/messageTypes';
 import { useMessages } from '../messages/MessageContext';
 import { CodexEngine } from './CodexEngine';
-import { buildRepoWorkflowSubmission, DEFAULT_REPOSITORY_PATH, type RepoWorkflowSubmission } from './bridge';
+import { buildRepoWorkflowSubmission, type RepoWorkflowSubmission } from './bridge';
+import { useProjects } from '../projects/ProjectContext';
 
 export interface RepoWorkflowRequest {
   id: string;
@@ -56,21 +57,32 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { messages } = useMessages();
   const engineRef = useRef(new CodexEngine({ defaultDryRun: true }));
   const [pendingRequest, setPendingRequest] = useState<RepoWorkflowRequest | null>(null);
+  const { activeProject } = useProjects();
 
   const queueRequest = useCallback(
     (payload: QueuePayload) => {
       const { messageId, canonicalCode, repositoryPath, branch, riskLevel } = payload;
       const originalMessage = findMessageById(messages, messageId) ?? buildFallbackMessage(messageId, canonicalCode);
 
+      const defaultRepositoryPath = repositoryPath ?? activeProject?.repositoryPath;
+      const defaultBranch = branch ?? activeProject?.defaultBranch;
+      const defaultActor = activeProject
+        ? [activeProject.preferredProvider, activeProject.preferredModel]
+            .filter(Boolean)
+            .join(':') || activeProject.name
+        : undefined;
+
       const submission = buildRepoWorkflowSubmission({
         message: originalMessage,
         canonicalCode,
         engine: engineRef.current,
         options: {
-          repositoryPath: repositoryPath ?? DEFAULT_REPOSITORY_PATH,
-          branch,
+          repositoryPath: repositoryPath,
+          branch: defaultBranch,
+          actor: defaultActor,
           riskLevel,
         },
+        defaultRepositoryPath,
       });
 
       if (!submission.analysisPrompt.trim()) {
@@ -95,7 +107,7 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       setPendingRequest(request);
     },
-    [messages],
+    [messages, activeProject],
   );
 
   const clearPendingRequest = useCallback(() => {

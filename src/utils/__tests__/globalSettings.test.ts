@@ -57,4 +57,31 @@ describe('globalSettings schema validation', () => {
 
     expect(validateGlobalSettingsPayload(candidate)).toBe(true);
   });
+
+  it('normaliza proyectos y selecciona el activo más reciente al migrar', () => {
+    const migrated = migratePersistedGlobalSettings({
+      version: CURRENT_SCHEMA_VERSION - 1,
+      projectProfiles: [
+        {
+          id: 'demo',
+          name: ' Demo Workspace ',
+          repositoryPath: ' /projects/demo ',
+          defaultBranch: ' develop ',
+          instructions: 'Revisar CI antes de desplegar.\n ',
+          preferredProvider: ' OpenAI ',
+          preferredModel: ' gpt-4 ',
+        },
+      ],
+      activeProjectId: 'unknown',
+    } as Partial<GlobalSettings>);
+
+    expect(migrated.projectProfiles).toHaveLength(1);
+    const [project] = migrated.projectProfiles;
+    expect(project.repositoryPath).toBe('/projects/demo');
+    expect(project.defaultBranch).toBe('develop');
+    expect(project.preferredProvider).toBe('OpenAI');
+    expect(project.preferredModel).toBe('gpt-4');
+    expect(project.instructions).toBe('Revisar CI antes de desplegar.');
+    expect(migrated.activeProjectId).toBe('demo');
+  });
 });

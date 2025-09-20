@@ -55,15 +55,15 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
   },
   {
     id: 'groq-llama3-70b',
-    model: 'llama3-70b-8192',
-    name: 'LLaMA3 70B',
+    model: 'llama-3.1-70b-versatile',
+    name: 'LLaMA 3.1 70B',
     provider: 'Groq',
     description: 'Respuesta ultrarrápida para tareas analíticas y técnicas.',
     kind: 'cloud',
     accent: '#7FDBFF',
     active: true,
     status: 'Disponible',
-    aliases: ['groq', 'llama'],
+    aliases: ['groq', 'llama', 'llama3'],
     channel: 'groq',
   },
   {

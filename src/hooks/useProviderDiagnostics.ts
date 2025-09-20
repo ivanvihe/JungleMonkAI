@@ -23,8 +23,8 @@ const PROVIDER_PATTERNS: Partial<Record<BuiltinProvider, RegExp>> = {
 
 const PROVIDER_TEST_MODELS: Record<BuiltinProvider, string> = {
   openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-haiku-20240307',
-  groq: 'mixtral-8x7b-32768',
+  anthropic: 'claude-3-5-sonnet-20241022',
+  groq: 'llama-3.1-70b-versatile',
 };
 
 const TEST_PROMPT = 'Responde únicamente con "OK".';

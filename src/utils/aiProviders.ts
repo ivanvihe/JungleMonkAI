@@ -26,6 +26,66 @@ export interface ChatProviderResponse {
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_TEMPERATURE = 0.7;
 
+type AnthropicLimiter = {
+  acquire: (apiKey: string) => boolean;
+  release: (apiKey: string) => void;
+};
+
+const createAnthropicLimiter = (): AnthropicLimiter => {
+  const inFlight = new Map<string, true>();
+  return {
+    acquire(apiKey: string) {
+      const key = apiKey || '__default__';
+      if (inFlight.has(key)) {
+        return false;
+      }
+      inFlight.set(key, true);
+      return true;
+    },
+    release(apiKey: string) {
+      const key = apiKey || '__default__';
+      inFlight.delete(key);
+    },
+  };
+};
+
+type GlobalWithAnthropicLimiter = typeof globalThis & {
+  __anthropicLimiter__?: AnthropicLimiter;
+};
+
+const getAnthropicLimiter = (): AnthropicLimiter => {
+  const globalObj = globalThis as GlobalWithAnthropicLimiter;
+  if (!globalObj.__anthropicLimiter__) {
+    globalObj.__anthropicLimiter__ = createAnthropicLimiter();
+  }
+  return globalObj.__anthropicLimiter__;
+};
+
+const maskApiKey = (apiKey: string): string => {
+  const trimmed = apiKey?.trim?.() ?? '';
+  if (!trimmed) {
+    return '(vacía)';
+  }
+  if (trimmed.length <= 8) {
+    return '***';
+  }
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+};
+
+const GROQ_RECOMMENDED_MODEL = 'llama-3.1-70b-versatile';
+
+const GROQ_MODEL_ALIASES: Record<string, string> = {
+  'llama3-70b-8192': GROQ_RECOMMENDED_MODEL,
+  'llama-3-70b-8192': GROQ_RECOMMENDED_MODEL,
+  'llama3-70b': GROQ_RECOMMENDED_MODEL,
+  'mixtral-8x7b-32768': 'mixtral-8x7b-32768',
+};
+
+const resolveGroqModel = (requestedModel: string): string => {
+  const trimmed = requestedModel?.trim?.() ?? '';
+  return GROQ_MODEL_ALIASES[trimmed] ?? trimmed;
+};
+
 const isTauriEnvironment = (): boolean =>
   typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
 
@@ -364,50 +424,80 @@ export const callGroqChat = async ({
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
 }: ChatProviderRequest): Promise<ChatProviderResponse> => {
-  const body = {
-    model,
-    max_tokens: maxTokens,
-    temperature,
-    messages: [
-      ...(systemPrompt
-        ? [
-            {
-              role: 'system',
-              content: contentToPlainText(systemPrompt),
-            },
-          ]
-        : []),
-      {
-        role: 'user',
-        content: contentToPlainText(prompt),
-      },
-    ],
-  };
-
+  const sanitizedApiKey = apiKey?.trim?.() ?? apiKey;
   const runtime = detectRuntime();
-  let payload: any;
 
-  if (runtime === 'browser') {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
+  const performGroqRequest = async (modelName: string) => {
+    const body = {
+      model: modelName,
+      max_tokens: maxTokens,
+      temperature,
+      messages: [
+        ...(systemPrompt
+          ? [
+              {
+                role: 'system',
+                content: contentToPlainText(systemPrompt),
+              },
+            ]
+          : []),
+        {
+          role: 'user',
+          content: contentToPlainText(prompt),
+        },
+      ],
+    };
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error?.error?.message || `Groq respondió con ${response.status}`);
+    if (runtime === 'browser') {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sanitizedApiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error?.error?.message || `Groq respondió con ${response.status}`);
+      }
+
+      return response.json();
     }
 
-    payload = await response.json();
-  } else {
-    payload = await callProviderThroughBridge(runtime, 'groq', 'Groq', {
-      apiKey,
+    return callProviderThroughBridge(runtime, 'groq', 'Groq', {
+      apiKey: sanitizedApiKey,
       body,
     });
+  };
+
+  let activeModel = resolveGroqModel(model);
+  let payload: any;
+  let attemptedFallback = false;
+
+  while (true) {
+    try {
+      payload = await performGroqRequest(activeModel);
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      const shouldRetryWithRecommended =
+        !attemptedFallback &&
+        activeModel !== GROQ_RECOMMENDED_MODEL &&
+        /deprecat/i.test(message);
+
+      if (shouldRetryWithRecommended) {
+        console.warn(
+          `Groq indicó que el modelo "${activeModel}" está obsoleto. Reintentando con "${GROQ_RECOMMENDED_MODEL}".`,
+        );
+        activeModel = GROQ_RECOMMENDED_MODEL;
+        attemptedFallback = true;
+        continue;
+      }
+
+      throw error instanceof Error ? error : new Error(message || 'Groq rechazó la solicitud.');
+    }
   }
 
   const choice = payload?.choices?.[0]?.message?.content;
@@ -428,6 +518,7 @@ export const callAnthropicChat = async ({
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
 }: ChatProviderRequest): Promise<ChatProviderResponse> => {
+  const sanitizedApiKey = apiKey?.trim?.() ?? apiKey;
   const body = {
     model,
     max_tokens: maxTokens,
@@ -444,33 +535,47 @@ export const callAnthropicChat = async ({
       },
     ],
   };
+  const limiter = getAnthropicLimiter();
+  if (!limiter.acquire(sanitizedApiKey)) {
+    console.warn('Solicitud de Anthropic rechazada por límite de concurrencia.', {
+      apiKey: maskApiKey(sanitizedApiKey),
+    });
+    throw new Error(
+      'Otra solicitud de Anthropic está en curso para esta API key. Intenta nuevamente en unos segundos.',
+    );
+  }
 
-  const runtime = detectRuntime();
   let payload: any;
 
-  if (runtime === 'browser') {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-    });
+  try {
+    const runtime = detectRuntime();
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      const message = error?.error?.message || error?.error || error?.message;
-      throw new Error(message || `Anthropic respondió con ${response.status}`);
+    if (runtime === 'browser') {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': sanitizedApiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        const message = error?.error?.message || error?.error || error?.message;
+        throw new Error(message || `Anthropic respondió con ${response.status}`);
+      }
+
+      payload = await response.json();
+    } else {
+      payload = await callProviderThroughBridge(runtime, 'anthropic', 'Anthropic', {
+        apiKey: sanitizedApiKey,
+        body,
+      });
     }
-
-    payload = await response.json();
-  } else {
-    payload = await callProviderThroughBridge(runtime, 'anthropic', 'Anthropic', {
-      apiKey,
-      body,
-    });
+  } finally {
+    limiter.release(sanitizedApiKey);
   }
 
   const content = payload?.content;

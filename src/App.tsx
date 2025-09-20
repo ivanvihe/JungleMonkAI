@@ -23,6 +23,7 @@ import { GlobalSettingsDialog } from './components/settings/GlobalSettingsDialog
 import { OverlayModal } from './components/common/OverlayModal';
 import { PluginSummary } from './components/settings/PluginSummary';
 import { McpSummary } from './components/settings/McpSummary';
+import { ProjectProvider } from './core/projects/ProjectContext';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -174,22 +175,24 @@ const App: React.FC = () => {
 
   return (
     <PluginHostProvider settings={globalSettings} onSettingsChange={setGlobalSettings}>
-      <AgentProvider
-        apiKeys={globalSettings.apiKeys}
-        enabledPlugins={globalSettings.enabledPlugins}
-        approvedManifests={globalSettings.approvedManifests}
-      >
-        <MessageProvider apiKeys={globalSettings.apiKeys}>
-          <RepoWorkflowProvider>
-            <AppContent
-              apiKeys={globalSettings.apiKeys}
-              settings={globalSettings}
-              onApiKeyChange={handleApiKeyChange}
-              onSettingsChange={setGlobalSettings}
-            />
-          </RepoWorkflowProvider>
-        </MessageProvider>
-      </AgentProvider>
+      <ProjectProvider settings={globalSettings} onSettingsChange={setGlobalSettings}>
+        <AgentProvider
+          apiKeys={globalSettings.apiKeys}
+          enabledPlugins={globalSettings.enabledPlugins}
+          approvedManifests={globalSettings.approvedManifests}
+        >
+          <MessageProvider apiKeys={globalSettings.apiKeys}>
+            <RepoWorkflowProvider>
+              <AppContent
+                apiKeys={globalSettings.apiKeys}
+                settings={globalSettings}
+                onApiKeyChange={handleApiKeyChange}
+                onSettingsChange={setGlobalSettings}
+              />
+            </RepoWorkflowProvider>
+          </MessageProvider>
+        </AgentProvider>
+      </ProjectProvider>
     </PluginHostProvider>
   );
 };

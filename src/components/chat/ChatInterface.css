@@ -1972,6 +1972,34 @@
   font-size: 12px;
 }
 
+.project-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 6px 14px;
+  color: #fff;
+}
+
+.project-pill select {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  padding: 0;
+}
+
+.project-pill select:disabled {
+  opacity: 0.6;
+}
+
+.project-pill .project-meta {
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;

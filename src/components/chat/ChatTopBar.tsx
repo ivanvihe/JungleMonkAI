@@ -3,6 +3,7 @@ import { AgentDefinition, AgentKind } from '../../core/agents/agentRegistry';
 import { AgentPresenceSummary, AgentPresenceStatus } from '../../core/agents/presence';
 import { ChatActorFilter } from '../../types/chat';
 import { getAgentDisplayName } from '../../utils/agentDisplay';
+import { useProjects } from '../../core/projects/ProjectContext';
 
 interface ChatTopBarProps {
   agents: AgentDefinition[];
@@ -62,6 +63,21 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
 }) => {
   const hasPending = pendingResponses > 0;
   const overallStatus = resolveStatus(presenceSummary);
+  const { projects, activeProjectId, activeProject, selectProject } = useProjects();
+
+  const handleProjectChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextId = event.target.value || null;
+    selectProject(nextId);
+  };
+
+  const projectOptions = useMemo(
+    () =>
+      projects.map(project => ({
+        id: project.id,
+        label: project.name,
+      })),
+    [projects],
+  );
 
   const filterOptions = useMemo(() => {
     const base: { value: ChatActorFilter; label: string }[] = [
@@ -154,6 +170,29 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
           >
             ↻
           </button>
+        </div>
+
+        <div className="project-pill">
+          <select
+            aria-label="Seleccionar proyecto activo"
+            value={activeProjectId ?? ''}
+            onChange={handleProjectChange}
+            disabled={!projectOptions.length}
+          >
+            {projectOptions.map(option => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+            {!projectOptions.length && <option value="">Sin proyectos configurados</option>}
+          </select>
+          <div className="project-meta" aria-live="polite">
+            {activeProject
+              ? `${activeProject.repositoryPath}${
+                  activeProject.defaultBranch ? `@${activeProject.defaultBranch}` : ''
+                }`
+              : 'Sin proyecto activo'}
+          </div>
         </div>
 
         <div className="filter-pill">

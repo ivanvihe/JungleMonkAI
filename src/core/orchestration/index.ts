@@ -85,4 +85,5 @@ export type {
   MultiAgentContext,
   OrchestrationPlan,
   OrchestrationTraceEntry,
+  OrchestrationProjectContext,
 } from './types';

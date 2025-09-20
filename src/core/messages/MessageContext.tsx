@@ -34,9 +34,11 @@ import {
   buildTraceFromBridge,
   limitSnapshotHistory,
   type MultiAgentContext,
+  type OrchestrationProjectContext,
   type OrchestrationTraceEntry,
   type SharedConversationSnapshot,
 } from '../orchestration';
+import { useProjects } from '../projects/ProjectContext';
 
 interface MessageContextValue {
   messages: ChatMessage[];
@@ -479,6 +481,11 @@ const mockAgentReply = (agent: AgentDefinition, prompt?: string, context?: Multi
   const instructions = context?.instructions?.length
     ? ` Pistas: ${context.instructions.slice(0, 2).join(' | ')}.`
     : '';
+  const repoHint = context?.project
+    ? ` Contexto repo: ${context.project.repositoryPath}${
+        context.project.defaultBranch ? `@${context.project.defaultBranch}` : ''
+      }.`
+    : '';
 
   if (agent.provider === 'OpenAI') {
     return `He generado una propuesta inicial basándome en «${truncatedPrompt || 'la última instrucción'}».${roleHint}${objectiveHint}${instructions}`;
@@ -494,7 +501,7 @@ const mockAgentReply = (agent: AgentDefinition, prompt?: string, context?: Multi
 
   if (agent.kind === 'local') {
     const versionLabel = getAgentVersionLabel(agent);
-    return `Jarvis (${versionLabel}) sugiere una variante optimizada con «${truncatedPrompt || 'los parámetros indicados'}».${roleHint}${objectiveHint}${instructions}`;
+    return `Jarvis (${versionLabel}) alista cambios sobre «${truncatedPrompt || 'los parámetros indicados'}».${roleHint}${objectiveHint}${instructions}${repoHint}`;
   }
 
   return `Respuesta generada por ${getAgentDisplayName(agent)}.${roleHint}${objectiveHint}${instructions}`;
@@ -504,6 +511,7 @@ const MessageContext = createContext<MessageContextValue | undefined>(undefined)
 
 export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, children }) => {
   const { agents, activeAgents, agentMap } = useAgents();
+  const { activeProject } = useProjects();
   const loadPersistedQualityState = useCallback((): PersistedQualityState => {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
       return { feedback: {}, corrections: [] };
@@ -558,6 +566,20 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   ]);
   const persistedQualityState = useMemo(() => loadPersistedQualityState(), [loadPersistedQualityState]);
   const persistedSharedState = useMemo(() => loadPersistedSharedState(), [loadPersistedSharedState]);
+  const orchestrationProject = useMemo<OrchestrationProjectContext | undefined>(() => {
+    if (!activeProject) {
+      return undefined;
+    }
+    return {
+      id: activeProject.id,
+      name: activeProject.name,
+      repositoryPath: activeProject.repositoryPath,
+      defaultBranch: activeProject.defaultBranch,
+      instructions: activeProject.instructions,
+      preferredProvider: activeProject.preferredProvider,
+      preferredModel: activeProject.preferredModel,
+    };
+  }, [activeProject]);
   const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, MessageFeedback>>(
     persistedQualityState.feedback,
   );
@@ -855,6 +877,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       snapshot: sharedSnapshot,
       roles: rolesMap,
       agentPrompts,
+      project: orchestrationProject,
     });
 
     const bridgeMessages: ChatMessage[] = plan.sharedBridgeMessages.map(message => ({
@@ -922,6 +945,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     composerTranscriptions,
     coordinationStrategy,
     draft,
+    orchestrationProject,
     sharedSnapshot,
   ]);
 

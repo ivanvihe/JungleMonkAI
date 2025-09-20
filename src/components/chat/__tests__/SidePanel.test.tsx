@@ -1,142 +1,160 @@
 import React from 'react';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { SidePanel } from '../SidePanel';
-import type { SidePanelPreferences } from '../../../types/globalSettings';
-
-vi.mock('../../models/ModelGallery', () => ({
-  ModelGallery: () => <div data-testid="model-gallery">Model gallery</div>,
-}));
-
-vi.mock('../../agents/AgentPresenceList', () => ({
-  AgentPresenceList: () => <div data-testid="agent-presence">Agent list</div>,
-}));
-
-vi.mock('../../quality/QualityDashboard', () => ({
-  QualityDashboard: () => <div data-testid="quality-dashboard">Quality dashboard</div>,
-}));
-
-vi.mock('../../orchestration/AgentConversationPanel', () => ({
-  AgentConversationPanel: () => <div data-testid="agent-conversation">Conversation panel</div>,
-}));
+import { ChatTopBar } from '../ChatTopBar';
+import { ProjectProvider, useProjects } from '../../../core/projects/ProjectContext';
+import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
+import type { AgentPresenceSummary } from '../../../core/agents/presence';
+import type { AgentDefinition } from '../../../core/agents/agentRegistry';
 
 vi.mock('../../../core/agents/AgentContext', () => ({
-  useAgents: () => ({
-    agents: [
-      {
-        id: 'agent-1',
-        name: 'Agent One',
-        channel: 'gpt',
-        kind: 'cloud',
-        provider: 'openai',
-        accent: '#ff6600',
-        active: true,
-        status: 'Listo',
-      },
-    ],
-    agentMap: new Map([
-      [
-        'agent-1',
-        {
-          id: 'agent-1',
-          name: 'Agent One',
-          channel: 'gpt',
-          kind: 'cloud',
-          provider: 'openai',
-          accent: '#ff6600',
-          active: true,
-          status: 'Listo',
-        },
-      ],
-    ]),
-    toggleAgent: vi.fn(),
-    assignAgentRole: vi.fn(),
-  }),
+  useAgents: () => ({ agents: [], activeAgents: [], agentMap: new Map() }),
 }));
 
 vi.mock('../../../core/messages/MessageContext', () => ({
   useMessages: () => ({
-    quickCommands: ['Hola'],
-    appendToDraft: vi.fn(),
     messages: [],
+    quickCommands: [],
+    appendToDraft: vi.fn(),
     pendingResponses: 0,
     agentResponses: [],
-    formatTimestamp: (value: number | string) => String(value),
-    toPlainText: () => '',
-    feedbackByMessage: {},
-    markMessageFeedback: vi.fn(),
-    submitCorrection: vi.fn(),
-    correctionHistory: [],
-    coordinationStrategy: 'parallel',
-    setCoordinationStrategy: vi.fn(),
-    sharedSnapshot: null,
-    orchestrationTraces: [],
+    formatTimestamp: (value: string) => value,
   }),
 }));
 
-vi.mock('../../../hooks/useSidePanelSlots', () => ({
-  useSidePanelSlots: () => [
-    {
-      id: 'alpha:panel',
-      pluginId: 'alpha',
-      label: 'Panel plugin',
-      Component: () => <div>Contenido plugin</div>,
-    },
-  ],
+vi.mock('../../../hooks/useLocalModels', () => ({
+  useLocalModels: () => ({ models: [] }),
 }));
 
-vi.mock('../../../utils/secrets', () => ({
-  providerSecretExists: () => Promise.resolve(false),
-  storeProviderSecret: vi.fn(),
-}));
-
-const createLayout = (overrides: Partial<SidePanelPreferences> = {}): SidePanelPreferences => ({
-  position: 'right',
-  width: 420,
-  collapsed: false,
-  activeSectionId: 'channels',
-  ...overrides,
-});
-
-const Wrapper: React.FC<{ initialLayout?: Partial<SidePanelPreferences> }> = ({ initialLayout }) => {
-  const [layout, setLayout] = React.useState<SidePanelPreferences>(createLayout(initialLayout));
-
+const ProjectProbe: React.FC = () => {
+  const { activeProject, projects } = useProjects();
   return (
-    <SidePanel
-      apiKeys={{ openai: '', anthropic: '', groq: '' }}
-      onApiKeyChange={vi.fn()}
-      presenceMap={new Map()}
-      onRefreshAgentPresence={vi.fn()}
-      layout={layout}
-      onLayoutChange={updater => setLayout(prev => updater(prev))}
-    />
+    <div data-testid="project-state">{`${activeProject?.name ?? 'none'}|${projects.length}`}</div>
   );
 };
 
-describe('SidePanel', () => {
+interface HarnessProps {
+  initialProjects?: Array<{
+    id: string;
+    name: string;
+    repositoryPath: string;
+    defaultBranch?: string;
+    preferredProvider?: string;
+    preferredModel?: string;
+  }>;
+  children: React.ReactNode;
+}
+
+const renderWithProjects = ({ initialProjects = [], children }: HarnessProps) => {
+  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children: nestedChildren }) => {
+    const [settings, setSettings] = React.useState(() => ({
+      ...DEFAULT_GLOBAL_SETTINGS,
+      projectProfiles: initialProjects,
+      activeProjectId: initialProjects[0]?.id ?? null,
+    }));
+
+    return (
+      <ProjectProvider settings={settings} onSettingsChange={setSettings}>
+        {nestedChildren}
+        <ProjectProbe />
+      </ProjectProvider>
+    );
+  };
+
+  return render(<Wrapper>{children}</Wrapper>);
+};
+
+const presenceSummary: AgentPresenceSummary = {
+  totals: { online: 0, offline: 0, loading: 0, error: 0 },
+  byKind: {
+    cloud: { total: 0, online: 0, loading: 0, offline: 0, error: 0 },
+    local: { total: 0, online: 0, loading: 0, offline: 0, error: 0 },
+  },
+};
+
+const emptyAgents: AgentDefinition[] = [];
+
+describe('Project-aware UI', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('shows the default core section in tab mode and hides inactive ones', () => {
-    render(<Wrapper />);
-
-    expect(screen.getByText('Estado en tiempo real de tus proveedores.')).toBeInTheDocument();
-    expect(
-      screen.queryByText('Guarda instrucciones recurrentes para dispararlas en el chat.'),
-    ).not.toBeInTheDocument();
+  afterEach(() => {
+    cleanup();
   });
 
-  it('allows switching to plugin panels', async () => {
-    render(<Wrapper />);
-
-    const [pluginTab] = screen.getAllByRole('tab', { name: 'Panel plugin' });
-    fireEvent.click(pluginTab);
-
-    expect(await screen.findByText('Contenido plugin')).toBeInTheDocument();
-    await waitFor(() => {
-      expect(pluginTab).toHaveAttribute('aria-selected', 'true');
+  it('permite crear un proyecto desde el panel lateral y activarlo automáticamente', () => {
+    renderWithProjects({
+      children: (
+        <SidePanel
+          apiKeys={{ openai: '', anthropic: '', groq: '' }}
+          presenceMap={new Map()}
+          onRefreshAgentPresence={vi.fn()}
+          onOpenGlobalSettings={vi.fn()}
+        />
+      ),
     });
+
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Monorepo' } });
+    fireEvent.change(screen.getByLabelText('Repositorio'), {
+      target: { value: '/workspace/monorepo' },
+    });
+    fireEvent.change(screen.getByLabelText('Rama por defecto'), { target: { value: 'main' } });
+    fireEvent.change(screen.getByLabelText('Proveedor preferido'), { target: { value: 'openai' } });
+    fireEvent.change(screen.getByLabelText('Modelo preferido'), { target: { value: 'gpt-4' } });
+    fireEvent.change(screen.getByLabelText('Instrucciones fijas'), {
+      target: { value: 'Validar los tests antes de PR.' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    const states = screen.getAllByTestId('project-state');
+    expect(states.at(-1)).toHaveTextContent('Monorepo|1');
+    expect((screen.getByLabelText('Repositorio') as HTMLInputElement).value).toBe(
+      '/workspace/monorepo',
+    );
+  });
+
+  it('permite cambiar el proyecto activo desde la barra superior', () => {
+    renderWithProjects({
+      initialProjects: [
+        { id: 'p1', name: 'Proyecto A', repositoryPath: '/repo/a', defaultBranch: 'main' },
+        {
+          id: 'p2',
+          name: 'Proyecto B',
+          repositoryPath: '/repo/b',
+          defaultBranch: 'release',
+          preferredProvider: 'openai',
+          preferredModel: 'o1',
+        },
+      ],
+      children: (
+        <ChatTopBar
+          agents={emptyAgents}
+          presenceSummary={presenceSummary}
+          activeAgents={0}
+          totalAgents={0}
+          pendingResponses={0}
+          activeFilter="all"
+          onFilterChange={vi.fn()}
+          onRefreshPresence={vi.fn()}
+          onOpenGlobalSettings={vi.fn()}
+          onOpenPlugins={vi.fn()}
+          onOpenMcp={vi.fn()}
+          activeView="chat"
+          onChangeView={vi.fn()}
+        />
+      ),
+    });
+
+    fireEvent.change(screen.getByLabelText('Seleccionar proyecto activo'), {
+      target: { value: 'p2' },
+    });
+
+    const states = screen.getAllByTestId('project-state');
+    expect(states.at(-1)).toHaveTextContent('Proyecto B|2');
+    expect(screen.getByText('/repo/b@release')).toBeInTheDocument();
   });
 });

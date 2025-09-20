@@ -3,6 +3,7 @@ import {
   AgentRoleAssignment,
   InternalBridgeMessage,
   MultiAgentContext,
+  OrchestrationProjectContext,
   SharedConversationSnapshot,
 } from '../types';
 import { AgentDefinition } from '../../agents/agentRegistry';
@@ -100,19 +101,21 @@ const buildContext = (
   snapshot: SharedConversationSnapshot,
   userPrompt: string,
   instructions: string[],
+  project: OrchestrationProjectContext | undefined,
 ): MultiAgentContext => ({
   strategyId: 'critic-reviewer',
   snapshot,
   role,
   instructions,
   userPrompt,
+  project,
 });
 
 export const criticReviewerStrategy: CoordinationStrategy = {
   id: 'critic-reviewer',
   label: 'Productor + crítico',
   description: 'Un agente genera propuestas y otro(s) las audita antes de publicarlas.',
-  buildPlan: ({ userPrompt, agents, snapshot, roles, agentPrompts }): OrchestrationPlan => {
+  buildPlan: ({ userPrompt, agents, snapshot, roles, agentPrompts, project }): OrchestrationPlan => {
     const timestamp = new Date().toISOString();
     const { producers, reviewers } = splitRoles(agents, roles);
     const sharedMessages: InternalBridgeMessage[] = [
@@ -136,6 +139,7 @@ export const criticReviewerStrategy: CoordinationStrategy = {
             snapshot,
             promptForAgent,
             buildProducerInstructions(agent, roles[agent.id], snapshot, promptForAgent),
+            project,
           ),
         };
       }),
@@ -150,6 +154,7 @@ export const criticReviewerStrategy: CoordinationStrategy = {
             snapshot,
             promptForAgent,
             buildReviewerInstructions(agent, roles[agent.id], snapshot, promptForAgent),
+            project,
           ),
         };
       }),

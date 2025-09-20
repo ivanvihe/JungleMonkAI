@@ -1,9 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
 import { ChatTopBar } from './components/chat/ChatTopBar';
 import { ChatStatusBar } from './components/chat/ChatStatusBar';
+import { ApiKeySettings, GlobalSettings, SupportedProvider } from './types/globalSettings';
+import { DEFAULT_GLOBAL_SETTINGS, isSupportedProvider, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
+import { callAnthropicChat, callGroqChat, callOpenAIChat } from './utils/aiProviders';
 
 type AgentKind = 'cloud' | 'local';
 
@@ -11,6 +14,7 @@ type AgentStatus = 'Disponible' | 'Sin clave' | 'Cargando' | 'Inactivo';
 
 type AgentDefinition = {
   id: string;
+  model: string;
   name: string;
   provider: string;
   description: string;
@@ -33,15 +37,10 @@ type ChatMessage = {
   sourcePrompt?: string;
 };
 
-type ApiKeyState = {
-  openai: string;
-  anthropic: string;
-  groq: string;
-};
-
 const INITIAL_AGENTS: AgentDefinition[] = [
   {
-    id: 'gpt-4o-mini',
+    id: 'openai-gpt-4o-mini',
+    model: 'gpt-4o-mini',
     name: 'GPT-4o mini',
     provider: 'OpenAI',
     description: 'Modelo ligero ideal para brainstorming visual y prototipos rápidos.',
@@ -51,7 +50,8 @@ const INITIAL_AGENTS: AgentDefinition[] = [
     status: 'Disponible',
   },
   {
-    id: 'claude-35-sonnet',
+    id: 'anthropic-claude-35-sonnet',
+    model: 'claude-3-5-sonnet-20241022',
     name: 'Claude 3.5 Sonnet',
     provider: 'Anthropic',
     description: 'Especialista en refinamiento, redacción y coherencia narrativa.',
@@ -62,6 +62,7 @@ const INITIAL_AGENTS: AgentDefinition[] = [
   },
   {
     id: 'groq-llama3-70b',
+    model: 'llama3-70b-8192',
     name: 'LLaMA3 70B',
     provider: 'Groq',
     description: 'Respuesta ultrarrápida para tareas analíticas y técnicas.',
@@ -72,6 +73,7 @@ const INITIAL_AGENTS: AgentDefinition[] = [
   },
   {
     id: 'local-phi3',
+    model: 'local-phi3',
     name: 'Phi-3 Mini',
     provider: 'Local',
     description: 'Modelo local optimizado para dispositivos ligeros.',
@@ -82,6 +84,7 @@ const INITIAL_AGENTS: AgentDefinition[] = [
   },
   {
     id: 'local-mistral',
+    model: 'local-mistral',
     name: 'Mistral 7B',
     provider: 'Local',
     description: 'Gran equilibrio entre velocidad y creatividad en local.',
@@ -92,11 +95,39 @@ const INITIAL_AGENTS: AgentDefinition[] = [
   },
 ];
 
-const DEFAULT_API_KEYS: ApiKeyState = {
-  openai: '',
-  anthropic: '',
-  groq: '',
+const AGENT_SYSTEM_PROMPT =
+  'Actúas como parte de un colectivo de agentes creativos. Responde de forma concisa, en español cuando sea posible, y especifica los supuestos importantes que utilices al contestar.';
+
+const syncAgentWithApiKeys = (
+  agent: AgentDefinition,
+  apiKeys: ApiKeySettings,
+  forceStatus = false,
+): AgentDefinition => {
+  if (agent.kind !== 'cloud') {
+    return agent.apiKey ? { ...agent, apiKey: undefined } : agent;
+  }
+
+  const providerKey = agent.provider.toLowerCase();
+  if (!isSupportedProvider(providerKey)) {
+    return agent.apiKey ? { ...agent, apiKey: undefined } : agent;
+  }
+
+  const key = apiKeys[providerKey];
+  const desiredStatus = forceStatus || agent.active ? (key ? 'Disponible' : 'Sin clave') : agent.status;
+
+  if (agent.apiKey === key && agent.status === desiredStatus) {
+    return agent;
+  }
+
+  return {
+    ...agent,
+    apiKey: key,
+    status: desiredStatus,
+  };
 };
+
+const initializeAgents = (apiKeys: ApiKeySettings): AgentDefinition[] =>
+  INITIAL_AGENTS.map(agent => syncAgentWithApiKeys({ ...agent }, apiKeys, true));
 
 const QUICK_COMMANDS: string[] = [
   'gpt, analiza este briefing y propón un storyboard.',
@@ -119,15 +150,15 @@ const mockAgentReply = (agent: AgentDefinition, prompt?: string): string => {
   const safePrompt = prompt?.replace(/\s+/g, ' ').trim() ?? '';
   const truncatedPrompt = safePrompt.length > 120 ? `${safePrompt.slice(0, 117)}…` : safePrompt;
 
-  if (agent.id.startsWith('gpt')) {
+  if (agent.provider === 'OpenAI') {
     return `He generado una propuesta inicial basándome en «${truncatedPrompt || 'la última instrucción'}». Puedo preparar estilos CSS y componentes listos para copiar.`;
   }
 
-  if (agent.id.startsWith('claude')) {
+  if (agent.provider === 'Anthropic') {
     return `He revisado la entrega de los otros modelos y propongo mejoras editoriales y de tono para «${truncatedPrompt || 'el contexto actual'}».`;
   }
 
-  if (agent.id.startsWith('groq')) {
+  if (agent.provider === 'Groq') {
     return `Aquí tienes un desglose técnico rápido y una lista de validaciones clave a partir de «${truncatedPrompt || 'tu solicitud'}».`;
   }
 
@@ -139,8 +170,17 @@ const mockAgentReply = (agent: AgentDefinition, prompt?: string): string => {
 };
 
 const App: React.FC = () => {
-  const [agents, setAgents] = useState<AgentDefinition[]>(INITIAL_AGENTS);
-  const [apiKeys, setApiKeys] = useState<ApiKeyState>(DEFAULT_API_KEYS);
+  const initialSettingsRef = useRef<GlobalSettings | null>(null);
+  if (!initialSettingsRef.current) {
+    initialSettingsRef.current = loadGlobalSettings();
+  }
+
+  const resolvedInitialSettings = initialSettingsRef.current ?? DEFAULT_GLOBAL_SETTINGS;
+
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(resolvedInitialSettings);
+  const [agents, setAgents] = useState<AgentDefinition[]>(() =>
+    initializeAgents(resolvedInitialSettings.apiKeys),
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: buildMessageId('system'),
@@ -151,6 +191,82 @@ const App: React.FC = () => {
   ]);
   const [draft, setDraft] = useState('');
   const scheduledResponsesRef = useRef<Set<string>>(new Set());
+  const { apiKeys } = globalSettings;
+
+  useEffect(() => {
+    saveGlobalSettings(globalSettings);
+  }, [globalSettings]);
+
+  useEffect(() => {
+    setAgents(prev => {
+      let changed = false;
+      const updatedAgents = prev.map(agent => {
+        const updated = syncAgentWithApiKeys(agent, apiKeys);
+        if (updated !== agent) {
+          changed = true;
+        }
+        return updated;
+      });
+
+      return changed ? updatedAgents : prev;
+    });
+  }, [apiKeys]);
+
+  const fetchAgentReply = useCallback(
+    async (agent: AgentDefinition, prompt: string): Promise<string> => {
+      const providerKey = agent.provider.toLowerCase();
+      if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
+        return mockAgentReply(agent, prompt);
+      }
+
+      const apiKey = apiKeys[providerKey];
+      if (!apiKey) {
+        return `${agent.name} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`;
+      }
+
+      const sanitizedPrompt = prompt.trim();
+      if (!sanitizedPrompt) {
+        return 'Necesito un prompt válido para generar una respuesta.';
+      }
+
+      try {
+        if (providerKey === 'openai') {
+          return await callOpenAIChat({
+            apiKey,
+            model: agent.model,
+            prompt: sanitizedPrompt,
+            systemPrompt: AGENT_SYSTEM_PROMPT,
+          });
+        }
+
+        if (providerKey === 'anthropic') {
+          return await callAnthropicChat({
+            apiKey,
+            model: agent.model,
+            prompt: sanitizedPrompt,
+            systemPrompt: AGENT_SYSTEM_PROMPT,
+          });
+        }
+
+        if (providerKey === 'groq') {
+          return await callGroqChat({
+            apiKey,
+            model: agent.model,
+            prompt: sanitizedPrompt,
+            systemPrompt: AGENT_SYSTEM_PROMPT,
+          });
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error('Error desconocido al contactar con el proveedor.');
+      }
+
+      return mockAgentReply(agent, prompt);
+    },
+    [apiKeys],
+  );
 
   const activeAgents = useMemo(() => agents.filter(agent => agent.active), [agents]);
   const agentMap = useMemo(() => {
@@ -165,19 +281,50 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    const timeouts: Array<ReturnType<typeof setTimeout>> = [];
+    const cancelers: Array<() => void> = [];
 
     messages
-      .filter(message => message.author === 'agent' && message.status === 'pending' && !scheduledResponsesRef.current.has(message.id))
+      .filter(
+        message =>
+          message.author === 'agent' &&
+          message.status === 'pending' &&
+          !scheduledResponsesRef.current.has(message.id),
+      )
       .forEach(message => {
-        scheduledResponsesRef.current.add(message.id);
         const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
+        if (!agent) {
+          return;
+        }
 
-        timeouts.push(
-          setTimeout(() => {
-            if (!agent) {
+        scheduledResponsesRef.current.add(message.id);
+
+        let cancelled = false;
+        const cancel = () => {
+          cancelled = true;
+          scheduledResponsesRef.current.delete(message.id);
+        };
+
+        cancelers.push(cancel);
+
+        const resolveAgentReply = async () => {
+          try {
+            let content: string;
+            if (agent.kind === 'cloud') {
+              content = await fetchAgentReply(agent, message.sourcePrompt ?? message.content);
+            } else {
+              content = await new Promise<string>(resolve => {
+                const delay = 700 + Math.random() * 1200;
+                setTimeout(() => resolve(mockAgentReply(agent, message.sourcePrompt)), delay);
+              });
+            }
+
+            if (cancelled) {
               return;
             }
+
+            const normalizedContent = content?.trim().length
+              ? content
+              : `${agent.name} no devolvió contenido.`;
 
             setMessages(prev =>
               prev.map(item =>
@@ -185,49 +332,89 @@ const App: React.FC = () => {
                   ? {
                       ...item,
                       status: 'sent',
-                      content: mockAgentReply(agent, message.sourcePrompt),
+                      content: normalizedContent,
                     }
                   : item,
               ),
             );
+          } catch (error) {
+            if (cancelled) {
+              return;
+            }
 
-            scheduledResponsesRef.current.delete(message.id);
-          }, 700 + Math.random() * 1200),
-        );
+            const fallbackMessage =
+              agent.kind === 'cloud'
+                ? `${agent.name} no pudo generar una respuesta (${error instanceof Error ? error.message : 'error inesperado'}).`
+                : mockAgentReply(agent, message.sourcePrompt);
+
+            setMessages(prev =>
+              prev.map(item =>
+                item.id === message.id
+                  ? {
+                      ...item,
+                      status: 'sent',
+                      content: fallbackMessage,
+                    }
+                  : item,
+              ),
+            );
+          } finally {
+            if (!cancelled) {
+              scheduledResponsesRef.current.delete(message.id);
+            }
+          }
+        };
+
+        resolveAgentReply();
       });
 
     return () => {
-      timeouts.forEach(clearTimeout);
+      cancelers.forEach(cancel => cancel());
     };
-  }, [messages, agentMap]);
+  }, [messages, agentMap, fetchAgentReply]);
 
   const handleToggleAgent = (agentId: string) => {
     setAgents(prev =>
-      prev.map(agent =>
-        agent.id === agentId
-          ? {
-              ...agent,
-              active: !agent.active,
-              status: !agent.active ? 'Disponible' : agent.status,
-            }
-          : agent,
-      ),
+      prev.map(agent => {
+        if (agent.id !== agentId) {
+          return agent;
+        }
+
+        const willBeActive = !agent.active;
+
+        if (agent.kind === 'cloud') {
+          const providerKey = agent.provider.toLowerCase();
+          let nextStatus = agent.status;
+          if (willBeActive && isSupportedProvider(providerKey)) {
+            nextStatus = apiKeys[providerKey] ? 'Disponible' : 'Sin clave';
+          } else if (!willBeActive) {
+            nextStatus = 'Inactivo';
+          }
+
+          return {
+            ...agent,
+            active: willBeActive,
+            status: nextStatus,
+          };
+        }
+
+        return {
+          ...agent,
+          active: willBeActive,
+          status: willBeActive ? 'Disponible' : agent.status,
+        };
+      }),
     );
   };
 
-  const handleApiKeyChange = (provider: keyof ApiKeyState, value: string) => {
-    setApiKeys(prev => ({ ...prev, [provider]: value }));
-    setAgents(prev =>
-      prev.map(agent =>
-        agent.provider.toLowerCase() === provider
-          ? {
-              ...agent,
-              apiKey: value,
-              status: value ? 'Disponible' : 'Sin clave',
-            }
-          : agent,
-      ),
-    );
+  const handleApiKeyChange = (provider: SupportedProvider, value: string) => {
+    setGlobalSettings(prev => ({
+      ...prev,
+      apiKeys: {
+        ...prev.apiKeys,
+        [provider]: value,
+      },
+    }));
   };
 
   const handleCommandInsert = (command: string) => {

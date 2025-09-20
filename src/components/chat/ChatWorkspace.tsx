@@ -33,6 +33,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
     lastUserMessage,
     quickCommands,
     formatTimestamp,
+    shareMessageWithAgent,
+    loadMessageIntoDraft,
   } = useMessages();
 
   const publicMessages = useMemo(() => messages.filter(message => message.visibility !== 'internal'), [messages]);
@@ -156,6 +158,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
                         providerLabel={providerLabel}
                         formatTimestamp={formatTimestamp}
                         onAppendToComposer={appendToDraft}
+                        onShareMessage={(agentId, messageId, canonicalCode) =>
+                          shareMessageWithAgent(agentId, messageId, { canonicalCode })
+                        }
+                        onLoadIntoDraft={loadMessageIntoDraft}
                       />
                     );
                   })}

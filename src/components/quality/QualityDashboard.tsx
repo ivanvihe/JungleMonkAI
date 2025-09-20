@@ -1,10 +1,22 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useMessages } from '../../core/messages/MessageContext';
+import { useAgents } from '../../core/agents/AgentContext';
+import { getAgentDisplayName } from '../../utils/agentDisplay';
 
 export const QualityDashboard: React.FC = () => {
-  const { qualityMetrics, correctionHistory, formatTimestamp } = useMessages();
+  const { qualityMetrics, correctionHistory, formatTimestamp, sharedMessageLog } = useMessages();
+  const { agentMap } = useAgents();
 
   const { totalAgentMessages, flaggedResponses, totalCorrections, correctionRate, tagRanking } = qualityMetrics;
+  const recentShared = useMemo(() => [...sharedMessageLog].slice(-3).reverse(), [sharedMessageLog]);
+
+  const resolveAgentName = (agentId?: string): string => {
+    if (!agentId) {
+      return 'usuario';
+    }
+    const agent = agentMap.get(agentId);
+    return agent ? getAgentDisplayName(agent) : agentId;
+  };
 
   return (
     <section className="panel-section">
@@ -53,6 +65,28 @@ export const QualityDashboard: React.FC = () => {
             </li>
           ))}
           {correctionHistory.length === 0 && <li className="quality-tag-empty">No hay correcciones registradas todavía.</li>}
+        </ul>
+      </div>
+      <div className="quality-history quality-share-log">
+        <span className="quality-label">Mensajes compartidos</span>
+        <ul>
+          {recentShared.map(entry => {
+            const targetName = resolveAgentName(entry.agentId);
+            const originName = entry.originAgentId ? resolveAgentName(entry.originAgentId) : 'usuario';
+            const snippet = entry.canonicalCode?.trim();
+
+            return (
+              <li key={entry.id}>
+                <strong>{targetName}</strong>
+                <span>{formatTimestamp(entry.sharedAt)}</span>
+                <em>{`desde ${originName}`}</em>
+                {snippet ? <code className="quality-share-code">{`${snippet.slice(0, 40)}${snippet.length > 40 ? '…' : ''}`}</code> : null}
+              </li>
+            );
+          })}
+          {recentShared.length === 0 && (
+            <li className="quality-tag-empty">Aún no has compartido mensajes entre agentes.</li>
+          )}
         </ul>
       </div>
     </section>

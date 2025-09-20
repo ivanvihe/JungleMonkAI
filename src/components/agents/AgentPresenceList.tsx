@@ -11,6 +11,8 @@ interface AgentPresenceListProps {
   onOpenConsole?: (agentId: string) => void;
   onRefreshAgent?: (agentId: string) => void | Promise<void>;
   onUpdateRole: (agentId: string, updates: { role?: string; objective?: string }) => void;
+  selectionMode?: boolean;
+  onSelectAgent?: (agentId: string) => void;
 }
 
 const STATUS_LABELS: Record<AgentPresenceStatus, string> = {
@@ -58,8 +60,10 @@ export const AgentPresenceList: React.FC<AgentPresenceListProps> = ({
   onOpenConsole,
   onRefreshAgent,
   onUpdateRole,
+  selectionMode = false,
+  onSelectAgent,
 }) => (
-  <ul className="agent-presence-list">
+  <ul className={`agent-presence-list ${selectionMode ? 'is-selection-mode' : ''}`}>
     {agents.map(agent => {
       const entry = presence.get(agent.id) ?? { status: 'loading', lastChecked: null };
       const statusClass = getStatusClass(entry.status);
@@ -91,59 +95,76 @@ export const AgentPresenceList: React.FC<AgentPresenceListProps> = ({
               </span>
             </div>
             {entry.message && <div className="agent-presence-message">{entry.message}</div>}
-            <div className="agent-presence-role">
-              <label>
-                Rol
-                <select
-                  value={agent.role ?? ''}
-                  onChange={event => onUpdateRole(agent.id, { role: event.target.value || undefined, objective: agent.objective })}
-                >
-                  {ROLE_PRESETS.map(option => (
-                    <option key={option || 'none'} value={option}>
-                      {option ? option : 'Sin asignar'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Objetivo
-                <input
-                  type="text"
-                  value={agent.objective ?? ''}
-                  onChange={event =>
-                    onUpdateRole(agent.id, {
-                      role: agent.role,
-                      objective: event.target.value.trim() ? event.target.value : undefined,
-                    })
-                  }
-                  placeholder="Describe el foco actual"
-                />
-              </label>
-            </div>
+            {selectionMode ? null : (
+              <div className="agent-presence-role">
+                <label>
+                  Rol
+                  <select
+                    value={agent.role ?? ''}
+                    onChange={event =>
+                      onUpdateRole(agent.id, { role: event.target.value || undefined, objective: agent.objective })
+                    }
+                  >
+                    {ROLE_PRESETS.map(option => (
+                      <option key={option || 'none'} value={option}>
+                        {option ? option : 'Sin asignar'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Objetivo
+                  <input
+                    type="text"
+                    value={agent.objective ?? ''}
+                    onChange={event =>
+                      onUpdateRole(agent.id, {
+                        role: agent.role,
+                        objective: event.target.value.trim() ? event.target.value : undefined,
+                      })
+                    }
+                    placeholder="Describe el foco actual"
+                  />
+                </label>
+              </div>
+            )}
           </div>
           <div className="agent-presence-actions">
-            <button
-              type="button"
-              className={`presence-action ${agent.active ? 'is-active' : ''}`}
-              onClick={() => onToggleAgent(agent.id)}
-            >
-              {agent.active ? 'Desactivar' : 'Activar'}
-            </button>
-            <button
-              type="button"
-              className="presence-action"
-              onClick={() => onOpenConsole?.(agent.id)}
-            >
-              Consola
-            </button>
-            <button
-              type="button"
-              className="presence-action is-ghost"
-              onClick={() => onRefreshAgent?.(agent.id)}
-              title="Reevaluar disponibilidad"
-            >
-              ↻
-            </button>
+            {selectionMode && onSelectAgent ? (
+              <button
+                type="button"
+                className="presence-action"
+                onClick={() => onSelectAgent(agent.id)}
+                disabled={!agent.active}
+              >
+                Enviar
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`presence-action ${agent.active ? 'is-active' : ''}`}
+                  onClick={() => onToggleAgent(agent.id)}
+                >
+                  {agent.active ? 'Desactivar' : 'Activar'}
+                </button>
+                <button
+                  type="button"
+                  className="presence-action"
+                  onClick={() => onOpenConsole?.(agent.id)}
+                >
+                  Consola
+                </button>
+                <button
+                  type="button"
+                  className="presence-action is-ghost"
+                  onClick={() => onRefreshAgent?.(agent.id)}
+                  title="Reevaluar disponibilidad"
+                >
+                  ↻
+                </button>
+              </>
+            )}
           </div>
         </li>
       );

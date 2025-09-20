@@ -3,12 +3,13 @@ use futures_util::StreamExt;
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tauri::{State, Window};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -29,6 +30,8 @@ pub struct ModelAsset {
     pub checksum: String,
     pub size: u64,
     pub file_name: String,
+    pub repo: Option<String>,
+    pub resolved_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,23 +52,27 @@ pub struct ModelSummary {
 struct LocalModelMetadata {
     file_name: String,
     checksum: String,
+    #[serde(default)]
+    metadata: HashMap<String, Value>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct ModelRegistryData {
     models: HashMap<String, LocalModelMetadata>,
     active_model: Option<String>,
+    #[serde(default)]
+    metadata: HashMap<String, Value>,
 }
 
-pub struct ModelRegistry {
+struct ModelRegistryEntry {
     manifest_path: PathBuf,
     models_dir: PathBuf,
     inner: RwLock<ModelRegistryData>,
     downloading: Mutex<HashSet<String>>,
 }
 
-impl ModelRegistry {
-    pub fn load(manifest_path: PathBuf, models_dir: PathBuf) -> anyhow::Result<Self> {
+impl ModelRegistryEntry {
+    fn load(manifest_path: PathBuf, models_dir: PathBuf) -> anyhow::Result<Self> {
         if let Some(parent) = manifest_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -92,41 +99,29 @@ impl ModelRegistry {
         Ok(())
     }
 
-    pub fn models_dir(&self) -> PathBuf {
-        self.models_dir.clone()
-    }
-
-    pub fn model_path(&self, file_name: &str) -> PathBuf {
+    fn model_path(&self, file_name: &str) -> PathBuf {
         self.models_dir.join(file_name)
     }
 
-    pub fn list(&self) -> (ModelRegistryData, HashSet<String>) {
+    fn list(&self) -> (ModelRegistryData, HashSet<String>) {
         let data = self.inner.read().unwrap().clone();
         let downloading = self.downloading.lock().unwrap().clone();
         (data, downloading)
     }
 
-    pub fn store_model(&self, model_id: &str, metadata: LocalModelMetadata) -> anyhow::Result<()> {
+    fn store_model(&self, model_id: &str, metadata: LocalModelMetadata) -> anyhow::Result<()> {
         let mut data = self.inner.write().unwrap();
         data.models.insert(model_id.to_string(), metadata);
         self.save_locked(&data)
     }
 
-    pub fn set_active(&self, model_id: &str) -> anyhow::Result<()> {
+    fn set_active(&self, model_id: &str) -> anyhow::Result<()> {
         let mut data = self.inner.write().unwrap();
         if !data.models.contains_key(model_id) {
             return Err(anyhow!("El modelo {model_id} no está instalado"));
         }
         data.active_model = Some(model_id.to_string());
         self.save_locked(&data)
-    }
-
-    pub fn active_model(&self) -> Option<String> {
-        self.inner.read().unwrap().active_model.clone()
-    }
-
-    pub fn is_downloading(&self, model_id: &str) -> bool {
-        self.downloading.lock().unwrap().contains(model_id)
     }
 
     fn begin_download(&self, model_id: &str) -> anyhow::Result<DownloadGuard<'_>> {
@@ -142,8 +137,64 @@ impl ModelRegistry {
     }
 }
 
+pub struct ModelRegistry {
+    default_manifest_path: PathBuf,
+    default_models_dir: PathBuf,
+    registries: RwLock<HashMap<PathBuf, Arc<ModelRegistryEntry>>>,
+}
+
+impl ModelRegistry {
+    pub fn load(
+        default_manifest_path: PathBuf,
+        default_models_dir: PathBuf,
+    ) -> anyhow::Result<Self> {
+        let entry =
+            ModelRegistryEntry::load(default_manifest_path.clone(), default_models_dir.clone())?;
+        let mut registries = HashMap::new();
+        registries.insert(default_manifest_path.clone(), Arc::new(entry));
+
+        Ok(Self {
+            default_manifest_path,
+            default_models_dir,
+            registries: RwLock::new(registries),
+        })
+    }
+
+    fn registry_for_storage_dir(
+        &self,
+        storage_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Arc<ModelRegistryEntry>> {
+        let (manifest_path, models_dir) = match storage_dir {
+            Some(dir) => {
+                let manifest_path = dir.join("models.json");
+                let models_dir = dir.join("models");
+                (manifest_path, models_dir)
+            }
+            None => (
+                self.default_manifest_path.clone(),
+                self.default_models_dir.clone(),
+            ),
+        };
+
+        if let Some(entry) = self.registries.read().unwrap().get(&manifest_path).cloned() {
+            return Ok(entry);
+        }
+
+        let entry = Arc::new(ModelRegistryEntry::load(manifest_path.clone(), models_dir)?);
+        let mut registries = self.registries.write().unwrap();
+        Ok(registries
+            .entry(manifest_path)
+            .or_insert_with(|| entry.clone())
+            .clone())
+    }
+
+    pub fn resolve(&self, storage_dir: Option<PathBuf>) -> anyhow::Result<Arc<ModelRegistryEntry>> {
+        self.registry_for_storage_dir(storage_dir)
+    }
+}
+
 struct DownloadGuard<'a> {
-    registry: &'a ModelRegistry,
+    registry: &'a ModelRegistryEntry,
     model_id: String,
 }
 
@@ -153,6 +204,52 @@ impl<'a> Drop for DownloadGuard<'a> {
             guard.remove(&self.model_id);
         }
     }
+}
+
+fn parse_storage_dir(storage_dir: Option<String>) -> Option<PathBuf> {
+    storage_dir.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(trimmed))
+        }
+    })
+}
+
+fn path_to_string(path: PathBuf) -> Option<String> {
+    Some(path.to_string_lossy().to_string())
+}
+
+fn metadata_string(meta: &LocalModelMetadata, key: &str) -> Option<String> {
+    meta.metadata.get(key).and_then(|value| match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    })
+}
+
+fn metadata_u64(meta: &LocalModelMetadata, key: &str) -> Option<u64> {
+    meta.metadata.get(key).and_then(|value| match value {
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.parse().ok(),
+        _ => None,
+    })
+}
+
+fn metadata_tags(meta: &LocalModelMetadata, key: &str) -> Vec<String> {
+    meta.metadata
+        .get(key)
+        .map(|value| match value {
+            Value::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect(),
+            Value::String(text) => vec![text.clone()],
+            _ => Vec::new(),
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Debug)]
@@ -463,6 +560,8 @@ async fn fetch_model_asset(
         checksum,
         size,
         file_name: source.file_name.to_string(),
+        repo: source.repo.map(|value| value.to_string()),
+        resolved_file: Some(source.file_name.to_string()),
     })
 }
 
@@ -483,51 +582,106 @@ async fn ensure_model_manifest() -> anyhow::Result<Vec<ModelAsset>> {
 }
 
 #[tauri::command]
-pub async fn list_models(state: State<'_, ModelRegistry>) -> Result<Vec<ModelSummary>, String> {
+#[allow(non_snake_case)]
+pub async fn list_models(
+    storageDir: Option<String>,
+    state: State<'_, ModelRegistry>,
+) -> Result<Vec<ModelSummary>, String> {
+    let storage_dir = parse_storage_dir(storageDir);
+    let registry = state
+        .resolve(storage_dir)
+        .map_err(|err| format!("No se pudo preparar el registro de modelos: {err}"))?;
+
     let assets = ensure_model_manifest()
         .await
         .map_err(|err| format!("No se pudo cargar el catálogo de modelos: {err}"))?;
-    let (data, downloading) = state.list();
-    let summaries = assets
-        .iter()
-        .map(|asset| {
-            let (status, local_path) = if downloading.contains(&asset.id) {
-                (
-                    "downloading".to_string(),
-                    data.models
-                        .get(&asset.id)
-                        .map(|m| state.model_path(&m.file_name)),
-                )
-            } else if let Some(meta) = data.models.get(&asset.id) {
-                ("ready".to_string(), Some(state.model_path(&meta.file_name)))
-            } else {
-                ("not_installed".to_string(), None)
-            };
+    let (data, downloading) = registry.list();
 
-            ModelSummary {
-                id: asset.id.clone(),
-                name: asset.name.clone(),
-                description: asset.description.clone(),
-                provider: asset.provider.clone(),
-                tags: asset.tags.clone(),
-                size: asset.size,
-                checksum: asset.checksum.clone(),
-                status,
-                local_path: local_path.and_then(|p| p.to_str().map(|s| s.to_string())),
-                active: data.active_model.as_deref() == Some(asset.id.as_str()),
-            }
-        })
-        .collect();
+    let mut seen = HashSet::new();
+    let mut summaries = Vec::with_capacity(assets.len() + data.models.len());
+
+    for asset in &assets {
+        seen.insert(asset.id.clone());
+        let (status, local_path) = if downloading.contains(&asset.id) {
+            (
+                "downloading".to_string(),
+                data.models
+                    .get(&asset.id)
+                    .map(|m| registry.model_path(&m.file_name)),
+            )
+        } else if let Some(meta) = data.models.get(&asset.id) {
+            (
+                "ready".to_string(),
+                Some(registry.model_path(&meta.file_name)),
+            )
+        } else {
+            ("not_installed".to_string(), None)
+        };
+
+        summaries.push(ModelSummary {
+            id: asset.id.clone(),
+            name: asset.name.clone(),
+            description: asset.description.clone(),
+            provider: asset.provider.clone(),
+            tags: asset.tags.clone(),
+            size: asset.size,
+            checksum: asset.checksum.clone(),
+            status,
+            local_path: local_path.and_then(path_to_string),
+            active: data.active_model.as_deref() == Some(asset.id.as_str()),
+        });
+    }
+
+    for (model_id, meta) in &data.models {
+        if seen.contains(model_id) {
+            continue;
+        }
+
+        let status = if downloading.contains(model_id) {
+            "downloading".to_string()
+        } else {
+            "ready".to_string()
+        };
+
+        let name = metadata_string(meta, "name").unwrap_or_else(|| model_id.clone());
+        let description = metadata_string(meta, "description").unwrap_or_default();
+        let provider =
+            metadata_string(meta, "provider").unwrap_or_else(|| "Catálogo local".to_string());
+        let tags = metadata_tags(meta, "tags");
+        let size = metadata_u64(meta, "size").unwrap_or(0);
+
+        summaries.push(ModelSummary {
+            id: model_id.clone(),
+            name,
+            description,
+            provider,
+            tags,
+            size,
+            checksum: meta.checksum.clone(),
+            status,
+            local_path: Some(registry.model_path(&meta.file_name)).and_then(path_to_string),
+            active: data.active_model.as_deref() == Some(model_id.as_str()),
+        });
+    }
 
     Ok(summaries)
 }
 
 #[tauri::command]
+#[allow(non_snake_case)]
 pub async fn download_model(
     window: Window,
-    model_id: String,
+    modelId: String,
+    storageDir: Option<String>,
     state: State<'_, ModelRegistry>,
+    manager: State<'_, SecretManager>,
 ) -> Result<(), String> {
+    let model_id = modelId;
+    let storage_dir = parse_storage_dir(storageDir);
+    let registry = state
+        .resolve(storage_dir)
+        .map_err(|err| format!("No se pudo preparar el registro de modelos: {err}"))?;
+
     let assets = ensure_model_manifest()
         .await
         .map_err(|err| format!("No se pudo cargar el catálogo de modelos: {err}"))?;
@@ -537,16 +691,17 @@ pub async fn download_model(
         .find(|item| item.id == model_id)
         .ok_or_else(|| format!("Modelo desconocido: {model_id}"))?;
 
-    let ModelAsset {
-        id,
-        download_url,
-        checksum,
-        size,
-        file_name,
-        ..
-    } = asset;
+    let download_url = asset.download_url.clone();
+    let checksum = asset.checksum.clone();
+    let size = asset.size;
+    let file_name = asset.file_name.clone();
+    let repo = asset.repo.clone();
+    let resolved_file = asset
+        .resolved_file
+        .clone()
+        .unwrap_or_else(|| file_name.clone());
 
-    let _guard = state
+    let _guard = registry
         .begin_download(&model_id)
         .map_err(|err| err.to_string())?;
 
@@ -555,7 +710,7 @@ pub async fn download_model(
         .get(&download_url)
         .header(reqwest::header::USER_AGENT, APP_USER_AGENT);
     if download_url.contains("huggingface.co") {
-        if let Some(token) = huggingface_token() {
+        if let Some(token) = resolve_huggingface_token(&manager) {
             request = request.bearer_auth(token);
         }
     }
@@ -570,7 +725,7 @@ pub async fn download_model(
 
     let total = response.content_length().unwrap_or(size);
     let mut stream = response.bytes_stream();
-    let dest_path = state.model_path(&file_name);
+    let dest_path = registry.model_path(&file_name);
     let tmp_path = dest_path.with_extension("download");
 
     let mut file = File::create(&tmp_path)
@@ -596,7 +751,7 @@ pub async fn download_model(
         let _ = window.emit(
             "model-download-progress",
             serde_json::json!({
-                "id": &id,
+                "id": &model_id,
                 "downloaded": downloaded,
                 "total": total,
                 "progress": progress,
@@ -616,7 +771,7 @@ pub async fn download_model(
         );
         let _ = window.emit(
             "model-download-error",
-            serde_json::json!({ "id": id, "error": message }),
+            serde_json::json!({ "id": model_id, "error": message }),
         );
         return Err(message);
     }
@@ -625,12 +780,43 @@ pub async fn download_model(
         .await
         .map_err(|err| err.to_string())?;
 
-    state
+    let mut metadata = HashMap::new();
+    metadata.insert("name".to_string(), Value::String(asset.name.clone()));
+    metadata.insert(
+        "description".to_string(),
+        Value::String(asset.description.clone()),
+    );
+    metadata.insert(
+        "provider".to_string(),
+        Value::String(asset.provider.clone()),
+    );
+    metadata.insert(
+        "tags".to_string(),
+        Value::Array(
+            asset
+                .tags
+                .iter()
+                .map(|tag| Value::String(tag.clone()))
+                .collect(),
+        ),
+    );
+    metadata.insert("download_url".to_string(), Value::String(download_url));
+    metadata.insert("size".to_string(), Value::from(size));
+    metadata.insert(
+        "resolved_file".to_string(),
+        Value::String(resolved_file.clone()),
+    );
+    if let Some(repo) = repo {
+        metadata.insert("repo".to_string(), Value::String(repo));
+    }
+
+    registry
         .store_model(
-            &id,
+            &model_id,
             LocalModelMetadata {
                 file_name: file_name.clone(),
                 checksum: checksum.clone(),
+                metadata,
             },
         )
         .map_err(|err| err.to_string())?;
@@ -638,7 +824,7 @@ pub async fn download_model(
     let _ = window.emit(
         "model-download-complete",
         serde_json::json!({
-            "id": id,
+            "id": model_id,
             "path": dest_path.to_string_lossy(),
             "checksum": checksum,
         }),
@@ -648,33 +834,54 @@ pub async fn download_model(
 }
 
 #[tauri::command]
+#[allow(non_snake_case)]
 pub async fn activate_model(
     model_id: String,
+    storageDir: Option<String>,
     state: State<'_, ModelRegistry>,
 ) -> Result<(), String> {
-    state.set_active(&model_id).map_err(|err| err.to_string())
+    let storage_dir = parse_storage_dir(storageDir);
+    let registry = state
+        .resolve(storage_dir)
+        .map_err(|err| format!("No se pudo preparar el registro de modelos: {err}"))?;
+    registry
+        .set_active(&model_id)
+        .map_err(|err| err.to_string())
 }
 
 pub fn local_model_path(model_id: &str, registry: &ModelRegistry) -> Option<PathBuf> {
-    let data = registry.inner.read().ok()?;
+    let entry = registry.resolve(None).ok()?;
+    let data = entry.inner.read().ok()?;
     data.models
         .get(model_id)
-        .and_then(|meta| Some(registry.model_path(&meta.file_name)))
+        .map(|meta| entry.model_path(&meta.file_name))
 }
 
 pub fn model_exists(model_id: &str, registry: &ModelRegistry) -> bool {
     registry
-        .inner
-        .read()
-        .map(|data| data.models.contains_key(model_id))
+        .resolve(None)
+        .ok()
+        .and_then(|entry| {
+            entry
+                .inner
+                .read()
+                .ok()
+                .map(|data| data.models.contains_key(model_id))
+        })
         .unwrap_or(false)
 }
 
 pub fn model_is_active(model_id: &str, registry: &ModelRegistry) -> bool {
     registry
-        .inner
-        .read()
-        .map(|data| data.active_model.as_deref() == Some(model_id))
+        .resolve(None)
+        .ok()
+        .and_then(|entry| {
+            entry
+                .inner
+                .read()
+                .ok()
+                .map(|data| data.active_model.as_deref() == Some(model_id))
+        })
         .unwrap_or(false)
 }
 

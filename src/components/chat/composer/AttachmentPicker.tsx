@@ -5,6 +5,8 @@ interface AttachmentPickerProps {
   attachments: ChatAttachment[];
   onAdd: (attachments: ChatAttachment[]) => void;
   onRemove: (attachmentId: string) => void;
+  triggerAriaLabel?: string;
+  triggerTooltip?: string;
 }
 
 const inferAttachmentType = (file: File): ChatAttachment['type'] => {
@@ -30,7 +32,13 @@ const formatFileSize = (bytes?: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({ attachments, onAdd, onRemove }) => {
+export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({
+  attachments,
+  onAdd,
+  onRemove,
+  triggerAriaLabel,
+  triggerTooltip,
+}) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handleClick = useCallback(() => {
@@ -67,8 +75,14 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({ attachments,
 
   return (
     <div className="attachment-picker">
-      <button type="button" className="ghost-button" onClick={handleClick}>
-        Adjuntar archivos
+      <button
+        type="button"
+        className="icon-button compact"
+        onClick={handleClick}
+        aria-label={triggerAriaLabel ?? 'Adjuntar archivos'}
+        title={triggerTooltip ?? triggerAriaLabel ?? 'Adjuntar archivos'}
+      >
+        <span aria-hidden="true">📎</span>
       </button>
       <input
         ref={inputRef}
@@ -92,11 +106,12 @@ export const AttachmentPicker: React.FC<AttachmentPickerProps> = ({ attachments,
               </div>
               <button
                 type="button"
-                className="attachment-remove"
+                className="icon-button compact subtle"
                 onClick={() => onRemove(attachment.id)}
                 aria-label={`Eliminar adjunto ${attachment.name ?? attachment.id}`}
+                title="Eliminar adjunto"
               >
-                ×
+                <span aria-hidden="true">✕</span>
               </button>
             </li>
           ))}

@@ -146,35 +146,21 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
       </section>
 
       <section className="chat-composer-area" aria-label="Redactor de mensajes">
-        <div className="chat-suggestions">
-          <span className="suggestions-label">Sugerencias</span>
-          {quickCommands.slice(0, 3).map(command => (
-            <button
-              key={command}
-              type="button"
-              className="suggestion-chip"
-              onClick={() => appendToDraft(command)}
-            >
-              {command}
-            </button>
-          ))}
-        </div>
-
         <div className="chat-composer">
-          <textarea
-            value={draft}
-            onChange={event => setDraft(event.target.value)}
-            placeholder="Habla con varios agentes a la vez: por ejemplo “gpt, genera un esquema de estilos”"
-            className="chat-input"
-            rows={3}
-          />
-          <div className="composer-extensions">
-            <AttachmentPicker
-              attachments={composerAttachments}
-              onAdd={handleAddAttachments}
-              onRemove={handleRemoveAttachment}
-            />
-            <AudioRecorder onRecordingComplete={handleRecordingComplete} />
+          <div className="composer-header">
+            <div className="chat-suggestions">
+              <span className="suggestions-label">Sugerencias</span>
+              {quickCommands.slice(0, 3).map(command => (
+                <button
+                  key={command}
+                  type="button"
+                  className="suggestion-chip"
+                  onClick={() => appendToDraft(command)}
+                >
+                  {command}
+                </button>
+              ))}
+            </div>
             {composerTranscriptions.length > 0 && (
               <div className="composer-transcriptions">
                 {composerTranscriptions.map(transcription => (
@@ -183,16 +169,38 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
                     <span className="transcription-text">{transcription.text}</span>
                     <button
                       type="button"
-                      className="attachment-remove"
+                      className="icon-button compact subtle"
                       onClick={() => removeTranscription(transcription.id)}
+                      aria-label={`Eliminar transcripción ${transcription.modality ?? 'audio'}`}
+                      title="Eliminar transcripción"
                     >
-                      ×
+                      <span aria-hidden="true">✕</span>
                     </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
+
+          <div className="composer-extensions">
+            <AttachmentPicker
+              attachments={composerAttachments}
+              onAdd={handleAddAttachments}
+              onRemove={handleRemoveAttachment}
+              triggerAriaLabel="Adjuntar archivos"
+              triggerTooltip="Adjuntar archivos"
+            />
+            <AudioRecorder onRecordingComplete={handleRecordingComplete} />
+          </div>
+
+          <textarea
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            placeholder="Habla con varios agentes a la vez: por ejemplo “gpt, genera un esquema de estilos”"
+            className="chat-input"
+            rows={3}
+          />
+
           <div className="composer-toolbar">
             <div className="composer-hints">
               <span>Inicia la línea con «nombre:» o «nombre,» para dirigirla a un proveedor</span>
@@ -204,8 +212,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
               )}
             </div>
             <div className="composer-actions">
-              <button type="button" className="ghost-button" onClick={() => setDraft('')} disabled={!draft.trim()}>
-                Limpiar
+              <button
+                type="button"
+                className="icon-button compact subtle"
+                onClick={() => setDraft('')}
+                disabled={!draft.trim()}
+                aria-label="Limpiar borrador"
+                title="Limpiar borrador"
+              >
+                <span aria-hidden="true">🧹</span>
               </button>
               <button
                 type="button"

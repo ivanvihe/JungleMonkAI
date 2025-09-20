@@ -1,5 +1,10 @@
 import { ApiKeySettings } from '../../types/globalSettings';
-import { callAnthropicChat, callGroqChat, callOpenAIChat } from '../../utils/aiProviders';
+import {
+  ChatProviderResponse,
+  callAnthropicChat,
+  callGroqChat,
+  callOpenAIChat,
+} from '../../utils/aiProviders';
 import { isSupportedProvider } from '../../utils/globalSettings';
 import { AgentDefinition } from './agentRegistry';
 
@@ -18,20 +23,29 @@ export const fetchAgentReply = async ({
   prompt,
   apiKeys,
   fallback,
-}: FetchAgentReplyOptions): Promise<string> => {
+}: FetchAgentReplyOptions): Promise<ChatProviderResponse> => {
   const providerKey = agent.provider.toLowerCase();
   if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
-    return fallback(agent, prompt);
+    return {
+      content: fallback(agent, prompt),
+      modalities: ['text'],
+    };
   }
 
   const apiKey = apiKeys[providerKey];
   if (!apiKey) {
-    return `${agent.name} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`;
+    return {
+      content: `${agent.name} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`,
+      modalities: ['text'],
+    };
   }
 
   const sanitizedPrompt = prompt.trim();
   if (!sanitizedPrompt) {
-    return 'Necesito un prompt válido para generar una respuesta.';
+    return {
+      content: 'Necesito un prompt válido para generar una respuesta.',
+      modalities: ['text'],
+    };
   }
 
   if (providerKey === 'openai') {
@@ -61,5 +75,8 @@ export const fetchAgentReply = async ({
     });
   }
 
-  return fallback(agent, prompt);
+  return {
+    content: fallback(agent, prompt),
+    modalities: ['text'],
+  };
 };

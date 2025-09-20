@@ -107,6 +107,20 @@ export const SidePanel: React.FC<SidePanelProps> = ({ apiKeys, onApiKeyChange })
                 return null;
               }
 
+              const preview = Array.isArray(message.content)
+                ? message.content
+                    .map(part => {
+                      if (typeof part === 'string') {
+                        return part;
+                      }
+                      if (part.type === 'text') {
+                        return part.text;
+                      }
+                      return `[${part.type}]`;
+                    })
+                    .join(' · ')
+                : message.content;
+
               return (
                 <li key={message.id} className="activity-item">
                   <span className="activity-dot" style={{ background: agent.accent }} />
@@ -115,7 +129,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({ apiKeys, onApiKeyChange })
                       <strong>{agent.name}</strong>
                       <span>{formatTimestamp(message.timestamp)}</span>
                     </div>
-                    <p>{message.content}</p>
+                    <p>{preview}</p>
                   </div>
                 </li>
               );

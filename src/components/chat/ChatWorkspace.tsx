@@ -1,6 +1,11 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
+import { AttachmentPicker } from './composer/AttachmentPicker';
+import { AudioRecorder } from './composer/AudioRecorder';
+import { MessageAttachment } from './messages/MessageAttachment';
+import { AudioPlayer } from './messages/AudioPlayer';
+import { ChatAttachment, ChatContentPart, ChatTranscription } from '../../core/messages/messageTypes';
 
 interface ChatWorkspaceProps {
   sidePanel: React.ReactNode;
@@ -13,12 +18,101 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel }) => {
     draft,
     setDraft,
     appendToDraft,
+    composerAttachments,
+    addAttachment,
+    removeAttachment,
+    composerTranscriptions,
+    upsertTranscription,
+    removeTranscription,
+    composerModalities,
     sendMessage,
     pendingResponses,
     lastUserMessage,
     quickCommands,
     formatTimestamp,
   } = useMessages();
+
+  const handleAddAttachments = useCallback(
+    (items: ChatAttachment[]) => {
+      items.forEach(attachment => addAttachment(attachment));
+    },
+    [addAttachment],
+  );
+
+  const handleRemoveAttachment = useCallback(
+    (attachmentId: string) => {
+      const target = composerAttachments.find(attachment => attachment.id === attachmentId);
+      if (target?.url && typeof URL !== 'undefined' && target.url.startsWith('blob:')) {
+        URL.revokeObjectURL(target.url);
+      }
+      removeAttachment(attachmentId);
+      composerTranscriptions
+        .filter(transcription => transcription.attachmentId === attachmentId)
+        .forEach(transcription => removeTranscription(transcription.id));
+    },
+    [composerAttachments, composerTranscriptions, removeAttachment, removeTranscription],
+  );
+
+  const handleRecordingComplete = useCallback(
+    (attachment: ChatAttachment, transcription?: ChatTranscription) => {
+      addAttachment(attachment);
+      if (transcription) {
+        upsertTranscription(transcription);
+      }
+    },
+    [addAttachment, upsertTranscription],
+  );
+
+  const renderContentPart = useCallback(
+    (part: ChatContentPart | string, index: number, transcriptions?: ChatTranscription[]) => {
+      if (typeof part === 'string') {
+        return (
+          <p key={`text-${index}`} className="message-card-content">
+            {part}
+          </p>
+        );
+      }
+
+      if (part.type === 'text') {
+        return (
+          <p key={`text-${index}`} className="message-card-content">
+            {part.text}
+          </p>
+        );
+      }
+
+      if (part.type === 'image') {
+        return (
+          <figure key={`image-${index}`} className="message-card-media">
+            <img src={part.url} alt={part.alt ?? 'Imagen generada'} />
+            {part.alt && <figcaption>{part.alt}</figcaption>}
+          </figure>
+        );
+      }
+
+      if (part.type === 'audio') {
+        const relatedTranscriptions = transcriptions?.filter(item => !item.attachmentId);
+        return (
+          <div key={`audio-${index}`} className="message-card-media">
+            <AudioPlayer src={part.url} title="Respuesta de audio" transcriptions={relatedTranscriptions} />
+          </div>
+        );
+      }
+
+      if (part.type === 'file') {
+        return (
+          <div key={`file-${index}`} className="message-card-media">
+            <a href={part.url} target="_blank" rel="noreferrer">
+              {part.name ?? 'Archivo'}
+            </a>
+          </div>
+        );
+      }
+
+      return null;
+    },
+    [],
+  );
 
   return (
     <>
@@ -79,7 +173,33 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel }) => {
                           {message.status === 'pending' && <span className="message-card-status">orquestando…</span>}
                         </div>
                       </div>
-                      <p className="message-card-content">{message.content}</p>
+                      <div className="message-card-body">
+                        {Array.isArray(message.content)
+                          ? message.content.map((part, index) =>
+                              renderContentPart(part, index, message.transcriptions),
+                            )
+                          : renderContentPart(message.content, 0, message.transcriptions)}
+                        {message.attachments?.length ? (
+                          <div className="message-card-attachments">
+                            {message.attachments.map(attachment => (
+                              <MessageAttachment
+                                key={attachment.id}
+                                attachment={attachment}
+                                transcriptions={message.transcriptions}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      {message.modalities?.length ? (
+                        <div className="message-card-modalities">
+                          {message.modalities.map(modality => (
+                            <span key={modality} className="modality-chip">
+                              {modality}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -107,18 +227,51 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel }) => {
                   className="chat-input"
                   rows={3}
                 />
+                <div className="composer-extensions">
+                  <AttachmentPicker
+                    attachments={composerAttachments}
+                    onAdd={handleAddAttachments}
+                    onRemove={handleRemoveAttachment}
+                  />
+                  <AudioRecorder onRecordingComplete={handleRecordingComplete} />
+                  {composerTranscriptions.length > 0 && (
+                    <div className="composer-transcriptions">
+                      {composerTranscriptions.map(transcription => (
+                        <div key={transcription.id} className="transcription-preview">
+                          <span className="transcription-label">{transcription.modality ?? 'audio'}</span>
+                          <span className="transcription-text">{transcription.text}</span>
+                          <button
+                            type="button"
+                            className="attachment-remove"
+                            onClick={() => removeTranscription(transcription.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="composer-toolbar">
                   <div className="composer-hints">
                     <span>Usa @ para mencionar modelos concretos</span>
                     {lastUserMessage && (
                       <span className="composer-last">Último mensaje a las {formatTimestamp(lastUserMessage.timestamp)}</span>
                     )}
+                    {composerModalities.length > 0 && (
+                      <span className="composer-modalities">Modalidades: {composerModalities.join(', ')}</span>
+                    )}
                   </div>
                   <div className="composer-actions">
                     <button type="button" className="ghost-button" onClick={() => setDraft('')} disabled={!draft.trim()}>
                       Limpiar
                     </button>
-                    <button type="button" className="primary-button" onClick={sendMessage}>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={sendMessage}
+                      disabled={!draft.trim() && composerAttachments.length === 0}
+                    >
                       Enviar a {activeAgents.length || 'ningún'} agente{activeAgents.length === 1 ? '' : 's'}
                     </button>
                   </div>

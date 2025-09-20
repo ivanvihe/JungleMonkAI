@@ -1,0 +1,96 @@
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { ApiKeySettings } from '../../types/globalSettings';
+import { isSupportedProvider } from '../../utils/globalSettings';
+import { AgentDefinition, initializeAgents, syncAgentWithApiKeys } from './agentRegistry';
+
+interface AgentContextValue {
+  agents: AgentDefinition[];
+  activeAgents: AgentDefinition[];
+  agentMap: Map<string, AgentDefinition>;
+  toggleAgent: (agentId: string) => void;
+}
+
+const AgentContext = createContext<AgentContextValue | undefined>(undefined);
+
+interface AgentProviderProps {
+  apiKeys: ApiKeySettings;
+  children: React.ReactNode;
+}
+
+export const AgentProvider: React.FC<AgentProviderProps> = ({ apiKeys, children }) => {
+  const [agents, setAgents] = useState<AgentDefinition[]>(() => initializeAgents(apiKeys));
+
+  useEffect(() => {
+    setAgents(prev => {
+      let changed = false;
+      const updatedAgents = prev.map(agent => {
+        const synced = syncAgentWithApiKeys(agent, apiKeys);
+        if (synced !== agent) {
+          changed = true;
+        }
+        return synced;
+      });
+
+      return changed ? updatedAgents : prev;
+    });
+  }, [apiKeys]);
+
+  const toggleAgent = useCallback(
+    (agentId: string) => {
+      setAgents(prev =>
+        prev.map(agent => {
+          if (agent.id !== agentId) {
+            return agent;
+          }
+
+          const willBeActive = !agent.active;
+          if (agent.kind === 'cloud') {
+            const providerKey = agent.provider.toLowerCase();
+            let nextStatus = agent.status;
+            if (willBeActive && isSupportedProvider(providerKey)) {
+              nextStatus = apiKeys[providerKey] ? 'Disponible' : 'Sin clave';
+            } else if (!willBeActive) {
+              nextStatus = 'Inactivo';
+            }
+
+            return {
+              ...agent,
+              active: willBeActive,
+              status: nextStatus,
+            };
+          }
+
+          return {
+            ...agent,
+            active: willBeActive,
+            status: willBeActive ? 'Disponible' : agent.status,
+          };
+        }),
+      );
+    },
+    [apiKeys],
+  );
+
+  const value = useMemo(() => {
+    const activeAgents = agents.filter(agent => agent.active);
+    const agentMap = new Map<string, AgentDefinition>();
+    agents.forEach(agent => agentMap.set(agent.id, agent));
+
+    return {
+      agents,
+      activeAgents,
+      agentMap,
+      toggleAgent,
+    };
+  }, [agents, toggleAgent]);
+
+  return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
+};
+
+export const useAgents = (): AgentContextValue => {
+  const context = useContext(AgentContext);
+  if (!context) {
+    throw new Error('useAgents debe utilizarse dentro de un AgentProvider');
+  }
+  return context;
+};

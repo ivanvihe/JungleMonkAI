@@ -117,7 +117,11 @@ const App: React.FC = () => {
   };
 
   return (
-    <AgentProvider apiKeys={globalSettings.apiKeys}>
+    <AgentProvider
+      apiKeys={globalSettings.apiKeys}
+      enabledPlugins={globalSettings.enabledPlugins}
+      approvedManifests={globalSettings.approvedManifests}
+    >
       <MessageProvider apiKeys={globalSettings.apiKeys}>
         <RepoWorkflowProvider>
           <AppContent apiKeys={globalSettings.apiKeys} onApiKeyChange={handleApiKeyChange} />

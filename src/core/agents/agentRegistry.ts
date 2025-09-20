@@ -1,7 +1,9 @@
+import type { AgentManifest } from '../../types/agents';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { isSupportedProvider } from '../../utils/globalSettings';
+import type { AgentKind } from '../../types/agents';
 
-export type AgentKind = 'cloud' | 'local';
+export type { AgentKind };
 
 export type AgentStatus = 'Disponible' | 'Sin clave' | 'Cargando' | 'Inactivo';
 
@@ -20,6 +22,8 @@ export interface AgentDefinition {
   objective?: string;
   aliases?: string[];
   channel?: string;
+  pluginId?: string;
+  capabilities?: AgentManifest['capabilities'];
 }
 
 export const INITIAL_AGENTS: AgentDefinition[] = [
@@ -130,5 +134,3 @@ export const syncAgentWithApiKeys = (
   };
 };
 
-export const initializeAgents = (apiKeys: ApiKeySettings): AgentDefinition[] =>
-  INITIAL_AGENTS.map(agent => syncAgentWithApiKeys({ ...agent }, apiKeys, true));

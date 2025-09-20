@@ -8,11 +8,87 @@ import {
   RoutingRule,
   SupportedProvider,
 } from '../types/globalSettings';
+import type {
+  AgentManifest,
+  AgentManifestCache,
+  AgentManifestCacheEntry,
+  AgentManifestModel,
+} from '../types/agents';
 
 const STORAGE_KEY = 'global-settings';
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 
 const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
+
+const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
+
+const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
+
+export const registerExternalProviders = (providers: string[]) => {
+  providers.forEach(provider => {
+    if (typeof provider !== 'string') {
+      return;
+    }
+    const normalized = normalizeProviderId(provider);
+    if (normalized) {
+      supportedProviderSet.add(normalized);
+    }
+  });
+};
+
+const getAllSupportedProviders = (): string[] => Array.from(supportedProviderSet);
+
+const agentManifestModelSchema: JSONSchemaType<AgentManifestModel> = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    model: { type: 'string' },
+    description: { type: 'string' },
+    kind: { type: 'string', enum: ['cloud', 'local'] },
+    accent: { type: 'string', nullable: true },
+    channel: { type: 'string', nullable: true },
+    aliases: {
+      type: 'array',
+      nullable: true,
+      items: { type: 'string' },
+    },
+    defaultActive: { type: 'boolean', nullable: true },
+  },
+  required: ['id', 'name', 'model', 'description', 'kind'],
+  additionalProperties: false,
+};
+
+const agentManifestSchema: JSONSchemaType<AgentManifest> = {
+  type: 'object',
+  properties: {
+    provider: { type: 'string' },
+    models: {
+      type: 'array',
+      items: agentManifestModelSchema,
+    },
+    capabilities: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+  },
+  required: ['provider', 'models', 'capabilities'],
+  additionalProperties: false,
+};
+
+const agentManifestCacheEntrySchema: JSONSchemaType<AgentManifestCacheEntry> = {
+  type: 'object',
+  properties: {
+    checksum: { type: 'string' },
+    approvedAt: { type: 'string' },
+    manifests: {
+      type: 'array',
+      items: agentManifestSchema,
+    },
+  },
+  required: ['checksum', 'approvedAt', 'manifests'],
+  additionalProperties: false,
+};
 
 const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
   type: 'object',
@@ -63,14 +139,28 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
         additionalProperties: false,
       },
     } as unknown as JSONSchemaType<DefaultRoutingRules>,
+    enabledPlugins: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    approvedManifests: {
+      type: 'object',
+      required: [],
+      additionalProperties: agentManifestCacheEntrySchema,
+    } as unknown as JSONSchemaType<AgentManifestCache>,
   },
-  required: ['version', 'apiKeys', 'commandPresets', 'defaultRoutingRules'],
+  required: [
+    'version',
+    'apiKeys',
+    'commandPresets',
+    'defaultRoutingRules',
+    'enabledPlugins',
+    'approvedManifests',
+  ],
   additionalProperties: false,
 };
 
 const validateGlobalSettings = ajv.compile<GlobalSettings>(globalSettingsSchema);
-
-const SUPPORTED_PROVIDERS: SupportedProvider[] = [...BUILTIN_PROVIDERS];
 
 const normalizeApiKeys = (input: ApiKeySettings | undefined): ApiKeySettings => {
   const normalized: ApiKeySettings = {};
@@ -78,13 +168,12 @@ const normalizeApiKeys = (input: ApiKeySettings | undefined): ApiKeySettings => 
   if (input && typeof input === 'object') {
     Object.entries(input).forEach(([provider, key]) => {
       if (typeof key === 'string') {
-        const sanitized = key.trim();
-        normalized[provider] = sanitized;
+        normalized[provider] = key.trim();
       }
     });
   }
 
-  SUPPORTED_PROVIDERS.forEach((provider) => {
+  getAllSupportedProviders().forEach(provider => {
     if (!(provider in normalized)) {
       normalized[provider] = '';
     }
@@ -105,9 +194,9 @@ const normalizeCommandPresets = (presets: CommandPreset[] | undefined): CommandP
         preset !== null &&
         typeof preset.id === 'string' &&
         typeof preset.label === 'string' &&
-        typeof preset.prompt === 'string'
+        typeof preset.prompt === 'string',
     )
-    .map((preset) => {
+    .map(preset => {
       const rawSettings =
         preset.settings && typeof preset.settings === 'object'
           ? {
@@ -124,7 +213,7 @@ const normalizeCommandPresets = (presets: CommandPreset[] | undefined): CommandP
 
       const settings = rawSettings
         ? Object.fromEntries(
-            Object.entries(rawSettings).filter(([, value]) => typeof value === 'number')
+            Object.entries(rawSettings).filter(([, value]) => typeof value === 'number'),
           )
         : undefined;
 
@@ -141,13 +230,16 @@ const normalizeCommandPresets = (presets: CommandPreset[] | undefined): CommandP
           typeof preset.model === 'string' && preset.model.trim()
             ? preset.model.trim()
             : undefined,
-        settings: settings && Object.keys(settings).length > 0 ? (settings as CommandPreset['settings']) : undefined,
+        settings:
+          settings && Object.keys(settings).length > 0
+            ? (settings as CommandPreset['settings'])
+            : undefined,
       };
     });
 };
 
 const normalizeRoutingRules = (
-  rules: DefaultRoutingRules | undefined
+  rules: DefaultRoutingRules | undefined,
 ): DefaultRoutingRules => {
   if (!rules || typeof rules !== 'object') {
     return {};
@@ -178,17 +270,176 @@ const normalizeRoutingRules = (
   }, {});
 };
 
+const normalizeEnabledPlugins = (input: unknown): string[] => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  input.forEach(value => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const trimmed = value.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      normalized.push(trimmed);
+      seen.add(trimmed);
+    }
+  });
+  return normalized;
+};
+
+const normalizeManifestModel = (model: unknown): AgentManifestModel | undefined => {
+  if (!model || typeof model !== 'object') {
+    return undefined;
+  }
+
+  const candidate = model as AgentManifestModel;
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.name !== 'string' ||
+    typeof candidate.model !== 'string' ||
+    typeof candidate.description !== 'string'
+  ) {
+    return undefined;
+  }
+
+  const kind = candidate.kind === 'local' ? 'local' : 'cloud';
+  const normalized: AgentManifestModel = {
+    id: candidate.id.trim(),
+    name: candidate.name.trim(),
+    model: candidate.model.trim(),
+    description: candidate.description.trim(),
+    kind,
+  };
+
+  if (typeof candidate.accent === 'string' && candidate.accent.trim()) {
+    normalized.accent = candidate.accent.trim();
+  }
+
+  if (typeof candidate.channel === 'string' && candidate.channel.trim()) {
+    normalized.channel = candidate.channel.trim();
+  }
+
+  if (Array.isArray(candidate.aliases)) {
+    const aliases = candidate.aliases
+      .filter(alias => typeof alias === 'string')
+      .map(alias => alias.trim())
+      .filter(Boolean);
+    if (aliases.length) {
+      normalized.aliases = aliases;
+    }
+  }
+
+  if (typeof candidate.defaultActive === 'boolean') {
+    normalized.defaultActive = candidate.defaultActive;
+  }
+
+  return normalized;
+};
+
+const normalizeManifest = (manifest: unknown): AgentManifest | undefined => {
+  if (!manifest || typeof manifest !== 'object') {
+    return undefined;
+  }
+
+  const candidate = manifest as AgentManifest;
+  if (typeof candidate.provider !== 'string') {
+    return undefined;
+  }
+
+  const provider = candidate.provider.trim();
+  if (!provider) {
+    return undefined;
+  }
+
+  const models = Array.isArray(candidate.models)
+    ? candidate.models.map(normalizeManifestModel).filter((item): item is AgentManifestModel => Boolean(item))
+    : [];
+
+  if (!models.length) {
+    return undefined;
+  }
+
+  const capabilities = Array.isArray(candidate.capabilities)
+    ? candidate.capabilities
+        .filter(capability => typeof capability === 'string')
+        .map(capability => capability.trim())
+        .filter(Boolean)
+    : [];
+
+  registerExternalProviders([provider]);
+
+  return {
+    provider,
+    models,
+    capabilities,
+  };
+};
+
+const normalizeApprovedManifests = (
+  input: AgentManifestCache | undefined,
+): AgentManifestCache => {
+  if (!input || typeof input !== 'object') {
+    return {};
+  }
+
+  return Object.entries(input).reduce<AgentManifestCache>((acc, [pluginId, entry]) => {
+    if (!entry || typeof entry !== 'object') {
+      return acc;
+    }
+
+    const checksum = typeof entry.checksum === 'string' ? entry.checksum.trim() : '';
+    if (!checksum) {
+      return acc;
+    }
+
+    const manifests = Array.isArray(entry.manifests)
+      ? entry.manifests.map(normalizeManifest).filter((manifest): manifest is AgentManifest => Boolean(manifest))
+      : [];
+
+    if (!manifests.length) {
+      return acc;
+    }
+
+    const approvedAt =
+      typeof entry.approvedAt === 'string' && entry.approvedAt.trim()
+        ? entry.approvedAt
+        : '1970-01-01T00:00:00.000Z';
+
+    registerExternalProviders(manifests.map(manifest => manifest.provider));
+
+    acc[pluginId] = {
+      checksum,
+      approvedAt,
+      manifests,
+    };
+    return acc;
+  }, {});
+};
+
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   version: CURRENT_SCHEMA_VERSION,
   apiKeys: normalizeApiKeys({}),
   commandPresets: [],
   defaultRoutingRules: {},
+  enabledPlugins: [],
+  approvedManifests: {},
 };
 
 export const isSupportedProvider = (value: string): value is SupportedProvider =>
-  SUPPORTED_PROVIDERS.includes(value as SupportedProvider);
+  supportedProviderSet.has(normalizeProviderId(value));
 
 type PersistedSettings = Partial<GlobalSettings> & { version?: number };
+
+const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSettings => ({
+  version: CURRENT_SCHEMA_VERSION,
+  apiKeys: normalizeApiKeys(raw?.apiKeys as ApiKeySettings),
+  commandPresets: normalizeCommandPresets(raw?.commandPresets as CommandPreset[]),
+  defaultRoutingRules: normalizeRoutingRules(raw?.defaultRoutingRules as DefaultRoutingRules),
+  enabledPlugins: normalizeEnabledPlugins(raw?.enabledPlugins),
+  approvedManifests: normalizeApprovedManifests(raw?.approvedManifests as AgentManifestCache),
+});
 
 const migrateSettings = (raw: PersistedSettings | undefined): GlobalSettings => {
   if (!raw || typeof raw !== 'object') {
@@ -200,25 +451,25 @@ const migrateSettings = (raw: PersistedSettings | undefined): GlobalSettings => 
   if (version > CURRENT_SCHEMA_VERSION) {
     return {
       ...DEFAULT_GLOBAL_SETTINGS,
-      apiKeys: normalizeApiKeys(raw.apiKeys),
+      apiKeys: normalizeApiKeys(raw.apiKeys as ApiKeySettings),
+      enabledPlugins: normalizeEnabledPlugins(raw.enabledPlugins),
+      approvedManifests: normalizeApprovedManifests(raw.approvedManifests as AgentManifestCache),
     };
   }
 
   if (version === 1) {
     return {
       ...DEFAULT_GLOBAL_SETTINGS,
-      apiKeys: normalizeApiKeys(raw.apiKeys),
+      apiKeys: normalizeApiKeys(raw.apiKeys as ApiKeySettings),
     };
   }
 
-  if (version === CURRENT_SCHEMA_VERSION) {
-    const normalized: GlobalSettings = {
-      version: CURRENT_SCHEMA_VERSION,
-      apiKeys: normalizeApiKeys(raw.apiKeys),
-      commandPresets: normalizeCommandPresets(raw.commandPresets),
-      defaultRoutingRules: normalizeRoutingRules(raw.defaultRoutingRules),
-    };
+  if (version === 2) {
+    return buildNormalizedSettings(raw);
+  }
 
+  if (version === CURRENT_SCHEMA_VERSION) {
+    const normalized = buildNormalizedSettings(raw);
     if (validateGlobalSettings(normalized)) {
       return normalized;
     }
@@ -258,6 +509,8 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       apiKeys: normalizeApiKeys(settings.apiKeys),
       commandPresets: normalizeCommandPresets(settings.commandPresets),
       defaultRoutingRules: normalizeRoutingRules(settings.defaultRoutingRules),
+      enabledPlugins: normalizeEnabledPlugins(settings.enabledPlugins),
+      approvedManifests: normalizeApprovedManifests(settings.approvedManifests),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
@@ -265,4 +518,5 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
   }
 };
 
-export const getSupportedProviders = (): SupportedProvider[] => [...SUPPORTED_PROVIDERS];
+export const getSupportedProviders = (): SupportedProvider[] =>
+  getAllSupportedProviders() as SupportedProvider[];

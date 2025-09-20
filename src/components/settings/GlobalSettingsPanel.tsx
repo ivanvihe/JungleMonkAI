@@ -39,6 +39,25 @@ const cloneSettings = (value: GlobalSettings): GlobalSettings => ({
     }),
     {}
   ),
+  enabledPlugins: [...value.enabledPlugins],
+  approvedManifests: Object.entries(value.approvedManifests).reduce(
+    (acc, [pluginId, entry]) => {
+      acc[pluginId] = {
+        checksum: entry.checksum,
+        approvedAt: entry.approvedAt,
+        manifests: entry.manifests.map((manifest) => ({
+          provider: manifest.provider,
+          capabilities: [...manifest.capabilities],
+          models: manifest.models.map((model) => ({
+            ...model,
+            aliases: model.aliases ? [...model.aliases] : undefined,
+          })),
+        })),
+      };
+      return acc;
+    },
+    {} as GlobalSettings['approvedManifests'],
+  ),
 });
 
 const getPresetId = () => {

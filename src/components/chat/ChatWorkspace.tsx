@@ -8,13 +8,25 @@ import { ChatActorFilter } from '../../types/chat';
 import { AgentKind } from '../../core/agents/agentRegistry';
 import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
 import { MessageCard } from './messages/MessageCard';
+import { SidePanelPosition } from '../../types/globalSettings';
 
 interface ChatWorkspaceProps {
   sidePanel: React.ReactNode;
   actorFilter: ChatActorFilter;
+  sidePanelPosition: SidePanelPosition;
+  sidePanelWidth: number;
+  isSidePanelCollapsed: boolean;
+  onSidePanelCollapse: (collapsed: boolean) => void;
 }
 
-export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFilter }) => {
+export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
+  sidePanel,
+  actorFilter,
+  sidePanelPosition,
+  sidePanelWidth,
+  isSidePanelCollapsed,
+  onSidePanelCollapse,
+}) => {
   const [density, setDensity] = useState<'standard' | 'compact'>('standard');
   const [isHeaderCollapsed, setHeaderCollapsed] = useState(false);
   const { activeAgents, agentMap } = useAgents();
@@ -159,7 +171,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
         </div>
       </div>
 
-      <div className="bottom-section">
+      <div
+        className={`bottom-section side-panel-${sidePanelPosition} ${
+          isSidePanelCollapsed ? 'is-panel-collapsed' : 'is-panel-expanded'
+        }`}
+        style={{
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+          '--side-panel-width': `${Math.round(sidePanelWidth)}px`,
+        } as React.CSSProperties}
+      >
         <div className="visual-stage">
           <div className={`visual-wrapper chat-visual-wrapper chat-density-${density}`}>
             <div className={`chat-stage chat-density-${density}`}>
@@ -281,6 +301,25 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
         </div>
 
         {sidePanel}
+
+        <button
+          type="button"
+          className={`side-panel-toggle-button ${isSidePanelCollapsed ? 'is-visible' : ''}`.trim()}
+          onClick={() => onSidePanelCollapse(false)}
+          aria-expanded={!isSidePanelCollapsed}
+        >
+          Abrir panel
+        </button>
+
+        <button
+          type="button"
+          className="side-panel-overlay"
+          hidden={isSidePanelCollapsed}
+          aria-hidden={isSidePanelCollapsed}
+          tabIndex={isSidePanelCollapsed ? -1 : 0}
+          onClick={() => onSidePanelCollapse(true)}
+          aria-label="Cerrar panel lateral"
+        />
       </div>
     </>
   );

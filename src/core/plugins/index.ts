@@ -1,6 +1,3 @@
-import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex } from '@noble/hashes/utils';
-
 import type { AgentManifest } from '../../types/agents';
 
 export type PluginCapability =
@@ -142,15 +139,40 @@ const canonicalize = (input: unknown): string => {
   return JSON.stringify(input);
 };
 
+const hexFromBuffer = (buffer: ArrayBuffer | Uint8Array): string => {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  return Array.from(bytes)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+const loadNodeCrypto = async (): Promise<typeof import('node:crypto') | null> => {
+  try {
+    // `node:crypto` is only available in Node.js environments.
+    const cryptoModule = await import('node:crypto');
+    return cryptoModule;
+  } catch (error) {
+    console.warn('Node.js crypto module not available for SHA-256 fallback.', error);
+    return null;
+  }
+};
+
 const computeSha256 = async (payload: string): Promise<string> => {
   const data = textEncoder.encode(payload);
+
   if (typeof globalThis.crypto !== 'undefined' && 'subtle' in globalThis.crypto) {
     const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
-    const bytes = Array.from(new Uint8Array(digest));
-    return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return hexFromBuffer(digest);
   }
 
-  return bytesToHex(sha256(data));
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    const nodeCrypto = await loadNodeCrypto();
+    if (nodeCrypto) {
+      return nodeCrypto.createHash('sha256').update(data).digest('hex');
+    }
+  }
+
+  throw new Error('SHA-256 hashing is not supported in the current environment.');
 };
 
 const prepareForChecksum = (manifest: PluginManifest): Omit<PluginManifest, 'integrity'> => {

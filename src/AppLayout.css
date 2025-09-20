@@ -218,3 +218,63 @@
   text-align: center;
   margin-top: 20px;
 }
+
+/* Nuevo layout principal */
+.app-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-main {
+  flex: 1 1 80%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at top right, rgba(142, 141, 255, 0.18), transparent 55%),
+    #030303;
+}
+
+.app-sidebar {
+  flex: 0 0 20%;
+  min-width: 260px;
+  max-width: 380px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(5, 5, 5, 0.92);
+}
+
+.app-body.sidebar-left .app-sidebar {
+  border-left: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.repo-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 32px;
+}
+
+@media (max-width: 1440px) {
+  .app-sidebar {
+    min-width: 240px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .app-body {
+    flex-direction: column;
+  }
+
+  .app-sidebar {
+    flex: 0 0 auto;
+    max-width: none;
+    min-height: 320px;
+  }
+}

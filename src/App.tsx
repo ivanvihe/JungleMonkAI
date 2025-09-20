@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
 import { ChatTopBar } from './components/chat/ChatTopBar';
-import { ChatStatusBar } from './components/chat/ChatStatusBar';
 import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { SidePanel } from './components/chat/SidePanel';
 import { RepoStudio } from './components/repo/RepoStudio';
@@ -11,7 +10,7 @@ import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
 import { RepoWorkflowProvider } from './core/codex';
-import { ApiKeySettings, GlobalSettings, SidePanelPreferences } from './types/globalSettings';
+import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
 import {
   DEFAULT_GLOBAL_SETTINGS,
   loadGlobalSettings,
@@ -20,102 +19,109 @@ import {
 } from './utils/globalSettings';
 import { ChatActorFilter } from './types/chat';
 import { PluginHostProvider } from './core/plugins/PluginHostProvider';
+import { GlobalSettingsDialog } from './components/settings/GlobalSettingsDialog';
+import { OverlayModal } from './components/common/OverlayModal';
+import { PluginSummary } from './components/settings/PluginSummary';
+import { McpSummary } from './components/settings/McpSummary';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
+  settings: GlobalSettings;
   onApiKeyChange: (provider: string, value: string) => void;
-  panelPreferences: SidePanelPreferences;
-  onPanelPreferencesChange: (
-    updater: (previous: SidePanelPreferences) => SidePanelPreferences,
-  ) => void;
+  onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
 }
 
 const AppContent: React.FC<AppContentProps> = ({
   apiKeys,
+  settings,
   onApiKeyChange,
-  panelPreferences,
-  onPanelPreferencesChange,
+  onSettingsChange,
 }) => {
   const { agents, activeAgents } = useAgents();
-  const { messages, pendingResponses } = useMessages();
+  const { pendingResponses } = useMessages();
   const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
   const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
   const [activeView, setActiveView] = useState<'chat' | 'repo'>('chat');
+  const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [isPluginsOpen, setPluginsOpen] = useState(false);
+  const [isMcpOpen, setMcpOpen] = useState(false);
 
-  const handlePanelCollapse = useCallback(
-    (collapsed: boolean) => {
-      onPanelPreferencesChange(previous => ({ ...previous, collapsed }));
-    },
-    [onPanelPreferencesChange],
-  );
+  const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
 
   return (
     <div className="app-container">
-      <div className="app-mode-switcher">
-        <button
-          type="button"
-          className={activeView === 'chat' ? 'is-active' : ''}
-          onClick={() => setActiveView('chat')}
-        >
-          Conversación
-        </button>
-        <button
-          type="button"
-          className={activeView === 'repo' ? 'is-active' : ''}
-          onClick={() => setActiveView('repo')}
-        >
-          Repo Studio
-        </button>
-      </div>
+      <ChatTopBar
+        agents={agents}
+        presenceSummary={presenceSummary}
+        activeAgents={activeAgents.length}
+        totalAgents={agents.length}
+        pendingResponses={pendingResponses}
+        activeFilter={actorFilter}
+        onFilterChange={setActorFilter}
+        onRefreshPresence={() => void refresh()}
+        onOpenGlobalSettings={() => setSettingsOpen(true)}
+        onOpenPlugins={() => setPluginsOpen(true)}
+        onOpenMcp={() => setMcpOpen(true)}
+        activeView={activeView}
+        onChangeView={setActiveView}
+      />
 
       {activeView === 'chat' ? (
-        <>
-          <ChatTopBar
-            agents={agents}
-            presenceSummary={presenceSummary}
-            activeAgents={activeAgents.length}
-            totalAgents={agents.length}
-            pendingResponses={pendingResponses}
-            activeFilter={actorFilter}
-            onFilterChange={setActorFilter}
-            onRefreshPresence={() => void refresh()}
-          />
-
-          <div className="workspace">
-            <div className="main-panel">
-              <ChatWorkspace
-                actorFilter={actorFilter}
-                sidePanel={
-                  <SidePanel
-                    apiKeys={apiKeys}
-                    onApiKeyChange={onApiKeyChange}
-                    presenceMap={presenceMap}
-                    onRefreshAgentPresence={refresh}
-                    layout={panelPreferences}
-                    onLayoutChange={onPanelPreferencesChange}
-                  />
-                }
-                sidePanelPosition={panelPreferences.position}
-                sidePanelWidth={panelPreferences.width}
-                isSidePanelCollapsed={panelPreferences.collapsed}
-                onSidePanelCollapse={handlePanelCollapse}
+        <div className={`app-body sidebar-${sidePanelPosition}`}>
+          {sidePanelPosition === 'left' && (
+            <aside className="app-sidebar">
+              <SidePanel
+                apiKeys={apiKeys}
+                presenceMap={presenceMap}
+                onRefreshAgentPresence={refresh}
+                onOpenGlobalSettings={() => setSettingsOpen(true)}
               />
-            </div>
-          </div>
+            </aside>
+          )}
 
-          <ChatStatusBar
-            activeAgents={activeAgents.length}
-            totalMessages={messages.length}
-            pendingResponses={pendingResponses}
-          />
-        </>
+          <main className="chat-main">
+            <ChatWorkspace actorFilter={actorFilter} />
+          </main>
+
+          {sidePanelPosition === 'right' && (
+            <aside className="app-sidebar">
+              <SidePanel
+                apiKeys={apiKeys}
+                presenceMap={presenceMap}
+                onRefreshAgentPresence={refresh}
+                onOpenGlobalSettings={() => setSettingsOpen(true)}
+              />
+            </aside>
+          )}
+        </div>
       ) : (
-        <div className="workspace">
-          <div className="main-panel">
+        <div className="app-body">
+          <div className="repo-main">
             <RepoStudio />
           </div>
         </div>
       )}
+
+      <GlobalSettingsDialog
+        isOpen={isSettingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        apiKeys={apiKeys}
+        onApiKeyChange={onApiKeyChange}
+        onSettingsChange={onSettingsChange}
+      />
+
+      <OverlayModal
+        title="Plugins"
+        isOpen={isPluginsOpen}
+        onClose={() => setPluginsOpen(false)}
+      >
+        <PluginSummary settings={settings} onSettingsChange={onSettingsChange} />
+      </OverlayModal>
+
+      <OverlayModal title="Perfiles MCP" isOpen={isMcpOpen} onClose={() => setMcpOpen(false)}>
+        <McpSummary settings={settings} />
+      </OverlayModal>
     </div>
   );
 };
@@ -152,19 +158,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const handlePanelPreferencesChange = useCallback(
-    (updater: (previous: SidePanelPreferences) => SidePanelPreferences) => {
-      setGlobalSettings(prev => ({
-        ...prev,
-        workspacePreferences: {
-          ...prev.workspacePreferences,
-          sidePanel: updater(prev.workspacePreferences.sidePanel),
-        },
-      }));
-    },
-    [],
-  );
-
   useEffect(() => {
     saveGlobalSettings(globalSettings);
   }, [globalSettings]);
@@ -190,9 +183,9 @@ const App: React.FC = () => {
           <RepoWorkflowProvider>
             <AppContent
               apiKeys={globalSettings.apiKeys}
+              settings={globalSettings}
               onApiKeyChange={handleApiKeyChange}
-              panelPreferences={globalSettings.workspacePreferences.sidePanel}
-              onPanelPreferencesChange={handlePanelPreferencesChange}
+              onSettingsChange={setGlobalSettings}
             />
           </RepoWorkflowProvider>
         </MessageProvider>

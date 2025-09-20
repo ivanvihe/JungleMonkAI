@@ -26,6 +26,41 @@ export interface ChatProviderResponse {
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_TEMPERATURE = 0.7;
 
+const isTauriEnvironment = (): boolean =>
+  typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+
+const normalizeInvokeError = (provider: string, error: unknown): Error => {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  if (typeof error === 'string') {
+    return new Error(error);
+  }
+
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') {
+      return new Error(message);
+    }
+  }
+
+  return new Error(`No se pudo contactar a ${provider}.`);
+};
+
+const invokeProviderCommand = async <T>(
+  command: string,
+  provider: string,
+  payload: Record<string, unknown>,
+): Promise<T> => {
+  try {
+    const { invoke } = await import('@tauri-apps/api/tauri');
+    return await invoke<T>(command, payload);
+  } catch (error) {
+    throw normalizeInvokeError(provider, error);
+  }
+};
+
 const toContentParts = (value: unknown): ChatContentPart[] => {
   if (!value) {
     return [];
@@ -290,39 +325,51 @@ export const callGroqChat = async ({
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
 }: ChatProviderRequest): Promise<ChatProviderResponse> => {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      messages: [
-        ...(systemPrompt
-          ? [
-              {
-                role: 'system',
-                content: contentToPlainText(systemPrompt),
-              },
-            ]
-          : []),
-        {
-          role: 'user',
-          content: contentToPlainText(prompt),
-        },
-      ],
-    }),
-  });
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    temperature,
+    messages: [
+      ...(systemPrompt
+        ? [
+            {
+              role: 'system',
+              content: contentToPlainText(systemPrompt),
+            },
+          ]
+        : []),
+      {
+        role: 'user',
+        content: contentToPlainText(prompt),
+      },
+    ],
+  };
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error?.error?.message || `Groq respondió con ${response.status}`);
+  let payload: any;
+
+  if (isTauriEnvironment()) {
+    payload = await invokeProviderCommand<any>('call_groq_chat', 'Groq', {
+      apiKey,
+      body,
+    });
+  } else {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error?.error?.message || `Groq respondió con ${response.status}`);
+    }
+
+    payload = await response.json();
   }
 
-  const payload = await response.json();
   const choice = payload?.choices?.[0]?.message?.content;
   const contentParts = toContentParts(choice);
   const content = collapseContent(contentParts);
@@ -341,38 +388,50 @@ export const callAnthropicChat = async ({
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
 }: ChatProviderRequest): Promise<ChatProviderResponse> => {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      ...(systemPrompt
-        ? {
-            system: contentToPlainText(systemPrompt),
-          }
-        : {}),
-      messages: [
-        {
-          role: 'user',
-          content: contentToPlainText(prompt),
-        },
-      ],
-    }),
-  });
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    temperature,
+    ...(systemPrompt
+      ? {
+          system: contentToPlainText(systemPrompt),
+        }
+      : {}),
+    messages: [
+      {
+        role: 'user',
+        content: contentToPlainText(prompt),
+      },
+    ],
+  };
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const message = error?.error?.message || error?.error || error?.message;
-    throw new Error(message || `Anthropic respondió con ${response.status}`);
+  let payload: any;
+
+  if (isTauriEnvironment()) {
+    payload = await invokeProviderCommand<any>('call_anthropic_chat', 'Anthropic', {
+      apiKey,
+      body,
+    });
+  } else {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      const message = error?.error?.message || error?.error || error?.message;
+      throw new Error(message || `Anthropic respondió con ${response.status}`);
+    }
+
+    payload = await response.json();
   }
 
-  const payload = await response.json();
   const content = payload?.content;
   const contentParts = toContentParts(content);
   const normalizedContent = collapseContent(contentParts);

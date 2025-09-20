@@ -4,6 +4,24 @@ import { AgentDefinition, AgentKind } from './agentRegistry';
 
 export type AgentPresenceStatus = 'online' | 'offline' | 'error' | 'loading';
 
+const PRESENCE_OVERRIDE_EVENT = 'junglemonk:agent-presence-override';
+
+export interface AgentPresenceOverrideDetail {
+  agentId: string;
+  status: AgentPresenceStatus;
+  message?: string;
+  latencyMs?: number;
+}
+
+export const emitAgentPresenceOverride = (detail: AgentPresenceOverrideDetail): void => {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+    return;
+  }
+
+  const event = new CustomEvent<AgentPresenceOverrideDetail>(PRESENCE_OVERRIDE_EVENT, { detail });
+  window.dispatchEvent(event);
+};
+
 export interface AgentPresenceEntry {
   status: AgentPresenceStatus;
   lastChecked: number | null;
@@ -164,6 +182,36 @@ export const useAgentPresence = (
   apiKeys: ApiKeySettings,
 ): AgentPresenceMonitor => {
   const [presence, setPresence] = useState<Record<string, AgentPresenceEntry>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+      return;
+    }
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AgentPresenceOverrideDetail>).detail;
+      if (!detail?.agentId) {
+        return;
+      }
+
+      setPresence(prev => ({
+        ...prev,
+        [detail.agentId]: {
+          status: detail.status,
+          lastChecked: Date.now(),
+          latencyMs: detail.latencyMs,
+          message: detail.message,
+        },
+      }));
+    };
+
+    const listener: EventListener = handler as EventListener;
+    window.addEventListener(PRESENCE_OVERRIDE_EVENT, listener);
+
+    return () => {
+      window.removeEventListener(PRESENCE_OVERRIDE_EVENT, listener);
+    };
+  }, []);
 
   const evaluateAgents = useCallback(
     async (targets: AgentDefinition[]) => {

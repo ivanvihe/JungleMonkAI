@@ -111,6 +111,12 @@ export interface AgentExchangeTrace {
   strategyId?: CoordinationStrategyId;
 }
 
+export interface AgentReplyOutcome {
+  response: ChatProviderResponse;
+  status: 'success' | 'fallback';
+  errorMessage?: string;
+}
+
 export const fetchAgentReply = async ({
   agent,
   prompt,
@@ -118,57 +124,45 @@ export const fetchAgentReply = async ({
   fallback,
   context,
   onTrace,
-}: FetchAgentReplyOptions): Promise<ChatProviderResponse> => {
+}: FetchAgentReplyOptions): Promise<AgentReplyOutcome> => {
   const displayName = getAgentDisplayName(agent);
   const providerKey = agent.provider.toLowerCase();
-  if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
-    const fallbackContent = fallback(agent, prompt, context);
+  const emitFallbackResponse = (content: string, errorMessage?: string): AgentReplyOutcome => {
+    const normalizedMessage = errorMessage?.trim();
+    const timestamp = new Date().toISOString();
+    const tracePayload = normalizedMessage ? `Error: ${normalizedMessage}\n\n${content}` : content;
     onTrace?.({
       agentId: agent.id,
       agentName: displayName,
       type: 'fallback',
-      payload: fallbackContent,
-      timestamp: new Date().toISOString(),
+      payload: tracePayload,
+      timestamp,
       strategyId: context?.strategyId,
     });
     return {
-      content: fallbackContent,
-      modalities: ['text'],
+      response: {
+        content,
+        modalities: ['text'],
+      },
+      status: 'fallback',
+      errorMessage: normalizedMessage,
     };
+  };
+
+  if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
+    const fallbackContent = fallback(agent, prompt, context);
+    return emitFallbackResponse(fallbackContent);
   }
 
   const apiKey = apiKeys[providerKey];
   if (!apiKey) {
     const payload = `${displayName} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`;
-    onTrace?.({
-      agentId: agent.id,
-      agentName: displayName,
-      type: 'fallback',
-      payload,
-      timestamp: new Date().toISOString(),
-      strategyId: context?.strategyId,
-    });
-    return {
-      content: payload,
-      modalities: ['text'],
-    };
+    return emitFallbackResponse(payload);
   }
 
   const sanitizedPrompt = prompt.trim();
   if (!sanitizedPrompt) {
-    const payload = 'Necesito un prompt válido para generar una respuesta.';
-    onTrace?.({
-      agentId: agent.id,
-      agentName: displayName,
-      type: 'fallback',
-      payload,
-      timestamp: new Date().toISOString(),
-      strategyId: context?.strategyId,
-    });
-    return {
-      content: payload,
-      modalities: ['text'],
-    };
+    return emitFallbackResponse('Necesito un prompt válido para generar una respuesta.');
   }
 
   const { prompt: decoratedPrompt, systemPrompt } = buildPromptWithContext(agent, sanitizedPrompt, context);
@@ -183,17 +177,27 @@ export const fetchAgentReply = async ({
 
   const runAndTrace = async (
     executor: () => Promise<ChatProviderResponse>,
-  ): Promise<ChatProviderResponse> => {
-    const response = await executor();
-    onTrace?.({
-      agentId: agent.id,
-      agentName: displayName,
-      type: 'response',
-      payload: contentToPlainText(response.content),
-      timestamp: new Date().toISOString(),
-      strategyId: context?.strategyId,
-    });
-    return response;
+  ): Promise<AgentReplyOutcome> => {
+    try {
+      const response = await executor();
+      onTrace?.({
+        agentId: agent.id,
+        agentName: displayName,
+        type: 'response',
+        payload: contentToPlainText(response.content),
+        timestamp: new Date().toISOString(),
+        strategyId: context?.strategyId,
+      });
+      return {
+        response,
+        status: 'success',
+      };
+    } catch (error) {
+      const fallbackContent = fallback(agent, prompt, context);
+      const rawMessage =
+        error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+      return emitFallbackResponse(fallbackContent, rawMessage);
+    }
   };
 
   if (providerKey === 'openai') {
@@ -230,18 +234,7 @@ export const fetchAgentReply = async ({
   }
 
   const fallbackContent = fallback(agent, prompt, context);
-  onTrace?.({
-    agentId: agent.id,
-    agentName: displayName,
-    type: 'fallback',
-    payload: fallbackContent,
-    timestamp: new Date().toISOString(),
-    strategyId: context?.strategyId,
-  });
-  return {
-    content: fallbackContent,
-    modalities: ['text'],
-  };
+  return emitFallbackResponse(fallbackContent);
 };
 
 const contentToPlainText = (content: ChatMessage['content']): string => {

@@ -14,6 +14,7 @@ interface ChatTopBarProps {
   activeFilter: ChatActorFilter;
   onFilterChange: (filter: ChatActorFilter) => void;
   onRefreshPresence: () => void;
+  onOpenStats: () => void;
   onOpenGlobalSettings: () => void;
   onOpenPlugins: () => void;
   onOpenMcp: () => void;
@@ -55,6 +56,7 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   activeFilter,
   onFilterChange,
   onRefreshPresence,
+  onOpenStats,
   onOpenGlobalSettings,
   onOpenPlugins,
   onOpenMcp,
@@ -169,6 +171,14 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
             aria-label="Actualizar estado de agentes"
           >
             ↻
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onOpenStats}
+            aria-label="Ver estadísticas de la conversación"
+          >
+            📊
           </button>
         </div>
 

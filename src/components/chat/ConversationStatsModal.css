@@ -1,0 +1,121 @@
+.conversation-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.conversation-stats__summary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.conversation-stats__total,
+.conversation-stats__pending {
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conversation-stats__total {
+  background: linear-gradient(135deg, rgba(142, 141, 255, 0.28), rgba(77, 208, 225, 0.18));
+  border-color: rgba(142, 141, 255, 0.4);
+}
+
+.conversation-stats__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.conversation-stats__value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.conversation-stats__value.is-warning {
+  color: rgba(255, 183, 77, 0.95);
+}
+
+.conversation-stats__hint {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.conversation-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.conversation-stats__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conversation-stats__card-label {
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.conversation-stats__card-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.conversation-stats__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conversation-stats__meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.conversation-stats__meta-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.conversation-stats__meta-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.conversation-stats__meta-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}

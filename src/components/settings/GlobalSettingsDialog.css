@@ -207,6 +207,90 @@
   color: rgba(255, 255, 255, 0.65);
 }
 
+.model-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.model-preferences__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-preferences__field label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.model-preferences__input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.model-preferences__input-row input {
+  flex: 1 1 auto;
+}
+
+.model-preferences__input-row button {
+  white-space: nowrap;
+}
+
+.model-preferences__field input[type='text'],
+.model-preferences__field input[type='url'],
+.model-preferences__field input[type='number'] {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+
+.model-preferences__field--compact input[type='number'] {
+  max-width: 140px;
+}
+
+.model-preferences__hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.model-preferences__token {
+  display: grid;
+  gap: 6px;
+}
+
+.model-preferences__token label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.model-preferences__token-status {
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  width: fit-content;
+}
+
+.model-preferences__token-status.is-available {
+  background: rgba(90, 205, 150, 0.2);
+  color: #a6f4c5;
+}
+
+.model-preferences__token-status.is-missing {
+  background: rgba(255, 138, 101, 0.2);
+  color: #ffab91;
+}
+
 .preference-options {
   display: flex;
   gap: 16px;

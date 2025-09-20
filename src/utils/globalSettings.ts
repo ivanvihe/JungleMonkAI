@@ -6,8 +6,10 @@ import {
   DataLocationSettings,
   GitHostingProvider,
   GlobalSettings,
+  HuggingFacePreferences,
   McpProfile,
   McpProfileEndpoint,
+  ModelPreferences,
   PluginSettingsEntry,
   PluginSettingsMap,
   ProjectProfile,
@@ -25,7 +27,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
@@ -47,6 +49,12 @@ const getAllSupportedProviders = (): string[] => Array.from(supportedProviderSet
 const MIN_SIDE_PANEL_WIDTH = 240;
 const MAX_SIDE_PANEL_WIDTH = 520;
 const DEFAULT_SIDE_PANEL_WIDTH = 320;
+
+const DEFAULT_MODEL_STORAGE_DIR: string | null = null;
+const DEFAULT_HUGGINGFACE_API_BASE_URL = 'https://huggingface.co';
+const MIN_HUGGINGFACE_RESULTS = 10;
+const MAX_HUGGINGFACE_RESULTS = 200;
+const DEFAULT_HUGGINGFACE_RESULTS = 30;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
@@ -174,6 +182,18 @@ const isDataLocationSettings = (value: unknown): value is DataLocationSettings =
   isOptionalString(value.lastMigrationFrom) &&
   isOptionalString(value.lastMigrationAt);
 
+const isHuggingFacePreferences = (value: unknown): value is HuggingFacePreferences =>
+  isRecord(value) &&
+  typeof value.apiBaseUrl === 'string' &&
+  typeof value.maxResults === 'number' &&
+  Number.isFinite(value.maxResults) &&
+  typeof value.useStoredToken === 'boolean';
+
+const isModelPreferences = (value: unknown): value is ModelPreferences =>
+  isRecord(value) &&
+  (value.storageDir === null || typeof value.storageDir === 'string') &&
+  isHuggingFacePreferences(value.huggingFace);
+
 const isGitProvider = (value: unknown): value is GitHostingProvider =>
   value === 'github' || value === 'gitlab';
 
@@ -206,6 +226,7 @@ const isGlobalSettings = (payload: unknown): payload is GlobalSettings =>
   payload.mcpProfiles.every(isMcpProfile) &&
   isWorkspacePreferences(payload.workspacePreferences) &&
   isDataLocationSettings(payload.dataLocation) &&
+  isModelPreferences(payload.modelPreferences) &&
   Array.isArray(payload.projectProfiles) &&
   payload.projectProfiles.every(isProjectProfile) &&
   (payload.activeProjectId === null || typeof payload.activeProjectId === 'string') &&
@@ -687,6 +708,40 @@ const normalizeDataLocation = (
   };
 };
 
+const normalizeHuggingFacePreferences = (
+  input: Partial<HuggingFacePreferences> | undefined,
+): HuggingFacePreferences => {
+  const apiBaseUrl =
+    typeof input?.apiBaseUrl === 'string' && input.apiBaseUrl.trim()
+      ? input.apiBaseUrl.trim().replace(/\/$/, '')
+      : DEFAULT_HUGGINGFACE_API_BASE_URL;
+
+  const rawMaxResults =
+    typeof input?.maxResults === 'number' && Number.isFinite(input.maxResults)
+      ? Math.round(input.maxResults)
+      : DEFAULT_HUGGINGFACE_RESULTS;
+
+  const maxResults = clamp(rawMaxResults, MIN_HUGGINGFACE_RESULTS, MAX_HUGGINGFACE_RESULTS);
+
+  return {
+    apiBaseUrl,
+    maxResults,
+    useStoredToken: Boolean(input?.useStoredToken),
+  };
+};
+
+const normalizeModelPreferences = (
+  input: ModelPreferences | undefined,
+): ModelPreferences => ({
+  storageDir:
+    typeof input?.storageDir === 'string' && input.storageDir.trim()
+      ? input.storageDir.trim()
+      : DEFAULT_MODEL_STORAGE_DIR,
+  huggingFace: normalizeHuggingFacePreferences(input?.huggingFace),
+});
+
+const DEFAULT_MODEL_PREFERENCES: ModelPreferences = normalizeModelPreferences(undefined);
+
 const normalizeProjectProfiles = (input: unknown): ProjectProfile[] => {
   if (!Array.isArray(input)) {
     return [];
@@ -821,6 +876,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     lastMigrationFrom: undefined,
     lastMigrationAt: undefined,
   },
+  modelPreferences: DEFAULT_MODEL_PREFERENCES,
   projectProfiles: [],
   activeProjectId: null,
   githubDefaultOwner: undefined,
@@ -853,6 +909,7 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
       raw?.workspacePreferences as WorkspacePreferences,
     ),
     dataLocation: normalizeDataLocation(raw?.dataLocation as DataLocationSettings),
+    modelPreferences: normalizeModelPreferences(raw?.modelPreferences as ModelPreferences),
     projectProfiles,
     activeProjectId: normalizeActiveProjectId(raw?.activeProjectId, projectProfiles),
     githubDefaultOwner: normalizeGithubDefaultOwner(raw?.githubDefaultOwner),
@@ -934,6 +991,7 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       approvedManifests: normalizeApprovedManifests(settings.approvedManifests),
       workspacePreferences: normalizeWorkspacePreferences(settings.workspacePreferences),
       dataLocation: normalizeDataLocation(settings.dataLocation),
+      modelPreferences: normalizeModelPreferences(settings.modelPreferences),
       projectProfiles,
       activeProjectId: normalizeActiveProjectId(settings.activeProjectId, projectProfiles),
       githubDefaultOwner: normalizeGithubDefaultOwner(settings.githubDefaultOwner),

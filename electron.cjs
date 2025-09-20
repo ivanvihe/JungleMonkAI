@@ -22,6 +22,49 @@ const PROVIDER_CONFIG = {
   }
 };
 
+const maskApiKey = apiKey => {
+  if (typeof apiKey !== 'string') {
+    return '(vacía)';
+  }
+  const trimmed = apiKey.trim();
+  if (!trimmed) {
+    return '(vacía)';
+  }
+  if (trimmed.length <= 8) {
+    return '***';
+  }
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+};
+
+const ensureAnthropicLimiter = () => {
+  if (!global.__anthropicLimiter__) {
+    global.__anthropicLimiter__ = new Map();
+  }
+  return global.__anthropicLimiter__;
+};
+
+const withAnthropicConcurrency = async (apiKey, task) => {
+  const limiter = ensureAnthropicLimiter();
+  const key = (typeof apiKey === 'string' ? apiKey.trim() : '') || '__default__';
+
+  if (limiter.has(key)) {
+    console.warn('Solicitud de Anthropic rechazada por límite de concurrencia.', {
+      apiKey: maskApiKey(apiKey)
+    });
+    throw new Error(
+      'Otra solicitud de Anthropic está en curso para esta API key. Intenta nuevamente en unos segundos.'
+    );
+  }
+
+  limiter.set(key, true);
+
+  try {
+    return await task();
+  } finally {
+    limiter.delete(key);
+  }
+};
+
 const extractProviderErrorMessage = payload => {
   if (!payload || typeof payload !== 'object') {
     return undefined;
@@ -66,50 +109,58 @@ const performProviderChatRequest = async (providerId, request = {}) => {
     throw new Error('fetch no está disponible en el proceso principal de Electron.');
   }
 
-  let response;
-  try {
-    response = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...config.headers(apiKey)
-      },
-      body: JSON.stringify(body)
-    });
-  } catch (error) {
-    const reason = error && typeof error === 'object' && 'message' in error ? error.message : String(error);
-    throw new Error(`No se pudo contactar a ${config.displayName}: ${reason}`);
-  }
-
-  const rawText = await response.text();
-  let payload;
-
-  if (rawText) {
+  const executeRequest = async () => {
+    let response;
     try {
-      payload = JSON.parse(rawText);
+      response = await fetch(config.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...config.headers(apiKey)
+        },
+        body: JSON.stringify(body)
+      });
     } catch (error) {
-      if (!response.ok) {
-        const trimmed = rawText.trim();
-        if (trimmed) {
-          throw new Error(trimmed);
+      const reason = error && typeof error === 'object' && 'message' in error ? error.message : String(error);
+      throw new Error(`No se pudo contactar a ${config.displayName}: ${reason}`);
+    }
+
+    const rawText = await response.text();
+    let payload;
+
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (error) {
+        if (!response.ok) {
+          const trimmed = rawText.trim();
+          if (trimmed) {
+            throw new Error(trimmed);
+          }
         }
+        throw new Error(`Respuesta inválida de ${config.displayName}.`);
       }
-      throw new Error(`Respuesta inválida de ${config.displayName}.`);
-    }
-  } else {
-    payload = {};
-  }
-
-  if (!response.ok) {
-    const message = extractProviderErrorMessage(payload);
-    if (message) {
-      throw new Error(message);
+    } else {
+      payload = {};
     }
 
-    throw new Error(`Solicitud falló con estado ${response.status}`);
+    if (!response.ok) {
+      const message = extractProviderErrorMessage(payload);
+      if (message) {
+        throw new Error(message);
+      }
+
+      throw new Error(`Solicitud falló con estado ${response.status}`);
+    }
+
+    return payload;
+  };
+
+  if (providerKey === 'anthropic') {
+    return withAnthropicConcurrency(apiKey, executeRequest);
   }
 
-  return payload;
+  return executeRequest();
 };
 
 let mainWindow;

@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMainLeaveFullscreen: (callback) => ipcRenderer.on('main-leave-fullscreen', callback),
   removeMainLeaveFullscreenListener: () => ipcRenderer.removeAllListeners('main-leave-fullscreen'),
   tcpRequest: (command, port, host) => ipcRenderer.invoke('tcp-request', command, port, host),
+  listPlugins: () => ipcRenderer.invoke('plugin:list'),
+  invokePlugin: (pluginId, command, payload) =>
+    ipcRenderer.invoke('plugin:invoke', pluginId, command, payload),
   // Basic filesystem helpers for renderer. These will be undefined if the fs
   // module is not available in the preload context (e.g. in sandboxed
   // environments). Callers should check for their presence before use.

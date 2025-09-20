@@ -38,7 +38,8 @@
     "appId": "com.junglelabstudio.app",
     "files": [
       "dist/**/*",
-      "electron.cjs"
+      "electron.cjs",
+      "plugin-manager.cjs"
     ],
     "extraMetadata": {
       "main": "electron.cjs"

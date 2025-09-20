@@ -10,6 +10,14 @@ interface Window {
     createDir?: (dir: string) => Promise<void>;
     exists?: (path: string) => Promise<boolean>;
     tcpRequest: (command: object, port?: number, host?: string) => Promise<any>;
+    listPlugins?: () => Promise<
+      {
+        pluginId: string;
+        manifest: import('../src/core/plugins').PluginManifest;
+        checksum: string;
+      }[]
+    >;
+    invokePlugin?: (pluginId: string, command: string, payload: unknown) => Promise<unknown>;
   };
 }
 

@@ -76,25 +76,31 @@ async fn execute_post_request(
 }
 
 #[tauri::command]
-pub async fn call_groq_chat(request: ProviderCommandRequest) -> Result<Value, String> {
-    execute_post_request(
-        GROQ_ENDPOINT,
-        &request.api_key,
-        ("Authorization", Some("Bearer")),
-        &request.body,
-        &[],
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn call_anthropic_chat(request: ProviderCommandRequest) -> Result<Value, String> {
-    execute_post_request(
-        ANTHROPIC_ENDPOINT,
-        &request.api_key,
-        ("x-api-key", None),
-        &request.body,
-        &[("anthropic-version", ANTHROPIC_VERSION)],
-    )
-    .await
+pub async fn providers_chat(
+    provider: String,
+    payload: ProviderCommandRequest,
+) -> Result<Value, String> {
+    match provider.to_lowercase().as_str() {
+        "groq" => {
+            execute_post_request(
+                GROQ_ENDPOINT,
+                &payload.api_key,
+                ("Authorization", Some("Bearer")),
+                &payload.body,
+                &[],
+            )
+            .await
+        }
+        "anthropic" => {
+            execute_post_request(
+                ANTHROPIC_ENDPOINT,
+                &payload.api_key,
+                ("x-api-key", None),
+                &payload.body,
+                &[("anthropic-version", ANTHROPIC_VERSION)],
+            )
+            .await
+        }
+        _ => Err(format!("Proveedor no soportado: {}", provider)),
+    }
 }

@@ -29,7 +29,29 @@ const DEFAULT_TEMPERATURE = 0.7;
 const isTauriEnvironment = (): boolean =>
   typeof window !== 'undefined' && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
 
-const normalizeInvokeError = (provider: string, error: unknown): Error => {
+const isElectronEnvironment = (): boolean =>
+  typeof window !== 'undefined' &&
+  Boolean(
+    (window as unknown as {
+      electronAPI?: { callProviderChat?: (provider: string, payload: unknown) => Promise<unknown> };
+    }).electronAPI?.callProviderChat,
+  );
+
+type RuntimeEnvironment = 'browser' | 'tauri' | 'electron';
+
+const detectRuntime = (): RuntimeEnvironment => {
+  if (isElectronEnvironment()) {
+    return 'electron';
+  }
+
+  if (isTauriEnvironment()) {
+    return 'tauri';
+  }
+
+  return 'browser';
+};
+
+const normalizeBridgeError = (provider: string, error: unknown): Error => {
   if (error instanceof Error) {
     return error;
   }
@@ -48,16 +70,33 @@ const normalizeInvokeError = (provider: string, error: unknown): Error => {
   return new Error(`No se pudo contactar a ${provider}.`);
 };
 
-const invokeProviderCommand = async <T>(
-  command: string,
-  provider: string,
+const callProviderThroughBridge = async (
+  runtime: Exclude<RuntimeEnvironment, 'browser'>,
+  providerId: 'groq' | 'anthropic',
+  providerName: string,
   payload: Record<string, unknown>,
-): Promise<T> => {
+): Promise<any> => {
+  if (runtime === 'electron') {
+    try {
+      const api = (window as unknown as {
+        electronAPI?: { callProviderChat?: (provider: string, request: Record<string, unknown>) => Promise<unknown> };
+      }).electronAPI;
+
+      if (!api?.callProviderChat) {
+        throw new Error('Canal de chat no disponible en Electron.');
+      }
+
+      return await api.callProviderChat(providerId, payload);
+    } catch (error) {
+      throw normalizeBridgeError(providerName, error);
+    }
+  }
+
   try {
     const { invoke } = await import('@tauri-apps/api/tauri');
-    return await invoke<T>(command, payload);
+    return await invoke('providers_chat', { provider: providerId, payload });
   } catch (error) {
-    throw normalizeInvokeError(provider, error);
+    throw normalizeBridgeError(providerName, error);
   }
 };
 
@@ -345,14 +384,10 @@ export const callGroqChat = async ({
     ],
   };
 
+  const runtime = detectRuntime();
   let payload: any;
 
-  if (isTauriEnvironment()) {
-    payload = await invokeProviderCommand<any>('call_groq_chat', 'Groq', {
-      apiKey,
-      body,
-    });
-  } else {
+  if (runtime === 'browser') {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -368,6 +403,11 @@ export const callGroqChat = async ({
     }
 
     payload = await response.json();
+  } else {
+    payload = await callProviderThroughBridge(runtime, 'groq', 'Groq', {
+      apiKey,
+      body,
+    });
   }
 
   const choice = payload?.choices?.[0]?.message?.content;
@@ -405,14 +445,10 @@ export const callAnthropicChat = async ({
     ],
   };
 
+  const runtime = detectRuntime();
   let payload: any;
 
-  if (isTauriEnvironment()) {
-    payload = await invokeProviderCommand<any>('call_anthropic_chat', 'Anthropic', {
-      apiKey,
-      body,
-    });
-  } else {
+  if (runtime === 'browser') {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -430,6 +466,11 @@ export const callAnthropicChat = async ({
     }
 
     payload = await response.json();
+  } else {
+    payload = await callProviderThroughBridge(runtime, 'anthropic', 'Anthropic', {
+      apiKey,
+      body,
+    });
   }
 
   const content = payload?.content;

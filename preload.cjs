@@ -28,5 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readTextFile: fs ? (path) => fs.promises.readFile(path, 'utf-8') : undefined,
   writeTextFile: fs ? (path, contents) => fs.promises.writeFile(path, contents) : undefined,
   createDir: fs ? (dir) => fs.promises.mkdir(dir, { recursive: true }) : undefined,
-  exists: fs ? (path) => Promise.resolve(fs.existsSync(path)) : undefined
+  exists: fs ? (path) => Promise.resolve(fs.existsSync(path)) : undefined,
+  callProviderChat: (provider, payload) =>
+    ipcRenderer.invoke('providers:chat', provider, payload)
 });

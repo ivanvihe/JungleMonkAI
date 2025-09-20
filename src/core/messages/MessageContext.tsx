@@ -18,7 +18,10 @@ import {
   ChatMessage,
   ChatModality,
   ChatTranscription,
+  MessageCorrection,
+  MessageFeedback,
 } from './messageTypes';
+import { buildCorrectionPipeline } from '../agents/providerRouter';
 
 interface MessageContextValue {
   messages: ChatMessage[];
@@ -38,7 +41,37 @@ interface MessageContextValue {
   agentResponses: ChatMessage[];
   quickCommands: string[];
   formatTimestamp: (isoString: string) => string;
+  toPlainText: (content: ChatMessage['content']) => string;
+  feedbackByMessage: Record<string, MessageFeedback>;
+  correctionHistory: MessageCorrection[];
+  qualityMetrics: QualityMetrics;
+  markMessageFeedback: (
+    messageId: string,
+    updates: Partial<MessageFeedback> & { hasError?: boolean },
+  ) => void;
+  submitCorrection: (
+    messageId: string,
+    correctedText: string,
+    notes?: string,
+    tags?: string[],
+  ) => Promise<void>;
 }
+
+interface PersistedQualityState {
+  feedback: Record<string, MessageFeedback>;
+  corrections: MessageCorrection[];
+}
+
+interface QualityMetrics {
+  totalAgentMessages: number;
+  flaggedResponses: number;
+  totalCorrections: number;
+  correctionRate: number;
+  tagRanking: Array<{ tag: string; count: number }>;
+}
+
+const CORRECTION_STORAGE_KEY = 'junglemonk.corrections.v1';
+const CORRECTION_STORAGE_FILE = 'corrections-log.json';
 
 interface MessageProviderProps {
   apiKeys: ApiKeySettings;
@@ -269,6 +302,28 @@ const MessageContext = createContext<MessageContextValue | undefined>(undefined)
 
 export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, children }) => {
   const { activeAgents, agentMap } = useAgents();
+  const loadPersistedQualityState = useCallback((): PersistedQualityState => {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+      return { feedback: {}, corrections: [] };
+    }
+
+    try {
+      const raw = localStorage.getItem(CORRECTION_STORAGE_KEY);
+      if (!raw) {
+        return { feedback: {}, corrections: [] };
+      }
+
+      const parsed = JSON.parse(raw) as PersistedQualityState;
+      return {
+        feedback: parsed.feedback ?? {},
+        corrections: parsed.corrections ?? [],
+      };
+    } catch (error) {
+      console.warn('No se pudo cargar el historial de correcciones desde localStorage:', error);
+      return { feedback: {}, corrections: [] };
+    }
+  }, []);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: buildMessageId('system'),
@@ -278,6 +333,11 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       modalities: ['text'],
     },
   ]);
+  const persistedQualityState = useMemo(() => loadPersistedQualityState(), [loadPersistedQualityState]);
+  const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, MessageFeedback>>(
+    persistedQualityState.feedback,
+  );
+  const [corrections, setCorrections] = useState<MessageCorrection[]>(persistedQualityState.corrections);
   const [draft, setDraftState] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<ChatAttachment[]>([]);
   const [composerTranscriptions, setComposerTranscriptions] = useState<ChatTranscription[]>([]);
@@ -347,6 +407,113 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       fetchAgentReply({ agent, prompt, apiKeys, fallback: mockAgentReply }),
     [apiKeys],
   );
+
+  useEffect(() => {
+    const syncFromTauri = async () => {
+      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
+        return;
+      }
+
+      try {
+        const { readTextFile, BaseDirectory, createDir } = await import(
+          /* @vite-ignore */ '@tauri-apps/api/fs'
+        );
+
+        try {
+          const data = await readTextFile(CORRECTION_STORAGE_FILE, { dir: BaseDirectory.AppData });
+          if (!data) {
+            return;
+          }
+          const parsed = JSON.parse(data) as PersistedQualityState;
+          setFeedbackByMessage(parsed.feedback ?? {});
+          setCorrections(parsed.corrections ?? []);
+        } catch (error) {
+          if (error && typeof error === 'object' && 'code' in (error as Record<string, unknown>)) {
+            if ((error as { code?: string }).code === 'NotFound') {
+              await createDir('', { dir: BaseDirectory.AppData, recursive: true });
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('No se pudo inicializar el almacenamiento de correcciones en Tauri:', error);
+      }
+    };
+
+    void syncFromTauri();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      const payload: PersistedQualityState = {
+        feedback: feedbackByMessage,
+        corrections,
+      };
+      try {
+        localStorage.setItem(CORRECTION_STORAGE_KEY, JSON.stringify(payload));
+      } catch (error) {
+        console.warn('No se pudo persistir el historial de correcciones en localStorage:', error);
+      }
+    }
+
+    const persistToTauri = async () => {
+      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
+        return;
+      }
+
+      try {
+        const { writeTextFile, BaseDirectory, createDir } = await import(
+          /* @vite-ignore */ '@tauri-apps/api/fs'
+        );
+        await createDir('', { dir: BaseDirectory.AppData, recursive: true });
+        await writeTextFile(
+          {
+            contents: JSON.stringify({ feedback: feedbackByMessage, corrections }),
+            path: CORRECTION_STORAGE_FILE,
+          },
+          { dir: BaseDirectory.AppData },
+        );
+      } catch (error) {
+        console.warn('No se pudo persistir el historial de correcciones en Tauri:', error);
+      }
+    };
+
+    void persistToTauri();
+  }, [feedbackByMessage, corrections]);
+
+  useEffect(() => {
+    setMessages(prevMessages =>
+      prevMessages.map(message => {
+        const nextFeedback = feedbackByMessage[message.id];
+        const currentFeedback = message.feedback;
+
+        const serialize = (feedback?: MessageFeedback): string =>
+          JSON.stringify({
+            hasError: feedback?.hasError ?? false,
+            notes: feedback?.notes ?? '',
+            tags: feedback?.tags ?? [],
+            lastUpdatedAt: feedback?.lastUpdatedAt ?? '',
+          });
+
+        if (!nextFeedback && !currentFeedback) {
+          return message;
+        }
+
+        if (serialize(nextFeedback) === serialize(currentFeedback)) {
+          return message;
+        }
+
+        if (!nextFeedback) {
+          const { feedback, ...rest } = message;
+          return { ...rest } as ChatMessage;
+        }
+
+        return {
+          ...message,
+          feedback: nextFeedback,
+        };
+      }),
+    );
+  }, [feedbackByMessage]);
 
   useEffect(() => {
     const cancelers: Array<() => void> = [];
@@ -513,6 +680,170 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     setComposerTranscriptions(prev => prev.filter(item => item.id !== transcriptionId));
   }, []);
 
+  const markMessageFeedback = useCallback(
+    (messageId: string, updates: Partial<MessageFeedback> & { hasError?: boolean }) => {
+      setFeedbackByMessage(prev => {
+        const previous = prev[messageId];
+        const timestamp = new Date().toISOString();
+        const merged: MessageFeedback = {
+          ...(previous ?? {}),
+          ...updates,
+          lastUpdatedAt: timestamp,
+        };
+
+        if (updates.hasError === false && !merged.notes && (!merged.tags || merged.tags.length === 0)) {
+          const next = { ...prev };
+          delete next[messageId];
+          return next;
+        }
+
+        if (updates.hasError === undefined) {
+          merged.hasError = previous?.hasError ?? false;
+        }
+
+        return {
+          ...prev,
+          [messageId]: merged,
+        };
+      });
+    },
+    [],
+  );
+
+  const submitCorrection = useCallback(
+    async (messageId: string, correctedText: string, notes?: string, tags?: string[]) => {
+      const original = messages.find(message => message.id === messageId);
+      if (!original) {
+        return;
+      }
+
+      const timestamp = new Date().toISOString();
+      const correctionId = buildMessageId('correction');
+      const originalAgent = original.agentId ? agentMap.get(original.agentId) : undefined;
+      const reviewerAgent = Array.from(agentMap.values()).find(agent => agent.id === 'openai-quality-review');
+      const effectiveReviewer = reviewerAgent && reviewerAgent.active ? reviewerAgent : undefined;
+      const fallbackAgent = originalAgent ?? effectiveReviewer;
+
+      if (!fallbackAgent) {
+        console.warn('No se encontró un agente para gestionar la corrección.');
+      }
+
+      const correctionEntry: MessageCorrection = {
+        id: correctionId,
+        messageId,
+        agentId: originalAgent?.id,
+        reviewerId: effectiveReviewer?.id,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        correctedText,
+        notes,
+        tags,
+      };
+
+      setCorrections(prev => [...prev, correctionEntry]);
+
+      setFeedbackByMessage(prev => {
+        const existing = prev[messageId];
+        return {
+          ...prev,
+          [messageId]: {
+            ...(existing ?? {}),
+            hasError: true,
+            notes: notes ?? existing?.notes,
+            tags: tags ?? existing?.tags,
+            lastUpdatedAt: timestamp,
+          },
+        };
+      });
+
+      if (!fallbackAgent) {
+        return;
+      }
+
+      const { prompt, targetAgent } = buildCorrectionPipeline({
+        correctionId,
+        originalMessage: original,
+        correctedText,
+        notes,
+        tags,
+        agent: originalAgent ?? fallbackAgent,
+        reviewer: effectiveReviewer,
+      });
+
+      const correctionMessage: ChatMessage = {
+        id: buildMessageId('user-correction'),
+        author: 'user',
+        content: correctedText,
+        timestamp,
+        modalities: correctedText.trim() ? ['text'] : undefined,
+        correctionId,
+      };
+
+      const pendingMessage: ChatMessage = {
+        id: buildMessageId(`${targetAgent.id}-correction`),
+        author: 'agent',
+        agentId: targetAgent.id,
+        content: `${targetAgent.name} está revisando la corrección…`,
+        timestamp,
+        status: 'pending',
+        sourcePrompt: prompt,
+        correctionId,
+      };
+
+      setMessages(prev => [...prev, correctionMessage, pendingMessage]);
+    },
+    [agentMap, messages],
+  );
+
+  const correctionHistory = useMemo(
+    () =>
+      [...corrections].sort((a, b) => {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }),
+    [corrections],
+  );
+
+  const qualityMetrics = useMemo(() => {
+    const totalAgentMessages = agentResponses.length;
+    const flaggedResponses = agentResponses.filter(message => feedbackByMessage[message.id]?.hasError).length;
+    const totalCorrections = corrections.length;
+    const correctionRate = totalAgentMessages > 0 ? totalCorrections / totalAgentMessages : 0;
+
+    const tagCounter = new Map<string, number>();
+    Object.values(feedbackByMessage).forEach(feedback => {
+      feedback.tags?.forEach(tag => {
+        const normalized = tag.trim();
+        if (!normalized) {
+          return;
+        }
+        tagCounter.set(normalized, (tagCounter.get(normalized) ?? 0) + 1);
+      });
+    });
+
+    corrections.forEach(correction => {
+      correction.tags?.forEach(tag => {
+        const normalized = tag.trim();
+        if (!normalized) {
+          return;
+        }
+        tagCounter.set(normalized, (tagCounter.get(normalized) ?? 0) + 1);
+      });
+    });
+
+    const tagRanking = Array.from(tagCounter.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return {
+      totalAgentMessages,
+      flaggedResponses,
+      totalCorrections,
+      correctionRate,
+      tagRanking,
+    } satisfies QualityMetrics;
+  }, [agentResponses, corrections, feedbackByMessage]);
+
   const value = useMemo(
     () => ({
       messages,
@@ -532,6 +863,12 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       agentResponses,
       quickCommands: QUICK_COMMANDS,
       formatTimestamp,
+      toPlainText: contentToPlainText,
+      feedbackByMessage,
+      correctionHistory,
+      qualityMetrics,
+      markMessageFeedback,
+      submitCorrection,
     }),
     [
       addAttachment,
@@ -544,6 +881,11 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       lastUserMessage,
       messages,
       pendingResponses,
+      feedbackByMessage,
+      correctionHistory,
+      qualityMetrics,
+      markMessageFeedback,
+      submitCorrection,
       removeAttachment,
       removeTranscription,
       sendMessage,

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
 import { AttachmentPicker } from './composer/AttachmentPicker';
@@ -13,7 +13,6 @@ interface ChatWorkspaceProps {
 }
 
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => {
-  const [density, setDensity] = useState<'standard' | 'compact'>('standard');
   const { activeAgents, agentMap } = useAgents();
   const {
     messages,
@@ -28,7 +27,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
     removeTranscription,
     composerModalities,
     sendMessage,
-    pendingResponses,
     lastUserMessage,
     quickCommands,
     formatTimestamp,
@@ -101,47 +99,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
     return publicMessages;
   }, [actorFilter, agentMap, publicMessages]);
 
+  const activeAgentsStatus = useMemo(() => {
+    const base = `${activeAgents.length} agente${activeAgents.length === 1 ? '' : 's'}`;
+    return `${base} coordinando la conversación.`;
+  }, [activeAgents.length]);
+
   return (
-    <div className={`chat-workspace chat-density-${density}`}>
-      <div className="chat-feed-header">
-        <div className="chat-feed-info">
-          <h1>Control Hub</h1>
-          <p>
-            {activeAgents.length} agente{activeAgents.length === 1 ? '' : 's'} coordinando la conversación.
-          </p>
-        </div>
-        <div className="chat-feed-tools">
-          <div className="chat-density-toggle" role="group" aria-label="Densidad del feed">
-            <button
-              type="button"
-              className={density === 'standard' ? 'is-active' : ''}
-              onClick={() => setDensity('standard')}
-            >
-              Estándar
-            </button>
-            <button
-              type="button"
-              className={density === 'compact' ? 'is-active' : ''}
-              onClick={() => setDensity('compact')}
-            >
-              Compacta
-            </button>
-          </div>
-          <div className="chat-session-metrics" aria-label="Estado de la conversación">
-            <span className="metric-pill">
-              <span className="metric-label">Mensajes</span>
-              <span className="metric-value">{messages.length}</span>
-            </span>
-            <span className={`metric-pill ${pendingResponses ? 'metric-warning' : ''}`}>
-              <span className="metric-label">Pendientes</span>
-              <span className="metric-value">{pendingResponses}</span>
-            </span>
-          </div>
-        </div>
+    <div className="chat-workspace">
+      <div className="chat-feed-header" role="status" aria-live="polite">
+        {activeAgentsStatus}
       </div>
 
       <section className="chat-feed" aria-label="Historial de mensajes">
-        <div className={`message-feed chat-density-${density}`}>
+        <div className="message-feed">
           {filteredMessages.length === 0 ? (
             <div className="message-feed-empty">No hay mensajes para el filtro seleccionado.</div>
           ) : (

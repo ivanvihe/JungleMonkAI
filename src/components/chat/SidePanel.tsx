@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { AgentPresenceEntry } from '../../core/agents/presence';
 import { useMessages } from '../../core/messages/MessageContext';
@@ -8,6 +8,7 @@ import { AgentPresenceList } from '../agents/AgentPresenceList';
 import { ChatMessage } from '../../core/messages/messageTypes';
 import { QualityDashboard } from '../quality/QualityDashboard';
 import { AgentConversationPanel } from '../orchestration/AgentConversationPanel';
+import { providerSecretExists, storeProviderSecret } from '../../utils/secrets';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
@@ -22,6 +23,11 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   presenceMap,
   onRefreshAgentPresence,
 }) => {
+  const [githubInput, setGithubInput] = useState('');
+  const [gitlabInput, setGitlabInput] = useState('');
+  const [githubStored, setGithubStored] = useState(false);
+  const [gitlabStored, setGitlabStored] = useState(false);
+
   const { agents, agentMap, toggleAgent, assignAgentRole } = useAgents();
   const {
     quickCommands,
@@ -102,6 +108,27 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     [feedbackByMessage, submitCorrection, toPlainText],
   );
 
+  useEffect(() => {
+    void providerSecretExists('github').then(setGithubStored).catch(() => setGithubStored(false));
+    void providerSecretExists('gitlab').then(setGitlabStored).catch(() => setGitlabStored(false));
+  }, []);
+
+  const handleSecureKeySave = useCallback(
+    async (provider: 'github' | 'gitlab', value: string) => {
+      const trimmed = value.trim();
+      await storeProviderSecret(provider, trimmed);
+      onApiKeyChange(provider, trimmed ? '__secure__' : '');
+      if (provider === 'github') {
+        setGithubStored(Boolean(trimmed));
+        setGithubInput('');
+      } else {
+        setGitlabStored(Boolean(trimmed));
+        setGitlabInput('');
+      }
+    },
+    [onApiKeyChange],
+  );
+
   return (
     <aside className="controls-panel">
       <div className="controls-panel-content">
@@ -132,18 +159,62 @@ export const SidePanel: React.FC<SidePanelProps> = ({
               className={!apiKeys.anthropic ? 'is-empty' : ''}
             />
           </div>
-          <div className="key-field">
-            <label htmlFor="groq-key">Groq</label>
+        <div className="key-field">
+          <label htmlFor="groq-key">Groq</label>
+          <input
+            id="groq-key"
+            type="password"
+            value={apiKeys.groq}
+            onChange={event => onApiKeyChange('groq', event.target.value)}
+            placeholder="groq-..."
+            className={!apiKeys.groq ? 'is-empty' : ''}
+          />
+        </div>
+        <div className="key-field">
+          <label htmlFor="github-key">
+            GitHub
+            {githubStored ? <span className="badge">guardado</span> : null}
+          </label>
+          <div className="secure-key-input">
             <input
-              id="groq-key"
+              id="github-key"
               type="password"
-              value={apiKeys.groq}
-              onChange={event => onApiKeyChange('groq', event.target.value)}
-              placeholder="groq-..."
-              className={!apiKeys.groq ? 'is-empty' : ''}
+              value={githubInput}
+              onChange={event => setGithubInput(event.target.value)}
+              placeholder={githubStored ? 'token almacenado' : 'ghp_...'}
             />
+            <button
+              type="button"
+              onClick={() => void handleSecureKeySave('github', githubInput)}
+              disabled={!githubInput.trim() && !githubStored}
+            >
+              {githubInput.trim() || !githubStored ? 'Guardar' : 'Eliminar'}
+            </button>
           </div>
-        </section>
+        </div>
+        <div className="key-field">
+          <label htmlFor="gitlab-key">
+            GitLab
+            {gitlabStored ? <span className="badge">guardado</span> : null}
+          </label>
+          <div className="secure-key-input">
+            <input
+              id="gitlab-key"
+              type="password"
+              value={gitlabInput}
+              onChange={event => setGitlabInput(event.target.value)}
+              placeholder={gitlabStored ? 'token almacenado' : 'glpat-...'}
+            />
+            <button
+              type="button"
+              onClick={() => void handleSecureKeySave('gitlab', gitlabInput)}
+              disabled={!gitlabInput.trim() && !gitlabStored}
+            >
+              {gitlabInput.trim() || !gitlabStored ? 'Guardar' : 'Eliminar'}
+            </button>
+          </div>
+        </div>
+      </section>
 
         <section className="panel-section">
           <header className="panel-section-header">

@@ -1,6 +1,6 @@
-export type SupportedProvider = 'openai' | 'anthropic' | 'groq';
+export type SupportedProvider = 'openai' | 'anthropic' | 'groq' | 'github' | 'gitlab';
 
-export const BUILTIN_PROVIDERS: SupportedProvider[] = ['openai', 'anthropic', 'groq'];
+export const BUILTIN_PROVIDERS: SupportedProvider[] = ['openai', 'anthropic', 'groq', 'github', 'gitlab'];
 
 export type ApiKeySettings = Record<string, string>;
 

@@ -8,6 +8,41 @@
   background: #000;
 }
 
+.app-mode-switcher {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-self: center;
+  margin: 16px auto 0;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 6px;
+}
+
+.app-mode-switcher button {
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.app-mode-switcher button.is-active {
+  background: rgba(142, 141, 255, 0.28);
+  color: #fff;
+}
+
+.app-mode-switcher button:not(.is-active):hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .app-container.ui-hidden .top-bar,
 .app-container.ui-hidden .layer-grid-container,
 .app-container.ui-hidden .resource-explorer,

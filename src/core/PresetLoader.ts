@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 
-import Ajv from 'ajv';
+import { Validator } from 'jsonschema';
+import type { Schema } from 'jsonschema';
 import presetSchema from '../../presets/schema.json';
 
-const ajv = new Ajv();
-const validatePresetConfig = ajv.compile(presetSchema);
+const presetValidator = new Validator();
+const validatePresetConfig = (candidate: unknown) =>
+  presetValidator.validate(candidate, presetSchema as Schema);
 
 export interface PresetConfig {
   name: string;
@@ -204,8 +206,9 @@ export class PresetLoader {
         return;
       }
       let cfg: PresetConfig = await (configLoader as any)();
-      if (!validatePresetConfig(cfg)) {
-        console.warn(`Invalid config schema for ${presetId}, skipping reload`, validatePresetConfig.errors);
+      const validation = validatePresetConfig(cfg);
+      if (!validation.valid) {
+        console.warn(`Invalid config schema for ${presetId}, skipping reload`, validation.errors);
         return;
       }
       const createPreset = mod.createPreset;
@@ -405,8 +408,9 @@ export class PresetLoader {
         continue;
       }
       let cfg: PresetConfig = await (configLoader as any)();
-      if (!validatePresetConfig(cfg)) {
-        console.warn(`Invalid config schema for ${presetId}, skipping`, validatePresetConfig.errors);
+      const validation = validatePresetConfig(cfg);
+      if (!validation.valid) {
+        console.warn(`Invalid config schema for ${presetId}, skipping`, validation.errors);
         continue;
       }
 

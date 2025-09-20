@@ -1,4 +1,5 @@
-import Ajv, { JSONSchemaType } from 'ajv';
+import { Validator } from 'jsonschema';
+import type { Schema } from 'jsonschema';
 import {
   ApiKeySettings,
   BUILTIN_PROVIDERS,
@@ -27,9 +28,11 @@ const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
 export const CURRENT_SCHEMA_VERSION = 8;
 
-const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
+const validator = new Validator();
 
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
+
+const allowNull = (schema: Schema): Schema => ({ anyOf: [schema, { type: 'null' }] });
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
 
@@ -53,7 +56,7 @@ const DEFAULT_SIDE_PANEL_WIDTH = 320;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
-const agentManifestModelSchema: JSONSchemaType<AgentManifestModel> = {
+const agentManifestModelSchema: Schema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
@@ -61,20 +64,16 @@ const agentManifestModelSchema: JSONSchemaType<AgentManifestModel> = {
     model: { type: 'string' },
     description: { type: 'string' },
     kind: { type: 'string', enum: ['cloud', 'local'] },
-    accent: { type: 'string', nullable: true },
-    channel: { type: 'string', nullable: true },
-    aliases: {
-      type: 'array',
-      nullable: true,
-      items: { type: 'string' },
-    },
-    defaultActive: { type: 'boolean', nullable: true },
+    accent: allowNull({ type: 'string' }),
+    channel: allowNull({ type: 'string' }),
+    aliases: allowNull({ type: 'array', items: { type: 'string' } }),
+    defaultActive: allowNull({ type: 'boolean' }),
   },
   required: ['id', 'name', 'model', 'description', 'kind'],
   additionalProperties: false,
 };
 
-const agentManifestSchema: JSONSchemaType<AgentManifest> = {
+const agentManifestSchema: Schema = {
   type: 'object',
   properties: {
     provider: { type: 'string' },
@@ -91,7 +90,7 @@ const agentManifestSchema: JSONSchemaType<AgentManifest> = {
   additionalProperties: false,
 };
 
-const agentManifestCacheEntrySchema: JSONSchemaType<AgentManifestCacheEntry> = {
+const agentManifestCacheEntrySchema: Schema = {
   type: 'object',
   properties: {
     checksum: { type: 'string' },
@@ -105,22 +104,21 @@ const agentManifestCacheEntrySchema: JSONSchemaType<AgentManifestCacheEntry> = {
   additionalProperties: false,
 };
 
-const pluginSettingsEntrySchema: JSONSchemaType<PluginSettingsEntry> = {
+const pluginSettingsEntrySchema: Schema = {
   type: 'object',
   properties: {
     enabled: { type: 'boolean' },
     credentials: {
       type: 'object',
-      required: [],
       additionalProperties: { type: 'string' },
-    } as unknown as JSONSchemaType<PluginSettingsEntry['credentials']>,
-    lastApprovedChecksum: { type: 'string', nullable: true },
+    },
+    lastApprovedChecksum: allowNull({ type: 'string' }),
   },
   required: ['enabled', 'credentials'],
   additionalProperties: false,
 };
 
-const mcpProfileEndpointSchema: JSONSchemaType<McpProfileEndpoint> = {
+const mcpProfileEndpointSchema: Schema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
@@ -131,14 +129,14 @@ const mcpProfileEndpointSchema: JSONSchemaType<McpProfileEndpoint> = {
   additionalProperties: false,
 };
 
-const mcpProfileSchema: JSONSchemaType<McpProfile> = {
+const mcpProfileSchema: Schema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
     label: { type: 'string' },
-    description: { type: 'string', nullable: true },
+    description: allowNull({ type: 'string' }),
     autoConnect: { type: 'boolean' },
-    token: { type: 'string', nullable: true },
+    token: allowNull({ type: 'string' }),
     endpoints: {
       type: 'array',
       items: mcpProfileEndpointSchema,
@@ -149,19 +147,19 @@ const mcpProfileSchema: JSONSchemaType<McpProfile> = {
   additionalProperties: false,
 };
 
-const sidePanelPreferencesSchema: JSONSchemaType<SidePanelPreferences> = {
+const sidePanelPreferencesSchema: Schema = {
   type: 'object',
   properties: {
     position: { type: 'string', enum: ['left', 'right'] },
     width: { type: 'number', minimum: MIN_SIDE_PANEL_WIDTH, maximum: MAX_SIDE_PANEL_WIDTH },
     collapsed: { type: 'boolean' },
-    activeSectionId: { type: 'string', nullable: true },
+    activeSectionId: allowNull({ type: 'string' }),
   },
   required: ['position', 'width', 'collapsed', 'activeSectionId'],
   additionalProperties: false,
 };
 
-const workspacePreferencesSchema: JSONSchemaType<WorkspacePreferences> = {
+const workspacePreferencesSchema: Schema = {
   type: 'object',
   properties: {
     sidePanel: sidePanelPreferencesSchema,
@@ -170,44 +168,43 @@ const workspacePreferencesSchema: JSONSchemaType<WorkspacePreferences> = {
   additionalProperties: false,
 };
 
-const projectProfileSchema: JSONSchemaType<ProjectProfile> = {
+const projectProfileSchema: Schema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
     name: { type: 'string' },
     repositoryPath: { type: 'string' },
-    defaultBranch: { type: 'string', nullable: true },
-    instructions: { type: 'string', nullable: true },
-    preferredProvider: { type: 'string', nullable: true },
-    preferredModel: { type: 'string', nullable: true },
+    defaultBranch: allowNull({ type: 'string' }),
+    instructions: allowNull({ type: 'string' }),
+    preferredProvider: allowNull({ type: 'string' }),
+    preferredModel: allowNull({ type: 'string' }),
   },
   required: ['id', 'name', 'repositoryPath'],
   additionalProperties: false,
 };
 
-const dataLocationSchema: JSONSchemaType<DataLocationSettings> = {
+const dataLocationSchema: Schema = {
   type: 'object',
   properties: {
     useCustomPath: { type: 'boolean' },
-    customPath: { type: 'string', nullable: true },
-    lastKnownBasePath: { type: 'string', nullable: true },
-    defaultPath: { type: 'string', nullable: true },
-    lastMigrationFrom: { type: 'string', nullable: true },
-    lastMigrationAt: { type: 'string', nullable: true },
+    customPath: allowNull({ type: 'string' }),
+    lastKnownBasePath: allowNull({ type: 'string' }),
+    defaultPath: allowNull({ type: 'string' }),
+    lastMigrationFrom: allowNull({ type: 'string' }),
+    lastMigrationAt: allowNull({ type: 'string' }),
   },
   required: ['useCustomPath'],
   additionalProperties: false,
 };
 
-const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
+const globalSettingsSchema: Schema = {
   type: 'object',
   properties: {
     version: { type: 'integer', minimum: 1 },
     apiKeys: {
       type: 'object',
-      required: [],
       additionalProperties: { type: 'string' },
-    } as unknown as JSONSchemaType<ApiKeySettings>,
+    },
     commandPresets: {
       type: 'array',
       items: {
@@ -216,19 +213,17 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
           id: { type: 'string' },
           label: { type: 'string' },
           prompt: { type: 'string' },
-          description: { type: 'string', nullable: true },
-          provider: { type: 'string', nullable: true },
-          model: { type: 'string', nullable: true },
-          settings: {
+          description: allowNull({ type: 'string' }),
+          provider: allowNull({ type: 'string' }),
+          model: allowNull({ type: 'string' }),
+          settings: allowNull({
             type: 'object',
-            nullable: true,
             properties: {
-              temperature: { type: 'number', nullable: true },
-              maxTokens: { type: 'integer', nullable: true },
+              temperature: allowNull({ type: 'number' }),
+              maxTokens: allowNull({ type: 'integer' }),
             },
-            required: [],
             additionalProperties: false,
-          },
+          }),
         },
         required: ['id', 'label', 'prompt'],
         additionalProperties: false,
@@ -236,32 +231,29 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     },
     defaultRoutingRules: {
       type: 'object',
-      required: [],
       additionalProperties: {
         type: 'object',
         properties: {
           provider: { type: 'string' },
           model: { type: 'string' },
-          commandPresetId: { type: 'string', nullable: true },
+          commandPresetId: allowNull({ type: 'string' }),
         },
         required: ['provider', 'model'],
         additionalProperties: false,
       },
-    } as unknown as JSONSchemaType<DefaultRoutingRules>,
+    },
     enabledPlugins: {
       type: 'array',
       items: { type: 'string' },
     },
     approvedManifests: {
       type: 'object',
-      required: [],
       additionalProperties: agentManifestCacheEntrySchema,
-    } as unknown as JSONSchemaType<AgentManifestCache>,
+    },
     pluginSettings: {
       type: 'object',
-      required: [],
       additionalProperties: pluginSettingsEntrySchema,
-    } as unknown as JSONSchemaType<PluginSettingsMap>,
+    },
     mcpProfiles: {
       type: 'array',
       items: mcpProfileSchema,
@@ -272,7 +264,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
       type: 'array',
       items: projectProfileSchema,
     },
-    activeProjectId: { type: 'string', nullable: true },
+    activeProjectId: allowNull({ type: 'string' }),
   },
   required: [
     'version',
@@ -291,7 +283,8 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
   additionalProperties: false,
 };
 
-const validateGlobalSettings = ajv.compile<GlobalSettings>(globalSettingsSchema);
+const validateGlobalSettings = (payload: unknown): payload is GlobalSettings =>
+  validator.validate(payload, globalSettingsSchema).valid;
 
 const normalizeApiKeys = (input: ApiKeySettings | undefined): ApiKeySettings => {
   const normalized: ApiKeySettings = {};
@@ -1036,7 +1029,7 @@ export const loadGlobalSettingsFromUserData = async (): Promise<GlobalSettings |
 export type { PersistedSettings as PersistedGlobalSettings };
 
 export const validateGlobalSettingsPayload = (payload: unknown): payload is GlobalSettings =>
-  validateGlobalSettings(payload as GlobalSettings);
+  validateGlobalSettings(payload);
 
 export const migratePersistedGlobalSettings = (
   raw: PersistedSettings | undefined,

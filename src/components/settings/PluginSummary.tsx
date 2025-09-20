@@ -61,8 +61,18 @@ export const PluginSummary: React.FC<PluginSummaryProps> = ({ settings, onSettin
                   <strong>{manifest.name}</strong>
                   <span>{manifest.version}</span>
                 </div>
-                <button type="button" onClick={() => handleToggle(pluginId, !enabled)}>
-                  {enabled ? 'Desactivar' : 'Activar'}
+                <button
+                  type="button"
+                  className={`plugin-toggle${enabled ? ' plugin-toggle--on' : ''}`}
+                  onClick={() => handleToggle(pluginId, !enabled)}
+                  aria-pressed={enabled}
+                  aria-label={`${enabled ? 'Desactivar' : 'Activar'} el plugin ${manifest.name}`}
+                  title={`${enabled ? 'Desactivar' : 'Activar'} el plugin`}
+                >
+                  <span className="plugin-toggle__icon" aria-hidden="true">
+                    {enabled ? '✓' : '✕'}
+                  </span>
+                  <span className="plugin-toggle__text">{enabled ? 'Activo' : 'Inactivo'}</span>
                 </button>
               </header>
               {manifest.description && <p>{manifest.description}</p>}

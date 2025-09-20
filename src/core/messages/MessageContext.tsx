@@ -12,6 +12,7 @@ import { AgentDefinition } from '../agents/agentRegistry';
 import { useAgents } from '../agents/AgentContext';
 import { fetchAgentReply } from '../agents/providerRouter';
 import type { AgentExchangeTrace } from '../agents/providerRouter';
+import { emitAgentPresenceOverride } from '../agents/presence';
 import type { ChatProviderResponse } from '../../utils/aiProviders';
 import {
   ChatAttachment,
@@ -1089,19 +1090,82 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
           try {
             if (agent.kind === 'cloud') {
               const prompt = message.sourcePrompt ?? contentToPlainText(message.content);
-              const response = await resolveAgentReply(agent, prompt, message.orchestrationContext);
+              const outcome = await resolveAgentReply(agent, prompt, message.orchestrationContext);
 
               if (cancelled) {
                 return;
               }
 
-              const normalizedContent = normalizeProviderContent(response.content);
-              const plain = contentToPlainText(normalizedContent);
-              const hasContent = plain.trim().length > 0;
-              const finalContent: ChatMessage['content'] = hasContent
-                ? normalizedContent
-                : `${agentLabel} no devolvió contenido.`;
               const completionTimestamp = new Date().toISOString();
+
+              if (outcome.status === 'success') {
+                let normalizedContent = normalizeProviderContent(outcome.response.content);
+                let plain = contentToPlainText(normalizedContent);
+                const hasContent = plain.trim().length > 0;
+                const finalContent: ChatMessage['content'] = hasContent
+                  ? normalizedContent
+                  : `${agentLabel} no devolvió contenido.`;
+
+                if (!hasContent) {
+                  plain = contentToPlainText(finalContent);
+                }
+
+                setMessages(prev =>
+                  prev.map(item =>
+                    item.id === message.id
+                      ? {
+                          ...item,
+                          status: 'sent',
+                          content: finalContent,
+                          attachments: outcome.response.attachments?.length
+                            ? outcome.response.attachments
+                            : undefined,
+                          modalities: ensureResponseModalities(outcome.response),
+                          transcriptions: outcome.response.transcriptions?.length
+                            ? outcome.response.transcriptions
+                            : undefined,
+                        }
+                      : item,
+                  ),
+                );
+                setSharedSnapshot(prev =>
+                  limitSnapshotHistory(registerAgentConclusion(prev, agent.id, plain, completionTimestamp)),
+                );
+                appendTraces({
+                  id: `${agent.id}-conclusion-${completionTimestamp}`,
+                  timestamp: completionTimestamp,
+                  actor: 'agent',
+                  agentId: agent.id,
+                  description: `Conclusión de ${agentLabel}`,
+                  details: plain,
+                  strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
+                });
+                return;
+              }
+
+              let normalizedContent = normalizeProviderContent(outcome.response.content);
+              if (!contentToPlainText(normalizedContent).trim()) {
+                normalizedContent = `${agentLabel} no devolvió contenido.`;
+              }
+
+              if (outcome.errorMessage) {
+                const prefix = `⚠️ ${agentLabel} tuvo un problema al contactar a su proveedor: ${outcome.errorMessage}.`;
+                if (typeof normalizedContent === 'string') {
+                  const trimmed = normalizedContent.trim();
+                  normalizedContent = trimmed ? `${prefix}\n\n${normalizedContent}` : prefix;
+                } else {
+                  normalizedContent = [
+                    { type: 'text', text: prefix },
+                    ...(Array.isArray(normalizedContent)
+                      ? normalizedContent.map(part =>
+                          typeof part === 'string' ? { type: 'text', text: part } : part,
+                        )
+                      : []),
+                  ];
+                }
+              }
+
+              const plain = contentToPlainText(normalizedContent);
 
               setMessages(prev =>
                 prev.map(item =>
@@ -1109,10 +1173,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                     ? {
                         ...item,
                         status: 'sent',
-                        content: finalContent,
-                        attachments: response.attachments?.length ? response.attachments : undefined,
-                        modalities: ensureResponseModalities(response),
-                        transcriptions: response.transcriptions?.length ? response.transcriptions : undefined,
+                        content: normalizedContent,
+                        attachments: undefined,
+                        modalities: ['text'],
+                        transcriptions: undefined,
                       }
                     : item,
                 ),
@@ -1121,14 +1185,42 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                 limitSnapshotHistory(registerAgentConclusion(prev, agent.id, plain, completionTimestamp)),
               );
               appendTraces({
-                id: `${agent.id}-conclusion-${completionTimestamp}`,
+                id: `${agent.id}-fallback-${completionTimestamp}`,
                 timestamp: completionTimestamp,
-                actor: 'agent',
+                actor: 'system',
                 agentId: agent.id,
-                description: `Conclusión de ${agentLabel}`,
+                description: `Se usó respuesta alternativa para ${agentLabel}`,
                 details: plain,
                 strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
               });
+
+              if (outcome.errorMessage) {
+                setFeedbackByMessage(prev => {
+                  const previous = prev[message.id];
+                  const nextNotes = previous?.notes ?? outcome.errorMessage;
+                  if (previous?.hasError && previous.notes === nextNotes) {
+                    return prev;
+                  }
+
+                  const timestamp = new Date().toISOString();
+                  return {
+                    ...prev,
+                    [message.id]: {
+                      ...(previous ?? {}),
+                      hasError: true,
+                      notes: nextNotes,
+                      lastUpdatedAt: timestamp,
+                    },
+                  };
+                });
+
+                emitAgentPresenceOverride({
+                  agentId: agent.id,
+                  status: 'error',
+                  message: outcome.errorMessage,
+                });
+              }
+
               return;
             }
 

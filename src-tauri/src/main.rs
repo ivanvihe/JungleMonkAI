@@ -1,4 +1,5 @@
 mod ableton;
+mod ai;
 mod audio;
 mod config;
 mod git;
@@ -119,6 +120,8 @@ fn main() {
             list_models,
             download_model,
             activate_model,
+            ai::call_groq_chat,
+            ai::call_anthropic_chat,
             git_list_repository_files,
             git_repository_status,
             git_apply_patch,

@@ -9,6 +9,7 @@ interface AgentPresenceListProps {
   onToggleAgent: (agentId: string) => void;
   onOpenConsole?: (agentId: string) => void;
   onRefreshAgent?: (agentId: string) => void | Promise<void>;
+  onUpdateRole: (agentId: string, updates: { role?: string; objective?: string }) => void;
 }
 
 const STATUS_LABELS: Record<AgentPresenceStatus, string> = {
@@ -39,12 +40,22 @@ const buildAvatarLabel = (agent: AgentDefinition): string => {
   return agent.provider.slice(0, 1).toUpperCase();
 };
 
+const ROLE_PRESETS = [
+  '',
+  'Diseñador/a',
+  'Crítico/a',
+  'Ejecutor/a',
+  'Investigador/a',
+  'Product Manager',
+];
+
 export const AgentPresenceList: React.FC<AgentPresenceListProps> = ({
   agents,
   presence,
   onToggleAgent,
   onOpenConsole,
   onRefreshAgent,
+  onUpdateRole,
 }) => (
   <ul className="agent-presence-list">
     {agents.map(agent => {
@@ -73,6 +84,35 @@ export const AgentPresenceList: React.FC<AgentPresenceListProps> = ({
               </span>
             </div>
             {entry.message && <div className="agent-presence-message">{entry.message}</div>}
+            <div className="agent-presence-role">
+              <label>
+                Rol
+                <select
+                  value={agent.role ?? ''}
+                  onChange={event => onUpdateRole(agent.id, { role: event.target.value || undefined, objective: agent.objective })}
+                >
+                  {ROLE_PRESETS.map(option => (
+                    <option key={option || 'none'} value={option}>
+                      {option ? option : 'Sin asignar'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Objetivo
+                <input
+                  type="text"
+                  value={agent.objective ?? ''}
+                  onChange={event =>
+                    onUpdateRole(agent.id, {
+                      role: agent.role,
+                      objective: event.target.value.trim() ? event.target.value : undefined,
+                    })
+                  }
+                  placeholder="Describe el foco actual"
+                />
+              </label>
+            </div>
           </div>
           <div className="agent-presence-actions">
             <button

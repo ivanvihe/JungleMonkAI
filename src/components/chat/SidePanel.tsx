@@ -7,6 +7,7 @@ import { ModelGallery } from '../models/ModelGallery';
 import { AgentPresenceList } from '../agents/AgentPresenceList';
 import { ChatMessage } from '../../core/messages/messageTypes';
 import { QualityDashboard } from '../quality/QualityDashboard';
+import { AgentConversationPanel } from '../orchestration/AgentConversationPanel';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
@@ -21,7 +22,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   presenceMap,
   onRefreshAgentPresence,
 }) => {
-  const { agents, agentMap, toggleAgent } = useAgents();
+  const { agents, agentMap, toggleAgent, assignAgentRole } = useAgents();
   const {
     quickCommands,
     appendToDraft,
@@ -31,6 +32,10 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     feedbackByMessage,
     markMessageFeedback,
     submitCorrection,
+    coordinationStrategy,
+    setCoordinationStrategy,
+    sharedSnapshot,
+    orchestrationTraces,
   } = useMessages();
 
   const recentActivity = useMemo(
@@ -149,6 +154,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({
             agents={agents}
             presence={presenceMap}
             onToggleAgent={toggleAgent}
+            onUpdateRole={assignAgentRole}
             onOpenConsole={agentId =>
               console.log(`Abrir consola interactiva para el agente ${agentId}`)
             }
@@ -158,6 +164,20 @@ export const SidePanel: React.FC<SidePanelProps> = ({
 
         <section className="panel-section">
           <ModelGallery />
+        </section>
+
+        <section className="panel-section">
+          <header className="panel-section-header">
+            <h2>Conversa entre agentes</h2>
+            <p>Visualiza cómo coordinan los modelos antes de responder.</p>
+          </header>
+          <AgentConversationPanel
+            traces={orchestrationTraces}
+            sharedSnapshot={sharedSnapshot}
+            agents={agents}
+            currentStrategy={coordinationStrategy}
+            onChangeStrategy={setCoordinationStrategy}
+          />
         </section>
 
         <QualityDashboard />

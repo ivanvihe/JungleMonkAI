@@ -1,4 +1,8 @@
+import type { MultiAgentContext } from '../orchestration';
+
 export type ChatAuthor = 'system' | 'user' | 'agent';
+
+export type ChatVisibility = 'public' | 'internal';
 
 export type ChatModality = 'text' | 'image' | 'audio' | 'video' | 'file';
 
@@ -63,6 +67,8 @@ export interface ChatMessage {
   transcriptions?: ChatTranscription[];
   feedback?: MessageFeedback;
   correctionId?: string;
+  visibility?: ChatVisibility;
+  orchestrationContext?: MultiAgentContext;
 }
 
 export interface MessageFeedback {

@@ -52,6 +52,37 @@
   gap: 6px;
 }
 
+.agent-presence-role {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.agent-presence-role label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.agent-presence-role select,
+.agent-presence-role input {
+  background: rgba(18, 18, 18, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #fff;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.agent-presence-role input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .agent-presence-name {
   font-size: 14px;
   font-weight: 600;

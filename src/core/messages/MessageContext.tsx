@@ -11,6 +11,7 @@ import { ApiKeySettings } from '../../types/globalSettings';
 import { AgentDefinition } from '../agents/agentRegistry';
 import { useAgents } from '../agents/AgentContext';
 import { fetchAgentReply } from '../agents/providerRouter';
+import type { AgentExchangeTrace } from '../agents/providerRouter';
 import type { ChatProviderResponse } from '../../utils/aiProviders';
 import {
   ChatAttachment,
@@ -22,6 +23,18 @@ import {
   MessageFeedback,
 } from './messageTypes';
 import { buildCorrectionPipeline } from '../agents/providerRouter';
+import {
+  CoordinationStrategyId,
+  createInitialSnapshot,
+  getCoordinationStrategy,
+  registerAgentConclusion,
+  registerSystemNote,
+  buildTraceFromBridge,
+  limitSnapshotHistory,
+  type MultiAgentContext,
+  type OrchestrationTraceEntry,
+  type SharedConversationSnapshot,
+} from '../orchestration';
 
 interface MessageContextValue {
   messages: ChatMessage[];
@@ -55,6 +68,10 @@ interface MessageContextValue {
     notes?: string,
     tags?: string[],
   ) => Promise<void>;
+  coordinationStrategy: CoordinationStrategyId;
+  setCoordinationStrategy: (strategy: CoordinationStrategyId) => void;
+  sharedSnapshot: SharedConversationSnapshot;
+  orchestrationTraces: OrchestrationTraceEntry[];
 }
 
 interface PersistedQualityState {
@@ -275,27 +292,32 @@ const ensureResponseModalities = (
   return inferred.length ? inferred : ['text'];
 };
 
-const mockAgentReply = (agent: AgentDefinition, prompt?: string): string => {
+const mockAgentReply = (agent: AgentDefinition, prompt?: string, context?: MultiAgentContext): string => {
   const safePrompt = prompt?.replace(/\s+/g, ' ').trim() ?? '';
   const truncatedPrompt = safePrompt.length > 120 ? `${safePrompt.slice(0, 117)}…` : safePrompt;
+  const roleHint = context?.role?.role ? ` Rol: ${context.role.role}.` : '';
+  const objectiveHint = context?.role?.objective ? ` Objetivo: ${context.role.objective}.` : '';
+  const instructions = context?.instructions?.length
+    ? ` Pistas: ${context.instructions.slice(0, 2).join(' | ')}.`
+    : '';
 
   if (agent.provider === 'OpenAI') {
-    return `He generado una propuesta inicial basándome en «${truncatedPrompt || 'la última instrucción'}». Puedo preparar estilos CSS y componentes listos para copiar.`;
+    return `He generado una propuesta inicial basándome en «${truncatedPrompt || 'la última instrucción'}».${roleHint}${objectiveHint}${instructions}`;
   }
 
   if (agent.provider === 'Anthropic') {
-    return `He revisado la entrega de los otros modelos y propongo mejoras editoriales y de tono para «${truncatedPrompt || 'el contexto actual'}».`;
+    return `Reviso la entrega y refino el tono para «${truncatedPrompt || 'el contexto actual'}».${roleHint}${objectiveHint}${instructions}`;
   }
 
   if (agent.provider === 'Groq') {
-    return `Aquí tienes un desglose técnico rápido y una lista de validaciones clave a partir de «${truncatedPrompt || 'tu solicitud'}».`;
+    return `Desglose técnico y validaciones para «${truncatedPrompt || 'tu solicitud'}».${roleHint}${objectiveHint}${instructions}`;
   }
 
   if (agent.kind === 'local') {
-    return `El modelo local ${agent.name} sugiere una variante optimizada trabajando con «${truncatedPrompt || 'los parámetros indicados'}».`;
+    return `El modelo local ${agent.name} sugiere una variante optimizada con «${truncatedPrompt || 'los parámetros indicados'}».${roleHint}${objectiveHint}${instructions}`;
   }
 
-  return `Respuesta generada por ${agent.name}.`;
+  return `Respuesta generada por ${agent.name}.${roleHint}${objectiveHint}${instructions}`;
 };
 
 const MessageContext = createContext<MessageContextValue | undefined>(undefined);
@@ -342,6 +364,20 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   const [composerAttachments, setComposerAttachments] = useState<ChatAttachment[]>([]);
   const [composerTranscriptions, setComposerTranscriptions] = useState<ChatTranscription[]>([]);
   const scheduledResponsesRef = useRef<Set<string>>(new Set());
+  const [coordinationStrategy, setCoordinationStrategy] = useState<CoordinationStrategyId>('sequential-turn');
+  const [sharedSnapshot, setSharedSnapshot] = useState<SharedConversationSnapshot>(() => createInitialSnapshot());
+  const [orchestrationTraces, setOrchestrationTraces] = useState<OrchestrationTraceEntry[]>([]);
+
+  const appendTraces = useCallback(
+    (entries: OrchestrationTraceEntry | OrchestrationTraceEntry[]) => {
+      const normalized = Array.isArray(entries) ? entries : [entries];
+      if (!normalized.length) {
+        return;
+      }
+      setOrchestrationTraces(prev => [...prev, ...normalized]);
+    },
+    [],
+  );
 
   const setDraft = useCallback((value: string) => {
     setDraftState(value);
@@ -349,6 +385,30 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
   const appendToDraft = useCallback((command: string) => {
     setDraftState(prev => (prev ? `${prev}\n${command}` : command));
+  }, []);
+
+  const handleProviderTrace = useCallback(
+    (trace: AgentExchangeTrace) => {
+      appendTraces({
+        id: `${trace.agentId}-${trace.type}-${trace.timestamp}`,
+        timestamp: trace.timestamp,
+        actor: trace.type === 'request' ? 'system' : 'agent',
+        agentId: trace.agentId,
+        description:
+          trace.type === 'request'
+            ? `Solicitud enviada a ${trace.agentName}`
+            : trace.type === 'response'
+            ? `Respuesta recibida de ${trace.agentName}`
+            : `Traza registrada de ${trace.agentName}`,
+        details: trace.payload,
+        strategyId: trace.strategyId ?? coordinationStrategy,
+      });
+    },
+    [appendTraces, coordinationStrategy],
+  );
+
+  const updateStrategy = useCallback((strategy: CoordinationStrategyId) => {
+    setCoordinationStrategy(strategy);
   }, []);
 
   const sendMessage = useCallback(() => {
@@ -384,28 +444,99 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       attachments: composerAttachments.length ? composerAttachments : undefined,
       modalities: messageModalities.length ? messageModalities : undefined,
       transcriptions: composerTranscriptions.length ? composerTranscriptions : undefined,
+      visibility: 'public',
     };
 
-    const agentReplies: ChatMessage[] = activeAgents.map((agent, index) => ({
-      id: buildMessageId(`${agent.id}-${index}`),
-      author: 'agent',
-      agentId: agent.id,
-      content: `${agent.name} está preparando una respuesta…`,
-      timestamp,
-      status: 'pending',
-      sourcePrompt: trimmed,
+    if (activeAgents.length === 0) {
+      setMessages(prev => [...prev, userMessage]);
+      const note = `Sin agentes activos para responder «${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}».`;
+      const traceEntry: OrchestrationTraceEntry = {
+        id: `no-agents-${timestamp}`,
+        timestamp,
+        actor: 'system',
+        description: 'No se asignaron agentes a la petición.',
+        details: note,
+        strategyId: coordinationStrategy,
+      };
+      appendTraces(traceEntry);
+      setSharedSnapshot(prev => limitSnapshotHistory(registerSystemNote(prev, note, timestamp)));
+      setDraftState('');
+      setComposerAttachments([]);
+      setComposerTranscriptions([]);
+      return;
+    }
+
+    const strategy = getCoordinationStrategy(coordinationStrategy);
+    const rolesMap = activeAgents.reduce<Record<string, { role?: string; objective?: string }>>((acc, agent) => {
+      acc[agent.id] = { role: agent.role, objective: agent.objective };
+      return acc;
+    }, {});
+
+    const plan = strategy.buildPlan({
+      userPrompt: trimmed,
+      agents: activeAgents,
+      snapshot: sharedSnapshot,
+      roles: rolesMap,
+    });
+
+    const bridgeMessages: ChatMessage[] = plan.sharedBridgeMessages.map(message => ({
+      id: message.id,
+      author: message.author,
+      agentId: message.agentId,
+      content: message.content,
+      timestamp: message.timestamp,
+      visibility: 'internal',
     }));
 
-    setMessages(prev => [...prev, userMessage, ...agentReplies]);
+    const agentReplies: ChatMessage[] = plan.steps.map((step, index) => ({
+      id: buildMessageId(`${step.agent.id}-${index}`),
+      author: 'agent',
+      agentId: step.agent.id,
+      content: `${step.agent.name} está preparando una respuesta…`,
+      timestamp,
+      status: 'pending',
+      sourcePrompt: step.prompt,
+      visibility: 'public',
+      orchestrationContext: step.context,
+    }));
+
+    setMessages(prev => [...prev, userMessage, ...bridgeMessages, ...agentReplies]);
+    const planTraces: OrchestrationTraceEntry[] = [
+      ...plan.sharedBridgeMessages.map(message => buildTraceFromBridge(message, coordinationStrategy)),
+      ...plan.steps.map(step => ({
+        id: `${step.agent.id}-assignment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        timestamp,
+        actor: 'system',
+        agentId: step.agent.id,
+        description: `Turno asignado a ${step.agent.name}`,
+        details: step.context.instructions?.join('\n') ?? undefined,
+        strategyId: coordinationStrategy,
+      })),
+    ];
+    appendTraces(planTraces);
+
+    const snapshotWithNotes = plan.sharedBridgeMessages.reduce(
+      (acc, message) => registerSystemNote(acc, message.content, message.timestamp),
+      plan.nextSnapshot,
+    );
+    setSharedSnapshot(limitSnapshotHistory(snapshotWithNotes));
     setDraftState('');
     setComposerAttachments([]);
     setComposerTranscriptions([]);
-  }, [activeAgents, composerAttachments, composerTranscriptions, draft]);
+  }, [
+    activeAgents,
+    appendTraces,
+    composerAttachments,
+    composerTranscriptions,
+    coordinationStrategy,
+    draft,
+    sharedSnapshot,
+  ]);
 
   const resolveAgentReply = useCallback(
-    (agent: AgentDefinition, prompt: string) =>
-      fetchAgentReply({ agent, prompt, apiKeys, fallback: mockAgentReply }),
-    [apiKeys],
+    (agent: AgentDefinition, prompt: string, context?: MultiAgentContext) =>
+      fetchAgentReply({ agent, prompt, apiKeys, fallback: mockAgentReply, context, onTrace: handleProviderTrace }),
+    [apiKeys, handleProviderTrace],
   );
 
   useEffect(() => {
@@ -545,7 +676,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
           try {
             if (agent.kind === 'cloud') {
               const prompt = message.sourcePrompt ?? contentToPlainText(message.content);
-              const response = await resolveAgentReply(agent, prompt);
+              const response = await resolveAgentReply(agent, prompt, message.orchestrationContext);
 
               if (cancelled) {
                 return;
@@ -557,6 +688,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
               const finalContent: ChatMessage['content'] = hasContent
                 ? normalizedContent
                 : `${agent.name} no devolvió contenido.`;
+              const completionTimestamp = new Date().toISOString();
 
               setMessages(prev =>
                 prev.map(item =>
@@ -572,12 +704,27 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                     : item,
                 ),
               );
+              setSharedSnapshot(prev =>
+                limitSnapshotHistory(registerAgentConclusion(prev, agent.id, plain, completionTimestamp)),
+              );
+              appendTraces({
+                id: `${agent.id}-conclusion-${completionTimestamp}`,
+                timestamp: completionTimestamp,
+                actor: 'agent',
+                agentId: agent.id,
+                description: `Conclusión de ${agent.name}`,
+                details: plain,
+                strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
+              });
               return;
             }
 
             const content = await new Promise<string>(resolvePromise => {
               const delay = 700 + Math.random() * 1200;
-              setTimeout(() => resolvePromise(mockAgentReply(agent, message.sourcePrompt)), delay);
+              setTimeout(
+                () => resolvePromise(mockAgentReply(agent, message.sourcePrompt, message.orchestrationContext)),
+                delay,
+              );
             });
 
             if (cancelled) {
@@ -587,6 +734,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
             const normalizedContent = content?.trim().length
               ? content
               : `${agent.name} no devolvió contenido.`;
+            const completionTimestamp = new Date().toISOString();
 
             setMessages(prev =>
               prev.map(item =>
@@ -602,6 +750,18 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                   : item,
               ),
             );
+            setSharedSnapshot(prev =>
+              limitSnapshotHistory(registerAgentConclusion(prev, agent.id, normalizedContent, completionTimestamp)),
+            );
+            appendTraces({
+              id: `${agent.id}-local-${completionTimestamp}`,
+              timestamp: completionTimestamp,
+              actor: 'agent',
+              agentId: agent.id,
+              description: `Conclusión simulada de ${agent.name}`,
+              details: normalizedContent,
+              strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
+            });
           } catch (error) {
             if (cancelled) {
               return;
@@ -610,7 +770,8 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
             const fallbackMessage =
               agent.kind === 'cloud'
                 ? `${agent.name} no pudo generar una respuesta (${error instanceof Error ? error.message : 'error inesperado'}).`
-                : mockAgentReply(agent, message.sourcePrompt);
+                : mockAgentReply(agent, message.sourcePrompt, message.orchestrationContext);
+            const completionTimestamp = new Date().toISOString();
 
             setMessages(prev =>
               prev.map(item =>
@@ -626,6 +787,18 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                   : item,
               ),
             );
+            setSharedSnapshot(prev =>
+              limitSnapshotHistory(registerAgentConclusion(prev, agent.id, fallbackMessage, completionTimestamp)),
+            );
+            appendTraces({
+              id: `${agent.id}-fallback-${completionTimestamp}`,
+              timestamp: completionTimestamp,
+              actor: 'system',
+              agentId: agent.id,
+              description: `Se usó respuesta alternativa para ${agent.name}`,
+              details: fallbackMessage,
+              strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
+            });
           } finally {
             if (!cancelled) {
               scheduledResponsesRef.current.delete(message.id);
@@ -639,7 +812,13 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     return () => {
       cancelers.forEach(cancel => cancel());
     };
-  }, [agentMap, messages, resolveAgentReply]);
+  }, [
+    agentMap,
+    appendTraces,
+    coordinationStrategy,
+    messages,
+    resolveAgentReply,
+  ]);
 
   const pendingResponses = useMemo(
     () => messages.filter(message => message.author === 'agent' && message.status === 'pending').length,
@@ -869,6 +1048,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       qualityMetrics,
       markMessageFeedback,
       submitCorrection,
+      coordinationStrategy,
+      setCoordinationStrategy: updateStrategy,
+      sharedSnapshot,
+      orchestrationTraces,
     }),
     [
       addAttachment,
@@ -891,6 +1074,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       sendMessage,
       setDraft,
       upsertTranscription,
+      coordinationStrategy,
+      updateStrategy,
+      sharedSnapshot,
+      orchestrationTraces,
     ],
   );
 

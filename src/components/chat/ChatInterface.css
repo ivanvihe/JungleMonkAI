@@ -659,6 +659,48 @@
   box-shadow: 0 0 0 2px rgba(142, 141, 255, 0.15);
 }
 
+.key-field .badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  background: rgba(76, 201, 240, 0.18);
+  color: rgba(76, 201, 240, 0.9);
+}
+
+.secure-key-input {
+  display: flex;
+  gap: 8px;
+}
+
+.secure-key-input input {
+  flex: 1;
+}
+
+.secure-key-input button {
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(73, 67, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, border 0.2s ease;
+}
+
+.secure-key-input button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.secure-key-input button:not(:disabled):hover {
+  background: rgba(73, 67, 255, 0.35);
+  border-color: rgba(73, 67, 255, 0.55);
+}
+
 .command-list {
   display: flex;
   flex-direction: column;

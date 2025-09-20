@@ -1,11 +1,24 @@
 mod audio;
 mod config;
+mod git;
 mod gpu;
 mod midi;
 mod models;
 
 use config::{Config, ConfigState, LayerConfig};
 use log::error;
+use git::{
+    apply_patch as git_apply_patch,
+    commit_changes as git_commit_changes,
+    create_pull_request as git_create_pull_request,
+    get_file_diff as git_get_file_diff,
+    has_secret as git_has_secret,
+    list_repository_files as git_list_repository_files,
+    push_changes as git_push_changes,
+    repository_status as git_repository_status,
+    store_secret as git_store_secret,
+    SecretManager,
+};
 use models::{activate_model, download_model, list_models, ModelRegistry};
 use std::path::PathBuf;
 use tauri::{Manager, State};
@@ -63,6 +76,10 @@ fn main() {
             path: config_path,
             inner: std::sync::RwLock::new(cfg),
         })
+        .manage(
+            SecretManager::new("JungleMonkAI", config_dir.clone())
+                .expect("no se pudo inicializar el gestor de secretos"),
+        )
         .manage(model_registry)
         .invoke_handler(tauri::generate_handler![
             set_layer_opacity,
@@ -71,7 +88,17 @@ fn main() {
             stop_audio,
             list_models,
             download_model,
-            activate_model
+            activate_model,
+            git_list_repository_files,
+            git_repository_status,
+            git_apply_patch,
+            git_commit_changes,
+            git_push_changes,
+            git_create_pull_request,
+            git_get_file_diff,
+            git_store_secret,
+            git_has_secret,
+            git::reveal_secret
         ])
         .setup(|app| {
             if let Err(e) = midi::start(app.handle().clone()) {

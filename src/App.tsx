@@ -6,6 +6,7 @@ import { ChatTopBar } from './components/chat/ChatTopBar';
 import { ChatStatusBar } from './components/chat/ChatStatusBar';
 import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { SidePanel } from './components/chat/SidePanel';
+import { RepoStudio } from './components/repo/RepoStudio';
 import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
@@ -23,41 +24,69 @@ const AppContent: React.FC<AppContentProps> = ({ apiKeys, onApiKeyChange }) => {
   const { messages, pendingResponses } = useMessages();
   const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
   const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
+  const [activeView, setActiveView] = useState<'chat' | 'repo'>('chat');
 
   return (
     <div className="app-container">
-      <ChatTopBar
-        agents={agents}
-        presenceSummary={presenceSummary}
-        activeAgents={activeAgents.length}
-        totalAgents={agents.length}
-        pendingResponses={pendingResponses}
-        activeFilter={actorFilter}
-        onFilterChange={setActorFilter}
-        onRefreshPresence={() => void refresh()}
-      />
-
-      <div className="workspace">
-        <div className="main-panel">
-          <ChatWorkspace
-            actorFilter={actorFilter}
-            sidePanel={
-              <SidePanel
-                apiKeys={apiKeys}
-                onApiKeyChange={onApiKeyChange}
-                presenceMap={presenceMap}
-                onRefreshAgentPresence={refresh}
-              />
-            }
-          />
-        </div>
+      <div className="app-mode-switcher">
+        <button
+          type="button"
+          className={activeView === 'chat' ? 'is-active' : ''}
+          onClick={() => setActiveView('chat')}
+        >
+          Conversación
+        </button>
+        <button
+          type="button"
+          className={activeView === 'repo' ? 'is-active' : ''}
+          onClick={() => setActiveView('repo')}
+        >
+          Repo Studio
+        </button>
       </div>
 
-      <ChatStatusBar
-        activeAgents={activeAgents.length}
-        totalMessages={messages.length}
-        pendingResponses={pendingResponses}
-      />
+      {activeView === 'chat' ? (
+        <>
+          <ChatTopBar
+            agents={agents}
+            presenceSummary={presenceSummary}
+            activeAgents={activeAgents.length}
+            totalAgents={agents.length}
+            pendingResponses={pendingResponses}
+            activeFilter={actorFilter}
+            onFilterChange={setActorFilter}
+            onRefreshPresence={() => void refresh()}
+          />
+
+          <div className="workspace">
+            <div className="main-panel">
+              <ChatWorkspace
+                actorFilter={actorFilter}
+                sidePanel={
+                  <SidePanel
+                    apiKeys={apiKeys}
+                    onApiKeyChange={onApiKeyChange}
+                    presenceMap={presenceMap}
+                    onRefreshAgentPresence={refresh}
+                  />
+                }
+              />
+            </div>
+          </div>
+
+          <ChatStatusBar
+            activeAgents={activeAgents.length}
+            totalMessages={messages.length}
+            pendingResponses={pendingResponses}
+          />
+        </>
+      ) : (
+        <div className="workspace">
+          <div className="main-panel">
+            <RepoStudio />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -8,7 +8,9 @@ import {
   PluginSettingsEntry,
   PluginSettingsMap,
   RoutingRule,
+  SidePanelPreferences,
   SupportedProvider,
+  WorkspacePreferences,
 } from '../types/globalSettings';
 import type {
   AgentManifest,
@@ -18,7 +20,7 @@ import type {
 } from '../types/agents';
 
 const STORAGE_KEY = 'global-settings';
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
 
@@ -39,6 +41,12 @@ export const registerExternalProviders = (providers: string[]) => {
 };
 
 const getAllSupportedProviders = (): string[] => Array.from(supportedProviderSet);
+
+const MIN_SIDE_PANEL_WIDTH = 240;
+const MAX_SIDE_PANEL_WIDTH = 520;
+const DEFAULT_SIDE_PANEL_WIDTH = 320;
+
+const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
 const agentManifestModelSchema: JSONSchemaType<AgentManifestModel> = {
   type: 'object',
@@ -107,6 +115,27 @@ const pluginSettingsEntrySchema: JSONSchemaType<PluginSettingsEntry> = {
   additionalProperties: false,
 };
 
+const sidePanelPreferencesSchema: JSONSchemaType<SidePanelPreferences> = {
+  type: 'object',
+  properties: {
+    position: { type: 'string', enum: ['left', 'right'] },
+    width: { type: 'number', minimum: MIN_SIDE_PANEL_WIDTH, maximum: MAX_SIDE_PANEL_WIDTH },
+    collapsed: { type: 'boolean' },
+    activeSectionId: { type: 'string', nullable: true },
+  },
+  required: ['position', 'width', 'collapsed', 'activeSectionId'],
+  additionalProperties: false,
+};
+
+const workspacePreferencesSchema: JSONSchemaType<WorkspacePreferences> = {
+  type: 'object',
+  properties: {
+    sidePanel: sidePanelPreferencesSchema,
+  },
+  required: ['sidePanel'],
+  additionalProperties: false,
+};
+
 const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
   type: 'object',
   properties: {
@@ -170,6 +199,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
       required: [],
       additionalProperties: pluginSettingsEntrySchema,
     } as unknown as JSONSchemaType<PluginSettingsMap>,
+    workspacePreferences: workspacePreferencesSchema,
   },
   required: [
     'version',
@@ -179,6 +209,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     'enabledPlugins',
     'approvedManifests',
     'pluginSettings',
+    'workspacePreferences',
   ],
   additionalProperties: false,
 };
@@ -493,6 +524,34 @@ const mergeEnabledPluginList = (
   return Array.from(set);
 };
 
+const normalizeSidePanelPreferences = (
+  input: Partial<SidePanelPreferences> | undefined,
+): SidePanelPreferences => {
+  const position = input?.position === 'left' ? 'left' : 'right';
+  const width = clamp(
+    typeof input?.width === 'number' && Number.isFinite(input.width)
+      ? input.width
+      : DEFAULT_SIDE_PANEL_WIDTH,
+    MIN_SIDE_PANEL_WIDTH,
+    MAX_SIDE_PANEL_WIDTH,
+  );
+  const collapsed = Boolean(input?.collapsed);
+  const activeSectionId = typeof input?.activeSectionId === 'string' ? input.activeSectionId : null;
+
+  return {
+    position,
+    width,
+    collapsed,
+    activeSectionId,
+  };
+};
+
+const normalizeWorkspacePreferences = (
+  input: WorkspacePreferences | undefined,
+): WorkspacePreferences => ({
+  sidePanel: normalizeSidePanelPreferences(input?.sidePanel),
+});
+
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   version: CURRENT_SCHEMA_VERSION,
   apiKeys: normalizeApiKeys({}),
@@ -501,6 +560,14 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   enabledPlugins: [],
   approvedManifests: {},
   pluginSettings: {},
+  workspacePreferences: {
+    sidePanel: {
+      position: 'right',
+      width: DEFAULT_SIDE_PANEL_WIDTH,
+      collapsed: false,
+      activeSectionId: null,
+    },
+  },
 };
 
 export const isSupportedProvider = (value: string): value is SupportedProvider =>
@@ -523,6 +590,9 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     enabledPlugins,
     approvedManifests: normalizeApprovedManifests(raw?.approvedManifests as AgentManifestCache),
     pluginSettings,
+    workspacePreferences: normalizeWorkspacePreferences(
+      raw?.workspacePreferences as WorkspacePreferences,
+    ),
   };
 };
 
@@ -596,6 +666,7 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
         normalizePluginSettings(settings.pluginSettings),
       ),
       approvedManifests: normalizeApprovedManifests(settings.approvedManifests),
+      workspacePreferences: normalizeWorkspacePreferences(settings.workspacePreferences),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {

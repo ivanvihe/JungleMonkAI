@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
@@ -11,7 +11,7 @@ import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
 import { RepoWorkflowProvider } from './core/codex';
-import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
+import { ApiKeySettings, GlobalSettings, SidePanelPreferences } from './types/globalSettings';
 import { DEFAULT_GLOBAL_SETTINGS, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
 import { ChatActorFilter } from './types/chat';
 import { PluginHostProvider } from './core/plugins/PluginHostProvider';
@@ -19,14 +19,30 @@ import { PluginHostProvider } from './core/plugins/PluginHostProvider';
 interface AppContentProps {
   apiKeys: ApiKeySettings;
   onApiKeyChange: (provider: string, value: string) => void;
+  panelPreferences: SidePanelPreferences;
+  onPanelPreferencesChange: (
+    updater: (previous: SidePanelPreferences) => SidePanelPreferences,
+  ) => void;
 }
 
-const AppContent: React.FC<AppContentProps> = ({ apiKeys, onApiKeyChange }) => {
+const AppContent: React.FC<AppContentProps> = ({
+  apiKeys,
+  onApiKeyChange,
+  panelPreferences,
+  onPanelPreferencesChange,
+}) => {
   const { agents, activeAgents } = useAgents();
   const { messages, pendingResponses } = useMessages();
   const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
   const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
   const [activeView, setActiveView] = useState<'chat' | 'repo'>('chat');
+
+  const handlePanelCollapse = useCallback(
+    (collapsed: boolean) => {
+      onPanelPreferencesChange(previous => ({ ...previous, collapsed }));
+    },
+    [onPanelPreferencesChange],
+  );
 
   return (
     <div className="app-container">
@@ -70,8 +86,14 @@ const AppContent: React.FC<AppContentProps> = ({ apiKeys, onApiKeyChange }) => {
                     onApiKeyChange={onApiKeyChange}
                     presenceMap={presenceMap}
                     onRefreshAgentPresence={refresh}
+                    layout={panelPreferences}
+                    onLayoutChange={onPanelPreferencesChange}
                   />
                 }
+                sidePanelPosition={panelPreferences.position}
+                sidePanelWidth={panelPreferences.width}
+                isSidePanelCollapsed={panelPreferences.collapsed}
+                onSidePanelCollapse={handlePanelCollapse}
               />
             </div>
           </div>
@@ -103,6 +125,19 @@ const App: React.FC = () => {
 
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(resolvedInitialSettings);
 
+  const handlePanelPreferencesChange = useCallback(
+    (updater: (previous: SidePanelPreferences) => SidePanelPreferences) => {
+      setGlobalSettings(prev => ({
+        ...prev,
+        workspacePreferences: {
+          ...prev.workspacePreferences,
+          sidePanel: updater(prev.workspacePreferences.sidePanel),
+        },
+      }));
+    },
+    [],
+  );
+
   useEffect(() => {
     saveGlobalSettings(globalSettings);
   }, [globalSettings]);
@@ -126,7 +161,12 @@ const App: React.FC = () => {
       >
         <MessageProvider apiKeys={globalSettings.apiKeys}>
           <RepoWorkflowProvider>
-            <AppContent apiKeys={globalSettings.apiKeys} onApiKeyChange={handleApiKeyChange} />
+            <AppContent
+              apiKeys={globalSettings.apiKeys}
+              onApiKeyChange={handleApiKeyChange}
+              panelPreferences={globalSettings.workspacePreferences.sidePanel}
+              onPanelPreferencesChange={handlePanelPreferencesChange}
+            />
           </RepoWorkflowProvider>
         </MessageProvider>
       </AgentProvider>

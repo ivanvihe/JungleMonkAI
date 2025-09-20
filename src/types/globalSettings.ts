@@ -31,6 +31,19 @@ export interface RoutingRule {
 
 export type DefaultRoutingRules = Record<string, RoutingRule>;
 
+export type SidePanelPosition = 'left' | 'right';
+
+export interface SidePanelPreferences {
+  position: SidePanelPosition;
+  width: number;
+  collapsed: boolean;
+  activeSectionId: string | null;
+}
+
+export interface WorkspacePreferences {
+  sidePanel: SidePanelPreferences;
+}
+
 export interface GlobalSettings {
   version: number;
   apiKeys: ApiKeySettings;
@@ -39,6 +52,7 @@ export interface GlobalSettings {
   enabledPlugins: string[];
   approvedManifests: AgentManifestCache;
   pluginSettings: PluginSettingsMap;
+  workspacePreferences: WorkspacePreferences;
 }
 
 export interface PluginSettingsEntry {

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { AgentPresenceEntry, AgentPresenceStatus } from '../../core/agents/presence';
 import { useMessages } from '../../core/messages/MessageContext';
-import { ApiKeySettings } from '../../types/globalSettings';
+import { ApiKeySettings, SidePanelPreferences } from '../../types/globalSettings';
 import { ModelGallery } from '../models/ModelGallery';
 import { AgentPresenceList } from '../agents/AgentPresenceList';
 import { ChatMessage } from '../../core/messages/messageTypes';
@@ -14,13 +14,18 @@ import {
   getAgentDisplayName,
   getAgentVersionLabel,
 } from '../../utils/agentDisplay';
-import { usePluginHost } from '../../core/plugins/PluginHostProvider';
+import { PanelContainer, PanelSectionDefinition } from './panel';
+import { useSidePanelSlots } from '../../hooks/useSidePanelSlots';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
   onApiKeyChange: (provider: string, value: string) => void;
   presenceMap: Map<string, AgentPresenceEntry>;
   onRefreshAgentPresence: (agentId?: string) => void | Promise<void>;
+  layout: SidePanelPreferences;
+  onLayoutChange: (updater: (previous: SidePanelPreferences) => SidePanelPreferences) => void;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 const CHANNEL_STATUS_LABELS: Record<AgentPresenceStatus, string> = {
@@ -53,11 +58,19 @@ interface ChannelStatusView {
   active: boolean;
 }
 
+const MIN_PANEL_WIDTH = 240;
+const MAX_PANEL_WIDTH = 520;
+const ACCORDION_BREAKPOINT = 340;
+
 export const SidePanel: React.FC<SidePanelProps> = ({
   apiKeys,
   onApiKeyChange,
   presenceMap,
   onRefreshAgentPresence,
+  layout,
+  onLayoutChange,
+  className,
+  style,
 }) => {
   const [githubInput, setGithubInput] = useState('');
   const [gitlabInput, setGitlabInput] = useState('');
@@ -65,7 +78,6 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   const [gitlabStored, setGitlabStored] = useState(false);
 
   const { agents, agentMap, toggleAgent, assignAgentRole } = useAgents();
-  const { sidePanels: pluginPanels } = usePluginHost();
   const {
     quickCommands,
     appendToDraft,
@@ -83,9 +95,14 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     sharedSnapshot,
     orchestrationTraces,
   } = useMessages();
+  const pluginSlots = useSidePanelSlots();
 
   const recentActivity = useMemo(
-    () => agentResponses.slice(-6).reverse().map(message => ({ message, agent: message.agentId ? agentMap.get(message.agentId) : undefined })),
+    () =>
+      agentResponses
+        .slice(-6)
+        .reverse()
+        .map(message => ({ message, agent: message.agentId ? agentMap.get(message.agentId) : undefined })),
     [agentMap, agentResponses],
   );
 
@@ -110,7 +127,8 @@ export const SidePanel: React.FC<SidePanelProps> = ({
         'Asigna etiquetas de seguimiento (separadas por comas)',
         currentFeedback?.tags?.join(', ') ?? '',
       );
-      const tags = tagsInput !== null ? tagsInput.split(',').map(tag => tag.trim()).filter(Boolean) : currentFeedback?.tags;
+      const tags =
+        tagsInput !== null ? tagsInput.split(',').map(tag => tag.trim()).filter(Boolean) : currentFeedback?.tags;
 
       markMessageFeedback(message.id, {
         hasError: true,
@@ -256,14 +274,15 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     [apiKeys, correctionHistory, githubStored, gitlabStored, quickCommands],
   );
 
-  return (
-    <aside className="controls-panel">
-      <div className="controls-panel-content">
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Canales conectados</h2>
-            <p>Estado en tiempo real de tus proveedores.</p>
-          </header>
+  const panelMode = layout.width <= ACCORDION_BREAKPOINT ? 'accordion' : 'tabs';
+
+  const sections = useMemo<PanelSectionDefinition[]>(() => {
+    const coreSections: PanelSectionDefinition[] = [
+      {
+        id: 'channels',
+        title: 'Canales conectados',
+        description: 'Estado en tiempo real de tus proveedores.',
+        content: (
           <ul className="channel-status-list">
             {channelStatuses.map(entry => (
               <li key={entry.key} className={`channel-status-item ${entry.active ? 'is-active' : 'is-idle'}`}>
@@ -283,13 +302,13 @@ export const SidePanel: React.FC<SidePanelProps> = ({
               </li>
             ))}
           </ul>
-        </section>
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Estadísticas de uso</h2>
-            <p>Actividad general de esta sesión.</p>
-          </header>
+        ),
+      },
+      {
+        id: 'usage',
+        title: 'Estadísticas de uso',
+        description: 'Actividad general de esta sesión.',
+        content: (
           <ul className="sidebar-metrics">
             {usageStats.map(stat => (
               <li key={stat.label}>
@@ -298,13 +317,13 @@ export const SidePanel: React.FC<SidePanelProps> = ({
               </li>
             ))}
           </ul>
-        </section>
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Datos guardados</h2>
-            <p>Resumen del contenido almacenado en local.</p>
-          </header>
+        ),
+      },
+      {
+        id: 'data',
+        title: 'Datos guardados',
+        description: 'Resumen del contenido almacenado en local.',
+        content: (
           <ul className="sidebar-metrics">
             {dataStats.map(stat => (
               <li key={stat.label}>
@@ -313,128 +332,120 @@ export const SidePanel: React.FC<SidePanelProps> = ({
               </li>
             ))}
           </ul>
-        </section>
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Credenciales</h2>
-            <p>Conecta tus proveedores en caliente.</p>
-          </header>
-          <div className="key-field">
-            <label htmlFor="openai-key">OpenAI</label>
-            <input
-              id="openai-key"
-              type="password"
-              value={apiKeys.openai}
-              onChange={event => onApiKeyChange('openai', event.target.value)}
-              placeholder="sk-..."
-              className={!apiKeys.openai ? 'is-empty' : ''}
-            />
-          </div>
-          <div className="key-field">
-            <label htmlFor="anthropic-key">Anthropic</label>
-            <input
-              id="anthropic-key"
-              type="password"
-              value={apiKeys.anthropic}
-              onChange={event => onApiKeyChange('anthropic', event.target.value)}
-              placeholder="anthropic-..."
-              className={!apiKeys.anthropic ? 'is-empty' : ''}
-            />
-          </div>
-        <div className="key-field">
-          <label htmlFor="groq-key">Groq</label>
-          <input
-            id="groq-key"
-            type="password"
-            value={apiKeys.groq}
-            onChange={event => onApiKeyChange('groq', event.target.value)}
-            placeholder="groq-..."
-            className={!apiKeys.groq ? 'is-empty' : ''}
-          />
-        </div>
-        <div className="key-field">
-          <label htmlFor="github-key">
-            GitHub
-            {githubStored ? <span className="badge">guardado</span> : null}
-          </label>
-          <div className="secure-key-input">
-            <input
-              id="github-key"
-              type="password"
-              value={githubInput}
-              onChange={event => setGithubInput(event.target.value)}
-              placeholder={githubStored ? 'token almacenado' : 'ghp_...'}
-            />
-            <button
-              type="button"
-              onClick={() => void handleSecureKeySave('github', githubInput)}
-              disabled={!githubInput.trim() && !githubStored}
-            >
-              {githubInput.trim() || !githubStored ? 'Guardar' : 'Eliminar'}
-            </button>
-          </div>
-        </div>
-        <div className="key-field">
-          <label htmlFor="gitlab-key">
-            GitLab
-            {gitlabStored ? <span className="badge">guardado</span> : null}
-          </label>
-          <div className="secure-key-input">
-            <input
-              id="gitlab-key"
-              type="password"
-              value={gitlabInput}
-              onChange={event => setGitlabInput(event.target.value)}
-              placeholder={gitlabStored ? 'token almacenado' : 'glpat-...'}
-            />
-            <button
-              type="button"
-              onClick={() => void handleSecureKeySave('gitlab', gitlabInput)}
-              disabled={!gitlabInput.trim() && !gitlabStored}
-            >
-              {gitlabInput.trim() || !gitlabStored ? 'Guardar' : 'Eliminar'}
-            </button>
-          </div>
-        </div>
-      </section>
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Modelos activos</h2>
-            <p>Activa y desactiva agentes al instante.</p>
-          </header>
+        ),
+      },
+      {
+        id: 'credentials',
+        title: 'Credenciales',
+        description: 'Conecta tus proveedores en caliente.',
+        content: (
+          <>
+            <div className="key-field">
+              <label htmlFor="openai-key">OpenAI</label>
+              <input
+                id="openai-key"
+                type="password"
+                value={apiKeys.openai}
+                onChange={event => onApiKeyChange('openai', event.target.value)}
+                placeholder="sk-..."
+                className={!apiKeys.openai ? 'is-empty' : ''}
+              />
+            </div>
+            <div className="key-field">
+              <label htmlFor="anthropic-key">Anthropic</label>
+              <input
+                id="anthropic-key"
+                type="password"
+                value={apiKeys.anthropic}
+                onChange={event => onApiKeyChange('anthropic', event.target.value)}
+                placeholder="anthropic-..."
+                className={!apiKeys.anthropic ? 'is-empty' : ''}
+              />
+            </div>
+            <div className="key-field">
+              <label htmlFor="groq-key">Groq</label>
+              <input
+                id="groq-key"
+                type="password"
+                value={apiKeys.groq}
+                onChange={event => onApiKeyChange('groq', event.target.value)}
+                placeholder="groq-..."
+                className={!apiKeys.groq ? 'is-empty' : ''}
+              />
+            </div>
+            <div className="key-field">
+              <label htmlFor="github-key">
+                GitHub
+                {githubStored ? <span className="badge">guardado</span> : null}
+              </label>
+              <div className="secure-key-input">
+                <input
+                  id="github-key"
+                  type="password"
+                  value={githubInput}
+                  onChange={event => setGithubInput(event.target.value)}
+                  placeholder={githubStored ? 'token almacenado' : 'ghp_...'}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSecureKeySave('github', githubInput)}
+                  disabled={!githubInput.trim() && !githubStored}
+                >
+                  {githubInput.trim() || !githubStored ? 'Guardar' : 'Eliminar'}
+                </button>
+              </div>
+            </div>
+            <div className="key-field">
+              <label htmlFor="gitlab-key">
+                GitLab
+                {gitlabStored ? <span className="badge">guardado</span> : null}
+              </label>
+              <div className="secure-key-input">
+                <input
+                  id="gitlab-key"
+                  type="password"
+                  value={gitlabInput}
+                  onChange={event => setGitlabInput(event.target.value)}
+                  placeholder={gitlabStored ? 'token almacenado' : 'glpat-...'}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSecureKeySave('gitlab', gitlabInput)}
+                  disabled={!gitlabInput.trim() && !gitlabStored}
+                >
+                  {gitlabInput.trim() || !gitlabStored ? 'Guardar' : 'Eliminar'}
+                </button>
+              </div>
+            </div>
+          </>
+        ),
+      },
+      {
+        id: 'agents',
+        title: 'Modelos activos',
+        description: 'Activa y desactiva agentes al instante.',
+        content: (
           <AgentPresenceList
             agents={agents}
             presence={presenceMap}
             onToggleAgent={toggleAgent}
             onUpdateRole={assignAgentRole}
-            onOpenConsole={agentId =>
-              console.log(`Abrir consola interactiva para el agente ${agentId}`)
-            }
+            onOpenConsole={agentId => console.log(`Abrir consola interactiva para el agente ${agentId}`)}
             onRefreshAgent={agentId => onRefreshAgentPresence(agentId)}
           />
-        </section>
-
-        <section className="panel-section">
-          <ModelGallery />
-        </section>
-
-        {pluginPanels.map(panel => (
-          <section key={`${panel.pluginId}-${panel.id}`} className="panel-section">
-            <header className="panel-section-header">
-              <h2>{panel.label}</h2>
-              <p>Integración proporcionada por el plugin {panel.pluginId}.</p>
-            </header>
-            <panel.Component />
-          </section>
-        ))}
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Conversa entre agentes</h2>
-            <p>Visualiza cómo coordinan los modelos antes de responder.</p>
-          </header>
+        ),
+      },
+      {
+        id: 'gallery',
+        title: 'Galería de modelos',
+        description: 'Explora variantes disponibles y activa nuevas configuraciones.',
+        content: <ModelGallery />,
+      },
+      {
+        id: 'orchestration',
+        title: 'Conversa entre agentes',
+        description: 'Visualiza cómo coordinan los modelos antes de responder.',
+        content: (
           <AgentConversationPanel
             traces={orchestrationTraces}
             sharedSnapshot={sharedSnapshot}
@@ -442,15 +453,19 @@ export const SidePanel: React.FC<SidePanelProps> = ({
             currentStrategy={coordinationStrategy}
             onChangeStrategy={setCoordinationStrategy}
           />
-        </section>
-
-        <QualityDashboard />
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Comandos frecuentes</h2>
-            <p>Guarda instrucciones recurrentes para dispararlas en el chat.</p>
-          </header>
+        ),
+      },
+      {
+        id: 'quality',
+        title: 'Calidad de respuestas',
+        description: 'Evalúa incidencias y controles de calidad por agente.',
+        content: <QualityDashboard />,
+      },
+      {
+        id: 'commands',
+        title: 'Comandos frecuentes',
+        description: 'Guarda instrucciones recurrentes para dispararlas en el chat.',
+        content: (
           <div className="command-list">
             {quickCommands.map(command => (
               <button key={command} type="button" className="command-item" onClick={() => appendToDraft(command)}>
@@ -458,13 +473,13 @@ export const SidePanel: React.FC<SidePanelProps> = ({
               </button>
             ))}
           </div>
-        </section>
-
-        <section className="panel-section">
-          <header className="panel-section-header">
-            <h2>Actividad reciente</h2>
-            <p>Monitoriza cómo responden los agentes.</p>
-          </header>
+        ),
+      },
+      {
+        id: 'activity',
+        title: 'Actividad reciente',
+        description: 'Monitoriza cómo responden los agentes.',
+        content: (
           <ul className="activity-feed">
             {recentActivity.map(({ message, agent }) => {
               if (!agent) {
@@ -518,7 +533,162 @@ export const SidePanel: React.FC<SidePanelProps> = ({
             })}
             {!agentResponses.length && <li className="activity-empty">Todavía no hay actividad de los agentes.</li>}
           </ul>
-        </section>
+        ),
+      },
+    ];
+
+    const pluginSections = pluginSlots.map(slot => ({
+      id: `plugin-${slot.id}`,
+      title: slot.label,
+      description: `Integración proporcionada por el plugin ${slot.pluginId}.`,
+      meta: <span className="panel-plugin-origin">{slot.pluginId}</span>,
+      content: <slot.Component />,
+    }));
+
+    return [...coreSections.slice(0, 6), ...pluginSections, ...coreSections.slice(6)];
+  }, [
+    agentResponses.length,
+    agents,
+    appendToDraft,
+    apiKeys,
+    assignAgentRole,
+    channelStatuses,
+    coordinationStrategy,
+    dataStats,
+    feedbackByMessage,
+    formatTimestamp,
+    gitlabInput,
+    gitlabStored,
+    githubInput,
+    githubStored,
+    handleEditAndResend,
+    handleMarkIncorrect,
+    handleSecureKeySave,
+    onApiKeyChange,
+    onRefreshAgentPresence,
+    pluginSlots,
+    presenceMap,
+    quickCommands,
+    recentActivity,
+    setCoordinationStrategy,
+    sharedSnapshot,
+    toggleAgent,
+    usageStats,
+    orchestrationTraces,
+  ]);
+
+  useEffect(() => {
+    if (!sections.length) {
+      if (layout.activeSectionId !== null) {
+        onLayoutChange(previous => ({ ...previous, activeSectionId: null }));
+      }
+      return;
+    }
+
+    if (!layout.activeSectionId || !sections.some(section => section.id === layout.activeSectionId)) {
+      const fallback = sections[0]?.id ?? null;
+      if (fallback !== layout.activeSectionId) {
+        onLayoutChange(previous => ({ ...previous, activeSectionId: fallback }));
+      }
+    }
+  }, [layout.activeSectionId, onLayoutChange, sections]);
+
+  const handleActiveSectionChange = useCallback(
+    (sectionId: string) => {
+      if (layout.activeSectionId === sectionId) {
+        return;
+      }
+      onLayoutChange(previous => ({ ...previous, activeSectionId: sectionId }));
+    },
+    [layout.activeSectionId, onLayoutChange],
+  );
+
+  const handleToggleCollapse = useCallback(() => {
+    onLayoutChange(previous => ({ ...previous, collapsed: !previous.collapsed }));
+  }, [onLayoutChange]);
+
+  const handlePositionChange = useCallback(
+    (position: 'left' | 'right') => {
+      if (layout.position === position) {
+        return;
+      }
+      onLayoutChange(previous => ({ ...previous, position }));
+    },
+    [layout.position, onLayoutChange],
+  );
+
+  const handleWidthChange = useCallback(
+    (value: number) => {
+      const clamped = Math.min(Math.max(value, MIN_PANEL_WIDTH), MAX_PANEL_WIDTH);
+      if (layout.width === clamped) {
+        return;
+      }
+      onLayoutChange(previous => ({ ...previous, width: clamped }));
+    },
+    [layout.width, onLayoutChange],
+  );
+
+  const resolvedActiveSectionId = sections.length
+    ? sections.find(section => section.id === layout.activeSectionId)?.id ?? sections[0].id
+    : null;
+
+  const rootClassName = [
+    'controls-panel',
+    layout.collapsed ? 'is-collapsed' : 'is-expanded',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <aside
+      className={rootClassName}
+      style={style}
+      data-panel-position={layout.position}
+      data-panel-width={layout.width}
+      aria-hidden={layout.collapsed}
+    >
+      <div className="controls-panel-toolbar" role="group" aria-label="Preferencias del panel lateral">
+        <button type="button" className="panel-control" onClick={handleToggleCollapse}>
+          {layout.collapsed ? 'Mostrar panel' : 'Ocultar panel'}
+        </button>
+        <div className="panel-control-group" role="group" aria-label="Posición del panel">
+          <span className="panel-control-label">Ubicación</span>
+          <div className="panel-control-buttons">
+            <button
+              type="button"
+              className={`panel-control ${layout.position === 'left' ? 'is-active' : ''}`.trim()}
+              onClick={() => handlePositionChange('left')}
+            >
+              Izquierda
+            </button>
+            <button
+              type="button"
+              className={`panel-control ${layout.position === 'right' ? 'is-active' : ''}`.trim()}
+              onClick={() => handlePositionChange('right')}
+            >
+              Derecha
+            </button>
+          </div>
+        </div>
+        <label className="panel-control panel-width-control">
+          <span className="panel-control-label">Ancho · {Math.round(layout.width)}px</span>
+          <input
+            type="range"
+            min={MIN_PANEL_WIDTH}
+            max={MAX_PANEL_WIDTH}
+            value={layout.width}
+            onChange={event => handleWidthChange(Number(event.target.value))}
+          />
+        </label>
+      </div>
+      <div className="controls-panel-content">
+        <PanelContainer
+          sections={sections}
+          mode={panelMode}
+          activeSectionId={resolvedActiveSectionId}
+          onActiveSectionChange={handleActiveSectionChange}
+        />
       </div>
     </aside>
   );

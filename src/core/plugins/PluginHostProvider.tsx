@@ -58,33 +58,56 @@ interface PluginHostContextValue {
 
 const PluginHostContext = createContext<PluginHostContextValue | undefined>(undefined);
 
-const DEFAULT_TRANSPORT: PluginHostTransport = {
-  listPlugins: async () => {
-    if (typeof window !== 'undefined') {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        const response = await invoke<PluginManagerEntry[]>('plugin_list');
-        return response;
-      } catch (error) {
-        console.warn('No se pudo consultar el listado de plugins', error);
+const hasElectronPluginBridge = (
+  candidate: Window['electronAPI'] | undefined,
+): candidate is Required<
+  Pick<NonNullable<Window['electronAPI']>, 'listPlugins' | 'invokePlugin'>
+> =>
+  Boolean(
+    candidate &&
+      typeof candidate.listPlugins === 'function' &&
+      typeof candidate.invokePlugin === 'function',
+  );
+
+const createDefaultTransport = (): PluginHostTransport => {
+  if (typeof window !== 'undefined' && hasElectronPluginBridge(window.electronAPI)) {
+    return {
+      listPlugins: () => window.electronAPI!.listPlugins!(),
+      invokeCommand: (pluginId, command, payload) =>
+        window.electronAPI!.invokePlugin!(pluginId, command, payload),
+    };
+  }
+
+  return {
+    listPlugins: async () => {
+      if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/tauri');
+          const response = await invoke<PluginManagerEntry[]>('plugin_list');
+          return response;
+        } catch (error) {
+          console.warn('No se pudo consultar el listado de plugins', error);
+        }
       }
-    }
-    return [];
-  },
-  invokeCommand: async (pluginId, command, payload) => {
-    if (typeof window !== 'undefined') {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        await invoke('plugin_invoke', { pluginId, command, payload });
-        return;
-      } catch (error) {
-        console.warn(`No se pudo invocar el comando ${command} del plugin ${pluginId}`, error);
-        throw error;
+      return [];
+    },
+    invokeCommand: async (pluginId, command, payload) => {
+      if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/tauri');
+          await invoke('plugin_invoke', { pluginId, command, payload });
+          return;
+        } catch (error) {
+          console.warn(`No se pudo invocar el comando ${command} del plugin ${pluginId}`, error);
+          throw error;
+        }
       }
-    }
-    throw new Error('Plugin command transport is not disponible');
-  },
+      throw new Error('Plugin command transport is not disponible');
+    },
+  };
 };
+
+const DEFAULT_TRANSPORT: PluginHostTransport = createDefaultTransport();
 
 const MODULE_EXTENSIONS = ['tsx', 'ts', 'jsx', 'js'];
 

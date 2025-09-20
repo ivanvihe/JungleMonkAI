@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const fs = require('fs');
 const path = require('path');
+const { PluginManager } = require('./plugin-manager.cjs');
 
 let mainWindow;
 // Ventanas usadas para monitores secundarios en fullscreen
@@ -9,6 +11,64 @@ const isDev = process.env.NODE_ENV === 'development';
 const startUrl = isDev
   ? 'http://localhost:3000' // Cambiado de 5173 a 3000 (puerto de Vite por defecto)
   : `file://${path.join(__dirname, 'dist', 'index.html')}`;
+
+let pluginManagerInstance = null;
+let pluginManagerReadyPromise = null;
+
+const resolvePluginsDir = () => {
+  if (isDev) {
+    const localDir = path.join(process.cwd(), 'plugins');
+    if (fs.existsSync(localDir)) {
+      return localDir;
+    }
+  }
+  const userDataDir = app.getPath('userData');
+  return path.join(userDataDir, 'plugins');
+};
+
+const getAppVersion = () => {
+  try {
+    if (typeof app.getVersion === 'function') {
+      const version = app.getVersion();
+      if (version) {
+        return version;
+      }
+    }
+  } catch (error) {
+    console.warn('No se pudo obtener la versión de la aplicación desde Electron', error);
+  }
+  try {
+    const pkg = require('./package.json');
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+};
+
+const ensurePluginManager = async () => {
+  if (pluginManagerInstance) {
+    return pluginManagerInstance;
+  }
+  if (!pluginManagerReadyPromise) {
+    pluginManagerReadyPromise = (async () => {
+      if (!app.isReady()) {
+        await app.whenReady();
+      }
+      const manager = new PluginManager(resolvePluginsDir(), { appVersion: getAppVersion() });
+      try {
+        await manager.refresh();
+      } catch (error) {
+        console.warn('No se pudo inicializar el gestor de plugins', error);
+      }
+      pluginManagerInstance = manager;
+      return manager;
+    })().catch(error => {
+      pluginManagerReadyPromise = null;
+      throw error;
+    });
+  }
+  return pluginManagerReadyPromise;
+};
 
 function closeFullscreenWindows() {
   fullscreenWindows.forEach(win => {
@@ -175,6 +235,26 @@ ipcMain.handle('toggle-fullscreen', (event, ids = []) => {
 });
 
 const net = require('net');
+
+ipcMain.handle('plugin:list', async () => {
+  const manager = await ensurePluginManager();
+  try {
+    return await manager.refresh();
+  } catch (error) {
+    console.error('No se pudo listar los plugins', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('plugin:invoke', async (event, pluginId, command, payload = {}) => {
+  const manager = await ensurePluginManager();
+  try {
+    return await manager.invokeCommand(pluginId, command, payload ?? {});
+  } catch (error) {
+    console.error(`No se pudo invocar el comando ${command} del plugin ${pluginId}`, error);
+    throw error;
+  }
+});
 
 ipcMain.handle('tcp-request', (event, command, port, host) => {
   return new Promise((resolve, reject) => {

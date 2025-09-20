@@ -14,7 +14,7 @@ interface ChatWorkspaceProps {
 }
 
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => {
-  const { activeAgents, agentMap } = useAgents();
+  const { agentMap } = useAgents();
   const {
     messages,
     draft,
@@ -181,17 +181,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
     return publicMessages;
   }, [actorFilter, agentMap, publicMessages]);
 
-  const activeAgentsStatus = useMemo(() => {
-    const base = `${activeAgents.length} agente${activeAgents.length === 1 ? '' : 's'}`;
-    return `${base} coordinando la conversación.`;
-  }, [activeAgents.length]);
-
   return (
     <div className="chat-workspace">
-      <div className="chat-feed-header" role="status" aria-live="polite">
-        {activeAgentsStatus}
-      </div>
-
       <section className="chat-feed" aria-label="Historial de mensajes">
         <div className="message-feed">
           {filteredMessages.length === 0 ? (

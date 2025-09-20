@@ -66,6 +66,10 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   const hasPending = pendingResponses > 0;
   const overallStatus = resolveStatus(presenceSummary);
   const { projects, activeProjectId, activeProject, selectProject } = useProjects();
+  const activeAgentsMessage = useMemo(() => {
+    const base = `${activeAgents} agente${activeAgents === 1 ? '' : 's'}`;
+    return `${base} coordinando la conversación`;
+  }, [activeAgents]);
 
   const handleProjectChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const nextId = event.target.value || null;
@@ -164,6 +168,9 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
             <span className="metric-label">Pendientes</span>
             <span className="metric-value">{pendingResponses}</span>
           </div>
+          <span className="metric-caption" role="status" aria-live="polite">
+            {activeAgentsMessage}
+          </span>
           <button
             type="button"
             className="icon-button"

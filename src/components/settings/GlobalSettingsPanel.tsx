@@ -3,6 +3,7 @@ import {
   CommandPreset,
   DefaultRoutingRules,
   GlobalSettings,
+  McpProfile,
   RoutingRule,
   SupportedProvider,
 } from '../../types/globalSettings';
@@ -71,6 +72,18 @@ const cloneSettings = (value: GlobalSettings): GlobalSettings => ({
     },
     {} as GlobalSettings['pluginSettings'],
   ),
+  mcpProfiles: value.mcpProfiles.map(profile => ({
+    id: profile.id,
+    label: profile.label,
+    description: profile.description,
+    autoConnect: profile.autoConnect,
+    token: profile.token,
+    endpoints: profile.endpoints.map(endpoint => ({
+      id: endpoint.id,
+      transport: endpoint.transport,
+      url: endpoint.url,
+    })),
+  })),
 });
 
 const getPresetId = () => {
@@ -79,6 +92,15 @@ const getPresetId = () => {
   }
   return `preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 };
+
+const getMcpProfileId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `mcp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const MCP_TRANSPORT_OPTIONS: McpProfile['endpoints'][number]['transport'][] = ['ws', 'rest', 'osc'];
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -128,7 +150,9 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
     useProviderDiagnostics();
   const builtinProviders = useMemo(() => supportedProviders, [supportedProviders]);
   const [draft, setDraft] = useState<GlobalSettings>(() => cloneSettings(settings));
-  const [activeTab, setActiveTab] = useState<'providers' | 'presets' | 'routing' | 'plugins'>('providers');
+  const [activeTab, setActiveTab] = useState<
+    'providers' | 'presets' | 'routing' | 'plugins' | 'mcp'
+  >('providers');
   const [touchedProviders, setTouchedProviders] = useState<Record<string, boolean>>({});
   const [testStates, setTestStates] = useState<Record<string, ProviderTestState>>({});
   const [newProviderId, setNewProviderId] = useState('');
@@ -224,6 +248,139 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
     },
     [],
   );
+
+  const handleAddMcpProfile = useCallback(() => {
+    const profileId = getMcpProfileId();
+    const endpointId = `${profileId}-endpoint-1`;
+    const profile: McpProfile = {
+      id: profileId,
+      label: 'Nuevo perfil MCP',
+      description: '',
+      autoConnect: false,
+      token: '',
+      endpoints: [
+        {
+          id: endpointId,
+          transport: 'ws',
+          url: 'ws://localhost:5005',
+        },
+      ],
+    };
+
+    setDraft(prev => ({
+      ...prev,
+      mcpProfiles: [...prev.mcpProfiles, profile],
+    }));
+  }, []);
+
+  const handleUpdateMcpProfile = useCallback(
+    (
+      profileId: string,
+      patch: Partial<Pick<McpProfile, 'label' | 'description' | 'autoConnect' | 'token'>>,
+    ) => {
+      setDraft(prev => ({
+        ...prev,
+        mcpProfiles: prev.mcpProfiles.map(profile =>
+          profile.id === profileId
+            ? {
+                ...profile,
+                ...patch,
+              }
+            : profile,
+        ),
+      }));
+    },
+    [],
+  );
+
+  const handleRemoveMcpProfile = useCallback((profileId: string) => {
+    setDraft(prev => ({
+      ...prev,
+      mcpProfiles: prev.mcpProfiles.filter(profile => profile.id !== profileId),
+    }));
+  }, []);
+
+  const handleAddMcpEndpoint = useCallback((profileId: string) => {
+    setDraft(prev => ({
+      ...prev,
+      mcpProfiles: prev.mcpProfiles.map(profile => {
+        if (profile.id !== profileId) {
+          return profile;
+        }
+
+        const baseId = `${profileId}-endpoint-${profile.endpoints.length + 1}`;
+        const existingIds = new Set(profile.endpoints.map(endpoint => endpoint.id));
+        let candidate = baseId;
+        let counter = 1;
+        while (existingIds.has(candidate)) {
+          candidate = `${baseId}-${counter}`;
+          counter += 1;
+        }
+
+        return {
+          ...profile,
+          endpoints: [
+            ...profile.endpoints,
+            {
+              id: candidate,
+              transport: 'ws' as const,
+              url: 'ws://localhost:5005',
+            },
+          ],
+        };
+      }),
+    }));
+  }, []);
+
+  const handleUpdateMcpEndpoint = useCallback(
+    (
+      profileId: string,
+      endpointId: string,
+      patch: Partial<McpProfile['endpoints'][number]>,
+    ) => {
+      setDraft(prev => ({
+        ...prev,
+        mcpProfiles: prev.mcpProfiles.map(profile => {
+          if (profile.id !== profileId) {
+            return profile;
+          }
+
+          return {
+            ...profile,
+            endpoints: profile.endpoints.map(endpoint =>
+              endpoint.id === endpointId
+                ? {
+                    ...endpoint,
+                    ...patch,
+                  }
+                : endpoint,
+            ),
+          };
+        }),
+      }));
+    },
+    [],
+  );
+
+  const handleRemoveMcpEndpoint = useCallback((profileId: string, endpointId: string) => {
+    setDraft(prev => ({
+      ...prev,
+      mcpProfiles: prev.mcpProfiles.map(profile => {
+        if (profile.id !== profileId) {
+          return profile;
+        }
+
+        if (profile.endpoints.length === 1) {
+          return profile;
+        }
+
+        return {
+          ...profile,
+          endpoints: profile.endpoints.filter(endpoint => endpoint.id !== endpointId),
+        };
+      }),
+    }));
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -534,6 +691,7 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
               { id: 'presets', label: 'Comandos', icon: '🧩' },
               { id: 'routing', label: 'Preferencias', icon: '🧭' },
               { id: 'plugins', label: 'Plugins', icon: '🔌' },
+              { id: 'mcp', label: 'Perfiles MCP', icon: '🧠' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -935,6 +1093,159 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
                       </div>
                     );
                   })
+                )}
+              </div>
+            )}
+
+            {activeTab === 'mcp' && (
+              <div className="settings-section">
+                <div className="setting-header">
+                  <h3>Perfiles MCP externos</h3>
+                  <button type="button" className="setting-button" onClick={handleAddMcpProfile}>
+                    Añadir perfil
+                  </button>
+                </div>
+
+                {draft.mcpProfiles.length === 0 ? (
+                  <p className="setting-hint">
+                    Crea perfiles para conectar endpoints del protocolo Model Context Protocol (MCP)
+                    que no dependan de un plugin instalado. Puedes definir múltiples endpoints por
+                    perfil y proporcionar tokens de autenticación opcionales.
+                  </p>
+                ) : (
+                  draft.mcpProfiles.map(profile => (
+                    <div className="setting-card" key={profile.id}>
+                      <div className="setting-card-header">
+                        <div>
+                          <h4>{profile.label || 'Perfil sin nombre'}</h4>
+                          <p className="setting-hint">
+                            Identificador interno: <code>{profile.id}</code>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="setting-button subtle"
+                          onClick={() => handleRemoveMcpProfile(profile.id)}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+
+                      <label className="setting-label">
+                        <span>Nombre visible</span>
+                        <input
+                          type="text"
+                          className="setting-input"
+                          value={profile.label}
+                          onChange={(event) =>
+                            handleUpdateMcpProfile(profile.id, { label: event.target.value })
+                          }
+                          placeholder="Ej. Servidor creativo local"
+                        />
+                      </label>
+
+                      <label className="setting-label">
+                        <span>Descripción</span>
+                        <textarea
+                          className="setting-textarea"
+                          rows={2}
+                          value={profile.description ?? ''}
+                          onChange={(event) =>
+                            handleUpdateMcpProfile(profile.id, { description: event.target.value })
+                          }
+                          placeholder="Notas sobre permisos o propósito del perfil"
+                        />
+                      </label>
+
+                      <div className="setting-row">
+                        <label className="setting-label toggle">
+                          <input
+                            type="checkbox"
+                            checked={profile.autoConnect}
+                            onChange={(event) =>
+                              handleUpdateMcpProfile(profile.id, {
+                                autoConnect: event.target.checked,
+                              })
+                            }
+                          />
+                          <span>Conectar automáticamente al iniciar la aplicación</span>
+                        </label>
+                      </div>
+
+                      <label className="setting-label">
+                        <span>Token o clave opcional</span>
+                        <input
+                          type="password"
+                          className="setting-input"
+                          value={profile.token ?? ''}
+                          onChange={(event) =>
+                            handleUpdateMcpProfile(profile.id, { token: event.target.value })
+                          }
+                          placeholder="Bearer token o secreto opcional"
+                        />
+                      </label>
+
+                      <div className="setting-group">
+                        <div className="setting-card-header">
+                          <h5>Endpoints registrados</h5>
+                          <button
+                            type="button"
+                            className="setting-button subtle"
+                            onClick={() => handleAddMcpEndpoint(profile.id)}
+                          >
+                            Añadir endpoint
+                          </button>
+                        </div>
+
+                        {profile.endpoints.map(endpoint => (
+                          <div className="setting-row" key={endpoint.id}>
+                            <label className="setting-label">
+                              <span>Transporte</span>
+                              <select
+                                className="setting-select"
+                                value={endpoint.transport}
+                                onChange={(event) =>
+                                  handleUpdateMcpEndpoint(profile.id, endpoint.id, {
+                                    transport: event.target.value as McpProfile['endpoints'][number]['transport'],
+                                  })
+                                }
+                              >
+                                {MCP_TRANSPORT_OPTIONS.map(option => (
+                                  <option key={option} value={option}>
+                                    {option.toUpperCase()}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <label className="setting-label">
+                              <span>URL</span>
+                              <input
+                                type="text"
+                                className="setting-input"
+                                value={endpoint.url}
+                                onChange={(event) =>
+                                  handleUpdateMcpEndpoint(profile.id, endpoint.id, {
+                                    url: event.target.value,
+                                  })
+                                }
+                                placeholder="ws://localhost:5005"
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              className="setting-button subtle"
+                              onClick={() => handleRemoveMcpEndpoint(profile.id, endpoint.id)}
+                              disabled={profile.endpoints.length === 1}
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             )}

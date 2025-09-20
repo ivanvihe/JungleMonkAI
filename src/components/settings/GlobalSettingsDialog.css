@@ -116,6 +116,77 @@
   font-size: 12px;
 }
 
+.project-manager {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.project-manager label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.project-manager input,
+.project-manager select,
+.project-manager textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.project-manager select {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.project-manager textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.project-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ff8a80;
+}
+
+.project-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.project-actions button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.project-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.project-actions .danger {
+  background: rgba(255, 82, 82, 0.32);
+}
+
 .preference-card {
   padding: 16px;
   border-radius: 16px;

@@ -61,10 +61,16 @@ export interface WorkspacePreferences {
   sidePanel: SidePanelPreferences;
 }
 
+export type GitHostingProvider = 'github' | 'gitlab' | (string & {});
+
 export interface ProjectProfile {
   id: string;
   name: string;
   repositoryPath: string;
+  gitProvider?: GitHostingProvider;
+  gitOwner?: string;
+  gitRepository?: string;
+  defaultRemote?: string;
   defaultBranch?: string;
   instructions?: string;
   preferredProvider?: string;
@@ -93,6 +99,7 @@ export interface GlobalSettings {
   dataLocation: DataLocationSettings;
   projectProfiles: ProjectProfile[];
   activeProjectId: string | null;
+  githubDefaultOwner?: string;
 }
 
 export interface PluginSettingsEntry {

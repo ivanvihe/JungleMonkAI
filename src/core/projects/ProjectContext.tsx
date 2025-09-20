@@ -1,5 +1,9 @@
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
-import type { GlobalSettings, ProjectProfile } from '../../types/globalSettings';
+import type {
+  GitHostingProvider,
+  GlobalSettings,
+  ProjectProfile,
+} from '../../types/globalSettings';
 
 interface ProjectProviderProps {
   settings: GlobalSettings;
@@ -11,6 +15,10 @@ export interface ProjectDraft {
   id?: string;
   name: string;
   repositoryPath: string;
+  gitProvider?: GitHostingProvider;
+  gitOwner?: string;
+  gitRepository?: string;
+  defaultRemote?: string;
   defaultBranch?: string;
   instructions?: string;
   preferredProvider?: string;
@@ -58,10 +66,20 @@ const ensureProjectId = (draft: ProjectDraft, projects: ProjectProfile[]): strin
 };
 
 const sanitizeDraft = (draft: ProjectDraft): ProjectDraft => {
+  const normalizedProvider = draft.gitProvider?.toLowerCase().trim();
+  const gitProvider: GitHostingProvider | undefined =
+    normalizedProvider === 'github' || normalizedProvider === 'gitlab'
+      ? (normalizedProvider as GitHostingProvider)
+      : undefined;
+
   return {
     ...draft,
     name: draft.name.trim(),
     repositoryPath: draft.repositoryPath.trim(),
+    gitProvider,
+    gitOwner: draft.gitOwner?.trim() || undefined,
+    gitRepository: draft.gitRepository?.trim() || undefined,
+    defaultRemote: draft.defaultRemote?.trim() || undefined,
     defaultBranch: draft.defaultBranch?.trim() || undefined,
     instructions: draft.instructions?.trim() || undefined,
     preferredProvider: draft.preferredProvider?.trim() || undefined,
@@ -124,6 +142,10 @@ export const ProjectProvider: React.FC<ProjectProviderProps> = ({
           id,
           name: sanitized.name,
           repositoryPath: sanitized.repositoryPath,
+          gitProvider: sanitized.gitProvider,
+          gitOwner: sanitized.gitOwner,
+          gitRepository: sanitized.gitRepository,
+          defaultRemote: sanitized.defaultRemote,
           defaultBranch: sanitized.defaultBranch,
           instructions: sanitized.instructions,
           preferredProvider: sanitized.preferredProvider,

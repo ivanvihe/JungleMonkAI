@@ -1,5 +1,9 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { ApiKeySettings, GlobalSettings, ProjectProfile } from '../../types/globalSettings';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import {
+  ApiKeySettings,
+  GlobalSettings,
+  ProjectProfile,
+} from '../../types/globalSettings';
 import { providerSecretExists, storeProviderSecret } from '../../utils/secrets';
 import { ModelGallery } from '../models/ModelGallery';
 import { OverlayModal } from '../common/OverlayModal';
@@ -23,10 +27,23 @@ const PROVIDER_FIELDS: Array<{ id: keyof ApiKeySettings; label: string; placehol
   { id: 'groq', label: 'Groq', placeholder: 'groq-...' },
 ];
 
-const createDraftFromProject = (project?: ProjectProfile | null): ProjectDraft => ({
+interface DraftDefaults {
+  defaultGitProvider?: ProjectDraft['gitProvider'];
+  defaultGitOwner?: string;
+  defaultRemote?: string;
+}
+
+const createDraftFromProject = (
+  project?: ProjectProfile | null,
+  defaults?: DraftDefaults,
+): ProjectDraft => ({
   id: project?.id,
   name: project?.name ?? '',
   repositoryPath: project?.repositoryPath ?? '',
+  gitProvider: project?.gitProvider ?? defaults?.defaultGitProvider,
+  gitOwner: project?.gitOwner ?? defaults?.defaultGitOwner,
+  gitRepository: project?.gitRepository ?? '',
+  defaultRemote: project?.defaultRemote ?? defaults?.defaultRemote ?? '',
   defaultBranch: project?.defaultBranch ?? '',
   instructions: project?.instructions ?? '',
   preferredProvider: project?.preferredProvider ?? '',
@@ -49,8 +66,19 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const [secretError, setSecretError] = useState<string | null>(null);
   const { projects, activeProject, selectProject, upsertProject, removeProject } = useProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => activeProject?.id ?? 'new');
-  const [projectForm, setProjectForm] = useState<ProjectDraft>(() => createDraftFromProject(activeProject));
+  const draftDefaults = useMemo<DraftDefaults>(
+    () => ({
+      defaultGitProvider: settings.githubDefaultOwner ? 'github' : undefined,
+      defaultGitOwner: settings.githubDefaultOwner,
+      defaultRemote: 'origin',
+    }),
+    [settings.githubDefaultOwner],
+  );
+  const [projectForm, setProjectForm] = useState<ProjectDraft>(() =>
+    createDraftFromProject(activeProject, draftDefaults),
+  );
   const [projectError, setProjectError] = useState<string | null>(null);
+  const previousGithubOwnerRef = useRef<string>(settings.githubDefaultOwner ?? '');
 
   useEffect(() => {
     if (!isOpen) {
@@ -109,7 +137,7 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
 
     if (!projects.length) {
       setSelectedProjectId('new');
-      setProjectForm(createDraftFromProject());
+      setProjectForm(createDraftFromProject(undefined, draftDefaults));
       setProjectError(null);
       return;
     }
@@ -119,7 +147,7 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
         const [first] = projects;
         if (first) {
           setSelectedProjectId(first.id);
-          setProjectForm(createDraftFromProject(first));
+          setProjectForm(createDraftFromProject(first, draftDefaults));
           setProjectError(null);
         }
       }
@@ -128,17 +156,17 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
 
     if (selectedProjectId === 'new' || selectedProjectId === activeProject.id) {
       setSelectedProjectId(activeProject.id);
-      setProjectForm(createDraftFromProject(activeProject));
+      setProjectForm(createDraftFromProject(activeProject, draftDefaults));
       setProjectError(null);
       return;
     }
 
     if (!projects.some(project => project.id === selectedProjectId)) {
       setSelectedProjectId(activeProject.id);
-      setProjectForm(createDraftFromProject(activeProject));
+      setProjectForm(createDraftFromProject(activeProject, draftDefaults));
       setProjectError(null);
     }
-  }, [isOpen, activeProject, projects, selectedProjectId]);
+  }, [isOpen, activeProject, projects, selectedProjectId, draftDefaults]);
 
   const handleProjectSelectChange = useCallback(
     (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -146,15 +174,15 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
       setProjectError(null);
       if (value === 'new') {
         setSelectedProjectId('new');
-        setProjectForm(createDraftFromProject());
+        setProjectForm(createDraftFromProject(undefined, draftDefaults));
         return;
       }
 
       setSelectedProjectId(value);
       const match = projects.find(project => project.id === value) ?? null;
-      setProjectForm(createDraftFromProject(match));
+      setProjectForm(createDraftFromProject(match, draftDefaults));
     },
-    [projects],
+    [projects, draftDefaults],
   );
 
   const updateFormField = useCallback(
@@ -176,13 +204,13 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
     try {
       const saved = upsertProject(projectForm, { activate: selectedProjectId === 'new' });
       setSelectedProjectId(saved.id);
-      setProjectForm(createDraftFromProject(saved));
+      setProjectForm(createDraftFromProject(saved, draftDefaults));
       setProjectError(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar el proyecto.';
       setProjectError(message);
     }
-  }, [projectForm, selectedProjectId, upsertProject]);
+  }, [projectForm, selectedProjectId, upsertProject, draftDefaults]);
 
   const handleActivateProject = useCallback(() => {
     if (selectedProjectId === 'new') {
@@ -194,16 +222,63 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
 
   const handleDeleteProject = useCallback(() => {
     if (selectedProjectId === 'new') {
-      setProjectForm(createDraftFromProject());
+      setProjectForm(createDraftFromProject(undefined, draftDefaults));
       setProjectError(null);
       return;
     }
 
     removeProject(selectedProjectId);
     setSelectedProjectId('new');
-    setProjectForm(createDraftFromProject());
+    setProjectForm(createDraftFromProject(undefined, draftDefaults));
     setProjectError(null);
-  }, [removeProject, selectedProjectId]);
+  }, [removeProject, selectedProjectId, draftDefaults]);
+
+  useEffect(() => {
+    const currentDefault = settings.githubDefaultOwner ?? '';
+    const previousDefault = previousGithubOwnerRef.current;
+    previousGithubOwnerRef.current = currentDefault;
+
+    if (selectedProjectId !== 'new') {
+      return;
+    }
+
+    setProjectForm(prev => {
+      const currentOwner = prev.gitOwner ?? '';
+      const currentProvider = prev.gitProvider;
+      if (!currentDefault) {
+        if (!currentOwner || currentOwner === previousDefault) {
+          const nextForm = { ...prev, gitOwner: undefined };
+          if (currentProvider === 'github') {
+            return { ...nextForm, gitProvider: undefined };
+          }
+          return nextForm;
+        }
+        return prev;
+      }
+
+      const nextOwner =
+        !currentOwner || currentOwner === previousDefault
+          ? { ...prev, gitOwner: currentDefault }
+          : prev;
+
+      if (!nextOwner.gitProvider) {
+        return { ...nextOwner, gitProvider: 'github' };
+      }
+
+      return nextOwner;
+    });
+  }, [settings.githubDefaultOwner, selectedProjectId]);
+
+  const handleGithubDefaultOwnerChange = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      onSettingsChange(prev => ({
+        ...prev,
+        githubDefaultOwner: trimmed || undefined,
+      }));
+    },
+    [onSettingsChange],
+  );
 
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
 
@@ -305,6 +380,16 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
                       {githubInput.trim() || !githubStored ? 'Guardar' : 'Eliminar'}
                     </button>
                   </div>
+                  <label htmlFor="github-default-owner" className="github-default-owner">
+                    Usuario/organización por defecto
+                  </label>
+                  <input
+                    id="github-default-owner"
+                    type="text"
+                    value={settings.githubDefaultOwner ?? ''}
+                    placeholder="org o usuario"
+                    onChange={event => handleGithubDefaultOwnerChange(event.target.value)}
+                  />
                 </div>
 
                 <div className="secure-provider">
@@ -378,6 +463,44 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
                   value={projectForm.repositoryPath ?? ''}
                   onChange={updateFormField('repositoryPath')}
                   placeholder="/ruta/al/repositorio"
+                />
+
+                <label htmlFor="project-git-provider">Proveedor Git</label>
+                <select
+                  id="project-git-provider"
+                  value={projectForm.gitProvider ?? ''}
+                  onChange={updateFormField('gitProvider')}
+                >
+                  <option value="">Sin especificar</option>
+                  <option value="github">GitHub</option>
+                  <option value="gitlab">GitLab</option>
+                </select>
+
+                <label htmlFor="project-git-owner">Usuario/organización</label>
+                <input
+                  id="project-git-owner"
+                  type="text"
+                  value={projectForm.gitOwner ?? ''}
+                  onChange={updateFormField('gitOwner')}
+                  placeholder="org o usuario"
+                />
+
+                <label htmlFor="project-git-repo">Repositorio remoto</label>
+                <input
+                  id="project-git-repo"
+                  type="text"
+                  value={projectForm.gitRepository ?? ''}
+                  onChange={updateFormField('gitRepository')}
+                  placeholder="nombre-del-repo"
+                />
+
+                <label htmlFor="project-remote">Remoto por defecto</label>
+                <input
+                  id="project-remote"
+                  type="text"
+                  value={projectForm.defaultRemote ?? ''}
+                  onChange={updateFormField('defaultRemote')}
+                  placeholder="origin"
                 />
 
                 <label htmlFor="project-branch">Rama por defecto</label>

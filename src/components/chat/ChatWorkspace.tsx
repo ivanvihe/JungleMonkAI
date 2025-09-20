@@ -3,12 +3,11 @@ import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
 import { AttachmentPicker } from './composer/AttachmentPicker';
 import { AudioRecorder } from './composer/AudioRecorder';
-import { MessageAttachment } from './messages/MessageAttachment';
-import { AudioPlayer } from './messages/AudioPlayer';
-import { ChatAttachment, ChatContentPart, ChatTranscription } from '../../core/messages/messageTypes';
+import { ChatAttachment } from '../../core/messages/messageTypes';
 import { ChatActorFilter } from '../../types/chat';
 import { AgentKind } from '../../core/agents/agentRegistry';
 import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
+import { MessageCard } from './messages/MessageCard';
 
 interface ChatWorkspaceProps {
   sidePanel: React.ReactNode;
@@ -67,57 +66,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
       }
     },
     [addAttachment, upsertTranscription],
-  );
-
-  const renderContentPart = useCallback(
-    (part: ChatContentPart | string, index: number, transcriptions?: ChatTranscription[]) => {
-      if (typeof part === 'string') {
-        return (
-          <p key={`text-${index}`} className="message-card-content">
-            {part}
-          </p>
-        );
-      }
-
-      if (part.type === 'text') {
-        return (
-          <p key={`text-${index}`} className="message-card-content">
-            {part.text}
-          </p>
-        );
-      }
-
-      if (part.type === 'image') {
-        return (
-          <figure key={`image-${index}`} className="message-card-media">
-            <img src={part.url} alt={part.alt ?? 'Imagen generada'} />
-            {part.alt && <figcaption>{part.alt}</figcaption>}
-          </figure>
-        );
-      }
-
-      if (part.type === 'audio') {
-        const relatedTranscriptions = transcriptions?.filter(item => !item.attachmentId);
-        return (
-          <div key={`audio-${index}`} className="message-card-media">
-            <AudioPlayer src={part.url} title="Respuesta de audio" transcriptions={relatedTranscriptions} />
-          </div>
-        );
-      }
-
-      if (part.type === 'file') {
-        return (
-          <div key={`file-${index}`} className="message-card-media">
-            <a href={part.url} target="_blank" rel="noreferrer">
-              {part.name ?? 'Archivo'}
-            </a>
-          </div>
-        );
-      }
-
-      return null;
-    },
-    [],
   );
 
   const filteredMessages = useMemo(() => {
@@ -190,8 +138,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
                   </div>
                 ) : (
                   filteredMessages.map(message => {
-                    const isUser = message.author === 'user';
-                    const isSystem = message.author === 'system';
                     const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
                     const chipColor = agent?.accent || 'var(--accent-color)';
                     const agentDisplayName = agent ? getAgentDisplayName(agent) : undefined;
@@ -202,54 +148,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
                       : undefined;
 
                     return (
-                      <div
+                      <MessageCard
                         key={message.id}
-                        className={`message-card ${isUser ? 'message-user' : ''} ${isSystem ? 'message-system' : ''}`}
-                      >
-                        <div className="message-card-header">
-                          <div className="message-card-author" style={{ borderColor: chipColor }}>
-                            {isUser && 'Tú'}
-                            {isSystem && 'Control Hub'}
-                            {!isUser && !isSystem && agentDisplayName}
-                          </div>
-                          <div className="message-card-meta">
-                            {!isUser && !isSystem && providerLabel && (
-                              <span className="message-card-tag" style={{ color: chipColor }}>
-                                {providerLabel}
-                              </span>
-                            )}
-                            <span className="message-card-time">{formatTimestamp(message.timestamp)}</span>
-                            {message.status === 'pending' && <span className="message-card-status">orquestando…</span>}
-                          </div>
-                        </div>
-                        <div className="message-card-body">
-                          {Array.isArray(message.content)
-                            ? message.content.map((part, index) =>
-                                renderContentPart(part, index, message.transcriptions),
-                              )
-                            : renderContentPart(message.content, 0, message.transcriptions)}
-                          {message.attachments?.length ? (
-                            <div className="message-card-attachments">
-                              {message.attachments.map(attachment => (
-                                <MessageAttachment
-                                  key={attachment.id}
-                                  attachment={attachment}
-                                  transcriptions={message.transcriptions}
-                                />
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                        {message.modalities?.length ? (
-                          <div className="message-card-modalities">
-                            {message.modalities.map(modality => (
-                              <span key={modality} className="modality-chip">
-                                {modality}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
+                        message={message}
+                        chipColor={chipColor}
+                        agentDisplayName={agentDisplayName}
+                        providerLabel={providerLabel}
+                        formatTimestamp={formatTimestamp}
+                        onAppendToComposer={appendToDraft}
+                      />
                     );
                   })}
               </div>

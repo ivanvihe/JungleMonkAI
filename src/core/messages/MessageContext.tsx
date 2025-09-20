@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { invoke } from '@tauri-apps/api/tauri';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { AgentDefinition } from '../agents/agentRegistry';
 import { useAgents } from '../agents/AgentContext';
@@ -39,6 +40,8 @@ import {
   type SharedConversationSnapshot,
 } from '../orchestration';
 import { useProjects } from '../projects/ProjectContext';
+import { enqueueRepoWorkflowRequest, syncRepositoryViaWorkflow } from '../codex';
+import { isTauriEnvironment } from '../storage/userDataPathsClient';
 
 interface MessageContextValue {
   messages: ChatMessage[];
@@ -175,6 +178,18 @@ const contentToPlainText = (content: ChatMessage['content']): string => {
     .filter(Boolean)
     .join('\n');
 };
+
+const normalizeCommandText = (input: string): string => {
+  return input
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+};
+
+const ANALYZE_PROJECT_REGEX = /\banaliza(?:r)? mi proyecto\b/;
 
 const buildContentPartsFromComposer = (
   text: string,
@@ -772,6 +787,96 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       visibility: 'public',
     };
 
+    const normalizedCommand = normalizeCommandText(trimmed);
+    const shouldTriggerRepoAnalysis =
+      normalizedCommand.length > 0 && ANALYZE_PROJECT_REGEX.test(normalizedCommand);
+
+    if (shouldTriggerRepoAnalysis) {
+      if (!activeProject) {
+        const warningTimestamp = new Date().toISOString();
+        const warningMessage: ChatMessage = {
+          id: buildMessageId('system'),
+          author: 'system',
+          content: 'No hay ningún proyecto activo enlazado para analizar.',
+          timestamp: warningTimestamp,
+          visibility: 'public',
+        };
+        setMessages(prev => [...prev, userMessage, warningMessage]);
+        setSharedSnapshot(prev =>
+          limitSnapshotHistory(registerSystemNote(prev, warningMessage.content, warningTimestamp)),
+        );
+        setDraftState('');
+        setComposerAttachments([]);
+        setComposerTranscriptions([]);
+        return;
+      }
+
+      const remoteLabel = activeProject.defaultRemote ?? 'origin';
+      const ackTimestamp = new Date().toISOString();
+      const ackMessage: ChatMessage = {
+        id: buildMessageId('system'),
+        author: 'system',
+        content: `Sincronizando el proyecto activo (${remoteLabel}) antes del análisis…`,
+        timestamp: ackTimestamp,
+        visibility: 'public',
+      };
+
+      setMessages(prev => [...prev, userMessage, ackMessage]);
+      setSharedSnapshot(prev =>
+        limitSnapshotHistory(registerSystemNote(prev, ackMessage.content, ackTimestamp)),
+      );
+
+      void (async () => {
+        try {
+          await syncRepositoryViaWorkflow({
+            repositoryPath: activeProject.repositoryPath,
+            remote: remoteLabel,
+            branch: activeProject.defaultBranch ?? null,
+          });
+
+          let activeBranch = activeProject.defaultBranch ?? null;
+          if (isTauriEnvironment()) {
+            try {
+              const context = await invoke<{ branch?: string | null }>('git_get_repository_context', {
+                repoPath: activeProject.repositoryPath,
+              });
+              if (context?.branch) {
+                activeBranch = context.branch;
+              }
+            } catch (error) {
+              console.warn('No se pudo determinar la rama actual del repositorio:', error);
+            }
+          }
+
+          enqueueRepoWorkflowRequest({
+            messageId: userMessage.id,
+            repositoryPath: activeProject.repositoryPath,
+            branch: activeBranch ?? undefined,
+          });
+        } catch (error) {
+          const description =
+            (error as Error)?.message ?? 'Error desconocido al sincronizar el proyecto.';
+          const failureTimestamp = new Date().toISOString();
+          const failureMessage: ChatMessage = {
+            id: buildMessageId('system'),
+            author: 'system',
+            content: `Error al preparar el proyecto: ${description}`,
+            timestamp: failureTimestamp,
+            visibility: 'public',
+          };
+          setMessages(prev => [...prev, failureMessage]);
+          setSharedSnapshot(prev =>
+            limitSnapshotHistory(registerSystemNote(prev, failureMessage.content, failureTimestamp)),
+          );
+        }
+      })();
+
+      setDraftState('');
+      setComposerAttachments([]);
+      setComposerTranscriptions([]);
+      return;
+    }
+
     if (activeAgents.length === 0) {
       setMessages(prev => [...prev, userMessage]);
       const note = `Sin agentes activos para responder «${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}».`;
@@ -940,13 +1045,16 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   }, [
     activeAgents,
     agents,
+    activeProject,
     appendTraces,
     composerAttachments,
     composerTranscriptions,
     coordinationStrategy,
+    enqueueRepoWorkflowRequest,
     draft,
     orchestrationProject,
     sharedSnapshot,
+    syncRepositoryViaWorkflow,
   ]);
 
   const resolveAgentReply = useCallback(

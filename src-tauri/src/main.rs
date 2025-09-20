@@ -12,13 +12,13 @@ mod vscode;
 
 use config::{Config, ConfigState, LayerConfig};
 use git::{
-    apply_patch as git_apply_patch, commit_changes as git_commit_changes,
-    create_pull_request as git_create_pull_request, get_file_diff as git_get_file_diff,
-    get_repository_context as git_get_repository_context,
-    has_secret as git_has_secret, list_repository_files as git_list_repository_files,
+    apply_patch as git_apply_patch, clone_repository as git_clone_repository,
+    commit_changes as git_commit_changes, create_pull_request as git_create_pull_request,
+    get_file_diff as git_get_file_diff, get_repository_context as git_get_repository_context,
+    git_pull_repository, has_secret as git_has_secret, list_repository_files as git_list_repository_files,
     list_user_repos as git_list_user_repos, pull_changes as git_pull_changes,
     push_changes as git_push_changes, repository_status as git_repository_status,
-    clone_repository as git_clone_repository, store_secret as git_store_secret, SecretManager,
+    store_secret as git_store_secret, SecretManager,
 };
 use log::error;
 use models::{activate_model, download_model, list_models, ModelRegistry};
@@ -128,6 +128,7 @@ fn main() {
             git_apply_patch,
             git_commit_changes,
             git_push_changes,
+            git_pull_repository,
             git_pull_changes,
             git_create_pull_request,
             git_get_file_diff,

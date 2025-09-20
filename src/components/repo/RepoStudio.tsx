@@ -114,7 +114,7 @@ export const RepoStudio: React.FC = () => {
   const [isContextLoading, setIsContextLoading] = useState<boolean>(false);
   const [contextError, setContextError] = useState<string | null>(null);
   const [cloneMessage, setCloneMessage] = useState<string | null>(null);
-  const { pendingRequest, clearPendingRequest } = useRepoWorkflow();
+  const { pendingRequest, clearPendingRequest, syncRepository } = useRepoWorkflow();
   const [activeWorkflow, setActiveWorkflow] = useState<RepoWorkflowRequest | null>(null);
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [autoPrTriggered, setAutoPrTriggered] = useState<boolean>(false);
@@ -206,76 +206,178 @@ export const RepoStudio: React.FC = () => {
     void refreshRemoteRepos({ owner: activeProject.gitOwner });
   }, [activeProject?.gitOwner, refreshRemoteRepos, remoteSupported]);
 
+  const refreshContext = useCallback(
+    async (targetPath?: string) => {
+      const effectivePath = targetPath ?? repoPath;
+      if (!effectivePath) {
+        return;
+      }
+      setIsContextLoading(true);
+      setContextError(null);
+      try {
+        const context = await invoke<RepoContextSummary>('git_get_repository_context', {
+          repoPath: effectivePath,
+        });
+        setRepoContext(context);
+      } catch (err) {
+        setContextError(
+          (err as Error).message ?? 'No se pudo obtener el contexto del repositorio.',
+        );
+        setRepoContext(null);
+      } finally {
+        setIsContextLoading(false);
+      }
+    },
+    [repoPath],
+  );
+
+  const loadRepositoryEntries = useCallback(
+    async (targetPath: string) => {
+      setError(null);
+      setIsLoading(true);
+      try {
+        const result = await invoke<RepoEntry[]>('git_list_repository_files', {
+          repoPath: targetPath,
+        });
+        setEntries(result);
+        await refreshContext(targetPath);
+      } catch (err) {
+        setError((err as Error).message ?? 'No se pudieron listar los archivos');
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshContext],
+  );
+
+  const loadRepositoryStatus = useCallback(
+    async (targetPath: string) => {
+      setError(null);
+      setIsLoading(true);
+      try {
+        const result = await invoke<RepoStatus>('git_repository_status', { repoPath: targetPath });
+        setStatusEntries(result.entries);
+        await refreshContext(targetPath);
+      } catch (err) {
+        setError((err as Error).message ?? 'No se pudo obtener el estado del repositorio');
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshContext],
+  );
+
+  const fetchEntries = useCallback(async () => {
+    if (!repoPath) {
+      return;
+    }
+    try {
+      await loadRepositoryEntries(repoPath);
+    } catch {
+      // el error ya se registró en loadRepositoryEntries
+    }
+  }, [repoPath, loadRepositoryEntries]);
+
+  const fetchStatus = useCallback(async () => {
+    if (!repoPath) {
+      return;
+    }
+    try {
+      await loadRepositoryStatus(repoPath);
+    } catch {
+      // el error ya se registró en loadRepositoryStatus
+    }
+  }, [repoPath, loadRepositoryStatus]);
+
   useEffect(() => {
     if (!pendingRequest) {
       return;
     }
 
-    setActiveWorkflow(pendingRequest);
-    setRepoPath(pendingRequest.request.context.repositoryPath);
-    setAnalysisPrompt(pendingRequest.analysisPrompt);
-    setPlan(pendingRequest.plan);
-    setCommitMessage(pendingRequest.commitMessage);
-    setPrTitle(pendingRequest.prTitle);
-    setPrBody(pendingRequest.prBody);
-    setReviews([]);
-    updateExecution(pendingRequest.plan, []);
-    setMessages(prev => [
-      { message: `Solicitud recibida desde el chat: ${pendingRequest.plan.summary}` },
-      ...prev,
-    ]);
-    setAutoPrTriggered(false);
-    clearPendingRequest();
-  }, [pendingRequest, clearPendingRequest, updateExecution]);
+    let cancelled = false;
 
-  const fetchEntries = async () => {
-    setError(null);
-    setIsLoading(true);
-    try {
-      const result = await invoke<RepoEntry[]>('git_list_repository_files', {
-        repoPath,
+    const processRequest = async () => {
+      const repositoryPath = pendingRequest.request.context.repositoryPath;
+      const branchName = pendingRequest.request.context.branch ?? null;
+      const remoteHint =
+        pendingRequest.remoteName ?? activeProject?.defaultRemote ?? remoteName ?? 'origin';
+
+      setRepoPath(repositoryPath);
+      setRemoteBranch(branchName ?? '');
+      setRemoteName(remoteHint);
+
+      const syncMessages: CommitResult[] = [];
+
+      try {
+        const result = await syncRepository({
+          repositoryPath,
+          remote: remoteHint,
+          branch: branchName,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        try {
+          await loadRepositoryEntries(repositoryPath);
+          await loadRepositoryStatus(repositoryPath);
+        } catch {
+          // Los errores ya fueron capturados en los helpers de carga.
+        }
+
+        if (result && result.trim()) {
+          syncMessages.push({ message: `Sincronización completada: ${result.trim()}` });
+        } else {
+          const targetLabel = branchName ? `${remoteHint}/${branchName}` : remoteHint;
+          syncMessages.push({ message: `Repositorio sincronizado (${targetLabel}).` });
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const description = (error as Error)?.message ?? 'Error desconocido al sincronizar.';
+        syncMessages.push({ message: `Error al sincronizar el repositorio: ${description}` });
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      syncMessages.push({
+        message: `Solicitud recibida desde el chat: ${pendingRequest.plan.summary}`,
       });
-      setEntries(result);
-      void refreshContext();
-    } catch (err) {
-      setError((err as Error).message ?? 'No se pudieron listar los archivos');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const fetchStatus = async () => {
-    setError(null);
-    setIsLoading(true);
-    try {
-      const result = await invoke<RepoStatus>('git_repository_status', { repoPath });
-      setStatusEntries(result.entries);
-      void refreshContext();
-    } catch (err) {
-      setError((err as Error).message ?? 'No se pudo obtener el estado del repositorio');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      setMessages(prev => [...syncMessages, ...prev]);
+      setActiveWorkflow(pendingRequest);
+      setAnalysisPrompt(pendingRequest.analysisPrompt);
+      setPlan(pendingRequest.plan);
+      setCommitMessage(pendingRequest.commitMessage);
+      setPrTitle(pendingRequest.prTitle);
+      setPrBody(pendingRequest.prBody);
+      setReviews([]);
+      updateExecution(pendingRequest.plan, []);
+      setAutoPrTriggered(false);
+      clearPendingRequest();
+    };
 
-  const refreshContext = useCallback(async () => {
-    if (!repoPath) {
-      return;
-    }
-    setIsContextLoading(true);
-    setContextError(null);
-    try {
-      const context = await invoke<RepoContextSummary>('git_get_repository_context', { repoPath });
-      setRepoContext(context);
-    } catch (err) {
-      setContextError(
-        (err as Error).message ?? 'No se pudo obtener el contexto del repositorio.',
-      );
-      setRepoContext(null);
-    } finally {
-      setIsContextLoading(false);
-    }
-  }, [repoPath]);
+    void processRequest();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pendingRequest,
+    activeProject?.defaultRemote,
+    remoteName,
+    syncRepository,
+    loadRepositoryEntries,
+    loadRepositoryStatus,
+    clearPendingRequest,
+    updateExecution,
+  ]);
 
   useEffect(() => {
     void refreshContext();

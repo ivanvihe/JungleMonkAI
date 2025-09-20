@@ -76,6 +76,8 @@ describe('Repo workflow integration', () => {
               branch: 'main',
             },
           });
+        case 'git_pull_repository':
+          return Promise.resolve('Fast-forward completado desde origin/main hasta def456.');
         case 'git_create_pull_request':
           return Promise.resolve({ url: 'https://example.com/pr/1' });
         case 'git_commit_changes':
@@ -160,6 +162,16 @@ describe('Repo workflow integration', () => {
       'Describe qué cambios necesitas (usa `rutas/relativas` para guiar al motor).',
     );
     await waitFor(() => expect((analysisField as HTMLTextAreaElement).value).toBe(canonicalSnippet));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('git_pull_repository', {
+        repoPath: '/tmp/demo',
+        remote: 'origin',
+        branch: 'main',
+      }),
+    );
+
+    await screen.findByText(/Sincronización completada:/);
 
     fireEvent.change(screen.getByPlaceholderText('org'), { target: { value: 'acme' } });
     fireEvent.change(screen.getByPlaceholderText('repo'), { target: { value: 'wonder-project' } });

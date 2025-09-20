@@ -61,5 +61,6 @@ describe('RepoWorkflowContext', () => {
     expect(pending?.request.context.repositoryPath).toBe('/workbench/app');
     expect(pending?.request.context.branch).toBe('develop');
     expect(pending?.request.context.actor).toBe('openai:gpt-4');
+    expect(pending?.remoteName).toBe('origin');
   });
 });

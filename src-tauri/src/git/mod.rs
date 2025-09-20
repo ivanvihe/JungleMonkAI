@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use git2::{self, BranchType, DiffFormat, Repository, Status};
+use git2::{self, BranchType, DiffFormat, MergeAnalysis, Repository, Status};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use walkdir::WalkDir;
@@ -611,6 +611,123 @@ pub fn push_changes(payload: PushRequest, manager: State<'_, SecretManager>) -> 
         .map_err(map_git_err)?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn git_pull_repository(
+    repo_path: String,
+    remote: Option<String>,
+    branch: Option<String>,
+) -> Result<String, String> {
+    let repo = Repository::open(&repo_path).map_err(map_git_err)?;
+    let remote_name = remote.unwrap_or_else(|| "origin".to_string());
+    let mut remote = repo
+        .find_remote(&remote_name)
+        .map_err(map_git_err)?;
+
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(|_url, username_from_url, allowed| {
+        if allowed.contains(git2::CredentialType::SSH_KEY) {
+            if let Some(username) = username_from_url {
+                if let Ok(cred) = git2::Cred::ssh_key_from_agent(username) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        if allowed.contains(git2::CredentialType::USERNAME) {
+            if let Some(username) = username_from_url {
+                if let Ok(cred) = git2::Cred::username(username) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        git2::Cred::default()
+    });
+
+    let mut fetch_options = git2::FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+    fetch_options.download_tags(git2::AutotagOption::All);
+
+    let refspecs: Vec<String> = branch
+        .as_ref()
+        .map(|branch_name| format!("refs/heads/{branch_name}"))
+        .into_iter()
+        .collect();
+    let refspec_refs: Vec<&str> = refspecs.iter().map(|spec| spec.as_str()).collect();
+
+    remote
+        .fetch(&refspec_refs, Some(&mut fetch_options), None)
+        .map_err(map_git_err)?;
+
+    let fetch_head = match repo.find_reference("FETCH_HEAD") {
+        Ok(reference) => reference,
+        Err(_) => {
+            return Ok("Sin cambios remotos detectados.".to_string());
+        }
+    };
+
+    let fetch_commit = repo
+        .reference_to_annotated_commit(&fetch_head)
+        .map_err(map_git_err)?;
+
+    let (analysis, _) = repo
+        .merge_analysis(&[&fetch_commit])
+        .map_err(map_git_err)?;
+
+    if analysis.contains(MergeAnalysis::UP_TO_DATE) {
+        return Ok("El repositorio ya está sincronizado.".to_string());
+    }
+
+    if analysis.contains(MergeAnalysis::FASTFORWARD) {
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+
+        let head_ref = repo.head();
+        let target_branch = branch.or_else(|| {
+            head_ref
+                .as_ref()
+                .ok()
+                .and_then(|reference| reference.shorthand().map(|value| value.to_string()))
+        });
+
+        let branch_name = target_branch.ok_or_else(|| {
+            "No se pudo determinar la rama actual para aplicar el fast-forward.".to_string()
+        })?;
+
+        let local_ref_name = format!("refs/heads/{branch_name}");
+        match repo.find_reference(&local_ref_name) {
+            Ok(mut reference) => {
+                reference
+                    .set_target(fetch_commit.id(), "Fast-Forward")
+                    .map_err(map_git_err)?;
+            }
+            Err(_) => {
+                repo.reference(
+                    &local_ref_name,
+                    fetch_commit.id(),
+                    true,
+                    "Fast-Forward",
+                )
+                .map_err(map_git_err)?;
+            }
+        }
+
+        repo.set_head(&local_ref_name).map_err(map_git_err)?;
+        repo.checkout_head(Some(&mut checkout)).map_err(map_git_err)?;
+
+        return Ok(format!(
+            "Fast-forward completado desde {remote_name}/{branch_name} hasta {}.",
+            fetch_commit.id()
+        ));
+    }
+
+    if analysis.contains(MergeAnalysis::NORMAL) {
+        return Err("Se requiere una fusión manual para completar el pull.".to_string());
+    }
+
+    Ok("La descarga remota se completó sin cambios aplicables.".to_string())
 }
 
 #[tauri::command]

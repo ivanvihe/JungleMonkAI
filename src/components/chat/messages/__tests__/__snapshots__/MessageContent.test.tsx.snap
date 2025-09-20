@@ -37,6 +37,12 @@ exports[`MessageContent > renders fenced code blocks with actions 1`] = `
         >
           Añadir al compositor
         </button>
+        <button
+          class="message-action"
+          type="button"
+        >
+          Enviar a Repo Studio
+        </button>
       </div>
     </div>
     <pre>

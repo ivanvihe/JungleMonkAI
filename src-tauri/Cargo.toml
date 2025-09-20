@@ -3,17 +3,24 @@ name = "jungle-lab-studio"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 tauri = { version = "1.5", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
 midir = "0.9"
 cpal = "0.15"
 rustfft = "6.1"
 wgpu = "26"
 anyhow = "1.0"
 once_cell = "1.18"
+reqwest = { version = "0.11", features = ["json", "stream"] }
+futures-util = "0.3"
+sha2 = "0.10"
 
 
 [build-dependencies]

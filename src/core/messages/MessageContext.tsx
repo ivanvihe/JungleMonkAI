@@ -73,6 +73,13 @@ interface MessageContextValue {
   setCoordinationStrategy: (strategy: CoordinationStrategyId) => void;
   sharedSnapshot: SharedConversationSnapshot;
   orchestrationTraces: OrchestrationTraceEntry[];
+  shareMessageWithAgent: (
+    agentId: string,
+    messageId: string,
+    options?: { canonicalCode?: string },
+  ) => void;
+  loadMessageIntoDraft: (messageId: string) => void;
+  sharedMessageLog: SharedMessageLogEntry[];
 }
 
 interface PersistedQualityState {
@@ -90,6 +97,22 @@ interface QualityMetrics {
 
 const CORRECTION_STORAGE_KEY = 'junglemonk.corrections.v1';
 const CORRECTION_STORAGE_FILE = 'corrections-log.json';
+const SHARED_MESSAGES_STORAGE_KEY = 'junglemonk.shared-messages.v1';
+const SHARED_MESSAGES_STORAGE_FILE = 'shared-messages.json';
+
+export interface SharedMessageLogEntry {
+  id: string;
+  messageId: string;
+  agentId: string;
+  sharedAt: string;
+  originAgentId?: string;
+  sharedByMessageId: string;
+  canonicalCode?: string;
+}
+
+interface PersistedSharedState {
+  entries: SharedMessageLogEntry[];
+}
 
 interface MessageProviderProps {
   apiKeys: ApiKeySettings;
@@ -478,6 +501,27 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     }
   }, []);
 
+  const loadPersistedSharedState = useCallback((): PersistedSharedState => {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+      return { entries: [] };
+    }
+
+    try {
+      const raw = localStorage.getItem(SHARED_MESSAGES_STORAGE_KEY);
+      if (!raw) {
+        return { entries: [] };
+      }
+
+      const parsed = JSON.parse(raw) as PersistedSharedState;
+      return {
+        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+      };
+    } catch (error) {
+      console.warn('No se pudo cargar el historial de mensajes compartidos desde localStorage:', error);
+      return { entries: [] };
+    }
+  }, []);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: buildMessageId('system'),
@@ -488,10 +532,12 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     },
   ]);
   const persistedQualityState = useMemo(() => loadPersistedQualityState(), [loadPersistedQualityState]);
+  const persistedSharedState = useMemo(() => loadPersistedSharedState(), [loadPersistedSharedState]);
   const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, MessageFeedback>>(
     persistedQualityState.feedback,
   );
   const [corrections, setCorrections] = useState<MessageCorrection[]>(persistedQualityState.corrections);
+  const [sharedMessageLog, setSharedMessageLog] = useState<SharedMessageLogEntry[]>(persistedSharedState.entries);
   const [draft, setDraftState] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<ChatAttachment[]>([]);
   const [composerTranscriptions, setComposerTranscriptions] = useState<ChatTranscription[]>([]);
@@ -519,6 +565,22 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     setDraftState(prev => (prev ? `${prev}\n${command}` : command));
   }, []);
 
+  const loadMessageIntoDraft = useCallback(
+    (messageId: string) => {
+      const target = messages.find(message => message.id === messageId);
+      if (!target) {
+        return;
+      }
+
+      const canonical = target.canonicalCode?.trim() ? target.canonicalCode : undefined;
+      const plain = canonical ?? contentToPlainText(target.content);
+      setDraftState(plain);
+      setComposerAttachments([]);
+      setComposerTranscriptions([]);
+    },
+    [messages, setComposerAttachments, setComposerTranscriptions],
+  );
+
   const handleProviderTrace = useCallback(
     (trace: AgentExchangeTrace) => {
       appendTraces({
@@ -542,6 +604,90 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   const updateStrategy = useCallback((strategy: CoordinationStrategyId) => {
     setCoordinationStrategy(strategy);
   }, []);
+
+  const shareMessageWithAgent = useCallback(
+    (agentId: string, messageId: string, options?: { canonicalCode?: string }) => {
+      const agent = agentMap.get(agentId);
+      if (!agent) {
+        console.warn(`No se encontró el agente ${agentId} para compartir el mensaje.`);
+        return;
+      }
+
+      const original = messages.find(message => message.id === messageId);
+      if (!original) {
+        console.warn(`No se encontró el mensaje ${messageId} para compartir.`);
+        return;
+      }
+
+      const canonical = options?.canonicalCode?.trim() ? options.canonicalCode : undefined;
+      const prompt = canonical ?? contentToPlainText(original.content);
+
+      if (!prompt.trim()) {
+        console.warn('El contenido del mensaje compartido está vacío, se omite el reenvío.');
+        return;
+      }
+
+      const timestamp = new Date().toISOString();
+      const originAgentId = original.agentId ?? original.originAgentId;
+      const displayName = getAgentDisplayName(agent);
+
+      const shareNote: ChatMessage = {
+        id: buildMessageId('share-note'),
+        author: 'system',
+        content: `Mensaje compartido con ${displayName} para seguimiento colaborativo.`,
+        timestamp,
+        visibility: 'internal',
+        originAgentId,
+        sharedByMessageId: messageId,
+      };
+
+      const pendingMessage: ChatMessage = {
+        id: buildMessageId(`${agent.id}-share`),
+        author: 'agent',
+        agentId: agent.id,
+        originAgentId,
+        content: `${displayName} está analizando el mensaje compartido…`,
+        timestamp,
+        status: 'pending',
+        sourcePrompt: prompt,
+        visibility: 'public',
+        sharedByMessageId: messageId,
+        canonicalCode: canonical,
+      };
+
+      setSharedMessageLog(prev => [
+        ...prev,
+        {
+          id: buildMessageId('share-log'),
+          messageId,
+          agentId: agent.id,
+          sharedAt: timestamp,
+          originAgentId,
+          sharedByMessageId: messageId,
+          canonicalCode: canonical,
+        },
+      ]);
+
+      setMessages(prev => {
+        const base = canonical
+          ? prev.map(item => (item.id === messageId ? { ...item, canonicalCode: canonical } : item))
+          : prev;
+        return [...base, shareNote, pendingMessage];
+      });
+
+      setDraftState(prompt);
+      setComposerAttachments([]);
+      setComposerTranscriptions([]);
+    },
+    [
+      agentMap,
+      messages,
+      setComposerAttachments,
+      setComposerTranscriptions,
+      setDraftState,
+      setSharedMessageLog,
+    ],
+  );
 
   const sendMessage = useCallback(() => {
     const trimmed = draft.trim();
@@ -683,6 +829,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       id: buildMessageId(`${step.agent.id}-${index}`),
       author: 'agent',
       agentId: step.agent.id,
+      originAgentId: step.agent.id,
       content: `${getAgentDisplayName(step.agent)} está preparando una respuesta…`,
       timestamp,
       status: 'pending',
@@ -769,6 +916,20 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
             }
           }
         }
+
+        try {
+          const sharedRaw = await readTextFile(SHARED_MESSAGES_STORAGE_FILE, { dir: BaseDirectory.AppData });
+          if (sharedRaw) {
+            const parsedShared = JSON.parse(sharedRaw) as PersistedSharedState;
+            setSharedMessageLog(Array.isArray(parsedShared.entries) ? parsedShared.entries : []);
+          }
+        } catch (error) {
+          if (error && typeof error === 'object' && 'code' in (error as Record<string, unknown>)) {
+            if ((error as { code?: string }).code === 'NotFound') {
+              await createDir('', { dir: BaseDirectory.AppData, recursive: true });
+            }
+          }
+        }
       } catch (error) {
         console.warn('No se pudo inicializar el almacenamiento de correcciones en Tauri:', error);
       }
@@ -814,6 +975,41 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
     void persistToTauri();
   }, [feedbackByMessage, corrections]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      const payload: PersistedSharedState = { entries: sharedMessageLog };
+      try {
+        localStorage.setItem(SHARED_MESSAGES_STORAGE_KEY, JSON.stringify(payload));
+      } catch (error) {
+        console.warn('No se pudo persistir el historial de mensajes compartidos en localStorage:', error);
+      }
+    }
+
+    const persistSharedToTauri = async () => {
+      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
+        return;
+      }
+
+      try {
+        const { writeTextFile, BaseDirectory, createDir } = await import(
+          /* @vite-ignore */ '@tauri-apps/api/fs'
+        );
+        await createDir('', { dir: BaseDirectory.AppData, recursive: true });
+        await writeTextFile(
+          {
+            contents: JSON.stringify({ entries: sharedMessageLog }),
+            path: SHARED_MESSAGES_STORAGE_FILE,
+          },
+          { dir: BaseDirectory.AppData },
+        );
+      } catch (error) {
+        console.warn('No se pudo persistir el historial de mensajes compartidos en Tauri:', error);
+      }
+    };
+
+    void persistSharedToTauri();
+  }, [sharedMessageLog]);
 
   useEffect(() => {
     setMessages(prevMessages =>
@@ -1169,6 +1365,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
         id: buildMessageId(`${targetAgent.id}-correction`),
         author: 'agent',
         agentId: targetAgent.id,
+        originAgentId: targetAgent.id,
         content: `${targetAgent.name} está revisando la corrección…`,
         timestamp,
         status: 'pending',
@@ -1259,6 +1456,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       setCoordinationStrategy: updateStrategy,
       sharedSnapshot,
       orchestrationTraces,
+      shareMessageWithAgent,
+      loadMessageIntoDraft,
+      sharedMessageLog,
     }),
     [
       addAttachment,
@@ -1285,6 +1485,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       updateStrategy,
       sharedSnapshot,
       orchestrationTraces,
+      shareMessageWithAgent,
+      loadMessageIntoDraft,
+      sharedMessageLog,
     ],
   );
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { ChatMessage } from '../../../core/messages/messageTypes';
 import { MessageContent } from './MessageContent';
 import { MessageAttachment } from './MessageAttachment';
@@ -10,6 +10,8 @@ interface MessageCardProps {
   providerLabel?: string;
   formatTimestamp: (timestamp: string) => string;
   onAppendToComposer?: (value: string) => void;
+  onShareMessage?: (agentId: string, messageId: string, canonicalCode?: string) => void;
+  onLoadIntoDraft?: (messageId: string) => void;
 }
 
 export const MessageCard: React.FC<MessageCardProps> = ({
@@ -19,10 +21,21 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   providerLabel,
   formatTimestamp,
   onAppendToComposer,
+  onShareMessage,
+  onLoadIntoDraft,
 }) => {
   const isUser = message.author === 'user';
   const isSystem = message.author === 'system';
   const authorLabel = isUser ? 'Tú' : isSystem ? 'Control Hub' : agentDisplayName ?? 'Agente';
+  const handleShare = useCallback(
+    (agentId: string, canonicalCode?: string) => {
+      if (!onShareMessage) {
+        return;
+      }
+      onShareMessage(agentId, message.id, canonicalCode);
+    },
+    [message.id, onShareMessage],
+  );
 
   return (
     <div
@@ -40,15 +53,22 @@ export const MessageCard: React.FC<MessageCardProps> = ({
             </span>
           ) : null}
           <span className="message-card-time">{formatTimestamp(message.timestamp)}</span>
+          {!isUser && onLoadIntoDraft ? (
+            <button type="button" className="message-card-action" onClick={() => onLoadIntoDraft(message.id)}>
+              Usar como borrador
+            </button>
+          ) : null}
           {message.status === 'pending' && <span className="message-card-status">orquestando…</span>}
         </div>
       </div>
 
       <div className="message-card-body">
         <MessageContent
+          messageId={message.id}
           content={message.content}
           transcriptions={message.transcriptions}
           onAppendToComposer={!isUser ? onAppendToComposer : undefined}
+          onShare={!isUser ? handleShare : undefined}
         />
         {message.attachments?.length ? (
           <div className="message-card-attachments">

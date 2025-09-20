@@ -11,15 +11,19 @@ import { AudioPlayer } from './AudioPlayer';
 import { MessageActions } from './MessageActions';
 
 interface MessageContentProps {
+  messageId: string;
   content: string | ChatContentPart[];
   transcriptions?: ChatTranscription[];
   onAppendToComposer?: (value: string) => void;
+  onShare?: (agentId: string, canonicalCode?: string) => void;
 }
 
 export const MessageContent: React.FC<MessageContentProps> = ({
+  messageId,
   content,
   transcriptions,
   onAppendToComposer,
+  onShare,
 }) => {
   const parts = normalizeContentParts(content);
 
@@ -40,7 +44,12 @@ export const MessageContent: React.FC<MessageContentProps> = ({
                     {segment.language ? (
                       <span className="message-code-language">{segment.language}</span>
                     ) : null}
-                    <MessageActions value={segment.code} onAppend={onAppendToComposer} />
+                    <MessageActions
+                      messageId={messageId}
+                      value={segment.code}
+                      onAppend={onAppendToComposer}
+                      onShare={onShare}
+                    />
                   </div>
                   <pre>
                     <code>{segment.code}</code>

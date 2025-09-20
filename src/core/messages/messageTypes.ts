@@ -60,6 +60,7 @@ export interface ChatMessage {
   content: string | ChatContentPart[];
   timestamp: string;
   agentId?: string;
+  originAgentId?: string;
   status?: 'pending' | 'sent';
   sourcePrompt?: string;
   attachments?: ChatAttachment[];
@@ -69,6 +70,8 @@ export interface ChatMessage {
   correctionId?: string;
   visibility?: ChatVisibility;
   orchestrationContext?: MultiAgentContext;
+  sharedByMessageId?: string;
+  canonicalCode?: string;
 }
 
 export interface MessageFeedback {

@@ -1,0 +1,36 @@
+{
+  "name": "Generative Dub",
+  "description": "Generative fractals, mandelbrots and abstract puzzles that evolve forever",
+  "author": "AudioVisualizer",
+  "version": "1.1.0",
+  "category": "generative",
+  "tags": [
+    "auto",
+    "infinite",
+    "dub",
+    "abstract",
+    "audio-reactive",
+    "fractal",
+    "particles",
+    "mandelbrot",
+    "puzzle"
+  ],
+  "thumbnail": "generative_dub_thumb.png",
+  "defaultConfig": {
+    "opacity": 1.0
+  },
+  "controls": [],
+  "vfx": {
+    "effects": [
+      {"name": "flash", "label": "Flash"},
+      {"name": "glitch", "label": "Glitch"},
+      {"name": "noise", "label": "Noise"}
+    ]
+  },
+  "audioMapping": {
+    "low": { "description": "Influences color warmth", "frequency": "20-250 Hz", "effect": "Color shift" },
+    "mid": { "description": "Changes movement speed", "frequency": "250-4000 Hz", "effect": "Motion intensity" },
+    "high": { "description": "Adds detail", "frequency": "4000+ Hz", "effect": "Texture" }
+  },
+  "performance": { "complexity": "medium", "recommendedFPS": 60, "gpuIntensive": true }
+}

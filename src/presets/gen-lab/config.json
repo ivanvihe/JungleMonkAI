@@ -1,0 +1,60 @@
+{
+  "name": "Gen Lab",
+  "description": "Advanced generative laboratory with atmospheric effects",
+  "author": "AudioVisualizer",
+  "version": "1.0.0",
+  "category": "generative",
+  "tags": ["cloud", "vapor", "skybox", "noise", "audio-reactive"],
+  "thumbnail": "gen_lab_thumb.png",
+  "defaultConfig": {
+    "width": 1920,
+    "height": 1080,
+    "opacity": 1.0,
+    "algorithm": "perlin",
+    "variant": "fog",
+    "noiseScale": 2.0,
+    "speed": 0.5,
+    "turbulence": 0.3,
+    "density": 0.6,
+    "flow": 0.4,
+    "color1": "#ff8a00",
+    "color2": "#4e00ff",
+    "color3": "#00ff8a",
+    "colorMix": 0.5,
+    "radialBlur": 0.4,
+    "uvDistort": 0.2,
+    "timeWarp": 0.1,
+    "brightness": 1.0,
+    "contrast": 1.2,
+    "saturation": 1.1
+  },
+  "controls": [
+    { "name": "algorithm", "type": "select", "label": "Algorithm", "options": ["perlin", "simplex", "ridged", "billow", "fbm"], "default": "perlin" },
+    { "name": "variant", "type": "select", "label": "Variant", "options": ["fog", "smoke", "clouds", "vapor", "plasma", "mist", "storm"], "default": "fog" },
+    { "name": "noiseScale", "type": "slider", "label": "Noise Scale", "min": 0.1, "max": 10.0, "step": 0.1, "default": 2.0 },
+    { "name": "speed", "type": "slider", "label": "Speed", "min": 0.0, "max": 3.0, "step": 0.01, "default": 0.5 },
+    { "name": "turbulence", "type": "slider", "label": "Turbulence", "min": 0.0, "max": 2.0, "step": 0.01, "default": 0.3 },
+    { "name": "density", "type": "slider", "label": "Density", "min": 0.0, "max": 1.0, "step": 0.01, "default": 0.6 },
+    { "name": "flow", "type": "slider", "label": "Flow", "min": 0.0, "max": 1.0, "step": 0.01, "default": 0.4 },
+    { "name": "color1", "type": "color", "label": "Color 1", "default": "#ff8a00" },
+    { "name": "color2", "type": "color", "label": "Color 2", "default": "#4e00ff" },
+    { "name": "color3", "type": "color", "label": "Color 3", "default": "#00ff8a" },
+    { "name": "colorMix", "type": "slider", "label": "Color Mix", "min": 0.0, "max": 1.0, "step": 0.01, "default": 0.5 },
+    { "name": "radialBlur", "type": "slider", "label": "Radial Blur", "min": 0.0, "max": 1.0, "step": 0.01, "default": 0.4 },
+    { "name": "uvDistort", "type": "slider", "label": "UV Distortion", "min": 0.0, "max": 2.0, "step": 0.01, "default": 0.2 },
+    { "name": "timeWarp", "type": "slider", "label": "Time Warp", "min": 0.0, "max": 1.0, "step": 0.01, "default": 0.1 },
+    { "name": "brightness", "type": "slider", "label": "Brightness", "min": 0.0, "max": 3.0, "step": 0.01, "default": 1.0 },
+    { "name": "contrast", "type": "slider", "label": "Contrast", "min": 0.0, "max": 3.0, "step": 0.01, "default": 1.2 },
+    { "name": "saturation", "type": "slider", "label": "Saturation", "min": 0.0, "max": 3.0, "step": 0.01, "default": 1.1 }
+  ],
+  "audioMapping": {
+    "low": { "description": "Controls density and turbulence", "frequency": "20-250 Hz", "effect": "Atmospheric density" },
+    "mid": { "description": "Flow patterns and distortion", "frequency": "250-4000 Hz", "effect": "Movement & distortion" },
+    "high": { "description": "Color mixing and brightness", "frequency": "4000+ Hz", "effect": "Color dynamics" }
+  },
+  "performance": {
+    "complexity": "medium",
+    "recommendedFPS": 60,
+    "gpuIntensive": false
+  }
+}

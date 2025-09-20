@@ -1,0 +1,15 @@
+{
+  "package": {
+    "productName": "Jungle Lab Studio",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "Jungle Lab Studio - Control",
+        "width": 800,
+        "height": 600
+      }
+    ]
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "name": "ROBOTICA Text Intro",
+  "description": "Text visualization 'R O B O T I C A' with cinematic letter-by-letter appearance and glow effects",
+  "author": "AudioVisualizer",
+  "version": "1.0.0",
+  "category": "text",
+  "tags": ["text", "intro", "robotica", "cinematic", "glow", "animation"],
+  "thumbnail": "robotica_intro_thumb.png",
+  "note": 60,
+  "defaultConfig": {
+    "width": 1920,
+    "height": 1080,
+    "zoom": 1.0,
+    "audioSensitivity": 1.0,
+    "audioSmoothness": 0.5,
+    "audioReactivity": 1.0,
+    "paletteColor": "#ffffff",
+    "opacity": 1.0,
+    "fadeMs": 200,
+    "text": {
+      "content": "R O B O T I C A",
+      "scale": 1.0,
+      "color": "#FFFFFF"
+    },
+    "animation": {
+      "duration": 15.0,
+      "fadeDuration": 6.0,
+      "letterDelay": 0.3,
+      "glowIntensity": 1.2,
+      "pulseSpeed": 2.0,
+      "animationOrder": [2, 8, 4, 6, 10, 14, 12, 0]
+    },
+    "colors": {
+      "text": "#FFFFFF",
+      "glow": "#FFFFFF"
+    },
+    "effects": {
+      "enableGlow": true,
+      "enablePulse": true,
+      "enableSparkle": true,
+      "enableLightning": true
+    }
+  },
+  "controls": [
+    {
+      "name": "text.scale",
+      "type": "slider",
+      "label": "Text Scale",
+      "min": 0.5,
+      "max": 3.0,
+      "step": 0.1,
+      "default": 1.0
+    },
+    {
+      "name": "animation.fadeDuration",
+      "type": "slider",
+      "label": "Fade Duration",
+      "min": 2.0,
+      "max": 10.0,
+      "step": 0.5,
+      "default": 6.0
+    },
+    {
+      "name": "animation.letterDelay",
+      "type": "slider",
+      "label": "Animation Speed",
+      "min": 0.1,
+      "max": 1.0,
+      "step": 0.05,
+      "default": 0.3
+    },
+    {
+      "name": "animation.glowIntensity",
+      "type": "slider",
+      "label": "Glow Intensity",
+      "min": 0.0,
+      "max": 3.0,
+      "step": 0.1,
+      "default": 1.2
+    },
+    {
+      "name": "animation.pulseSpeed",
+      "type": "slider",
+      "label": "Pulse Speed",
+      "min": 0.5,
+      "max": 5.0,
+      "step": 0.1,
+      "default": 2.0
+    },
+    {
+      "name": "colors.text",
+      "type": "color",
+      "label": "Text Color",
+      "default": "#FFFFFF"
+    },
+    {
+      "name": "colors.glow",
+      "type": "color",
+      "label": "Glow Color",
+      "default": "#FFFFFF"
+    },
+    {
+      "name": "effects.enableGlow",
+      "type": "checkbox",
+      "label": "Glow Effects",
+      "default": true
+    },
+    {
+      "name": "effects.enablePulse",
+      "type": "checkbox",
+      "label": "Pulse",
+      "default": true
+    },
+    {
+      "name": "effects.enableSparkle",
+      "type": "checkbox",
+      "label": "Sparkles",
+      "default": true
+    },
+    {
+      "name": "effects.enableLightning",
+      "type": "checkbox",
+      "label": "Lightning",
+      "default": true
+    }
+  ],
+  "vfx": {
+    "effects": [
+      {"name": "flash", "label": "Flash"},
+      {"name": "glitch", "label": "Glitch"},
+      {"name": "blur", "label": "Blur"},
+      {"name": "distortion", "label": "Distortion"},
+      {"name": "scanlines", "label": "Scanlines"},
+      {"name": "lightning", "label": "Lightning"}
+    ]
+  },
+  "audioMapping": {
+    "low": {
+      "description": "Controls animation speed and letter appearance",
+      "frequency": "20-250 Hz",
+      "effect": "Letter appearance speed"
+    },
+    "mid": {
+      "description": "Controls pulse and glow effects",
+      "frequency": "250-4000 Hz",
+      "effect": "Pulse and glow intensity"
+    },
+    "high": {
+      "description": "Controls sparkles and special effects",
+      "frequency": "4000+ Hz",
+      "effect": "Sparkles, lightning and special effects"
+    }
+  },
+  "performance": {
+    "complexity": "medium",
+    "recommendedFPS": 60,
+    "gpuIntensive": false
+  }
+}

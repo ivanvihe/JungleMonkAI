@@ -1,0 +1,49 @@
+{
+  "name": "ANALYSIS",
+  "description": "3D audio spectrum with pastel particles, starfield, pulsating rings, glowing bursts and extended dB grid.",
+  "author": "AudioVisualizer",
+  "version": "2.4.0",
+  "category": "analysis",
+  "tags": ["spectrum", "analysis", "particles", "grid", "rings"],
+  "thumbnail": "analysis_thumb.png",
+  "note": 48,
+  "defaultConfig": {
+    "radius": 8,
+    "particleCount": 60,
+    "colors": {
+      "band1": "#5e2577",
+      "band2": "#a44875",
+      "band3": "#d36075",
+      "band4": "#ed7c75",
+      "band5": "#f59d70",
+      "band6": "#ffdfb6"
+    }
+  },
+  "controls": [
+    {"name": "radius", "type": "slider", "label": "Camera Radius", "min": 5, "max": 15, "step": 0.5, "default": 8},
+    {"name": "particleCount", "type": "slider", "label": "Max Particles", "min": 20, "max": 120, "step": 5, "default": 60},
+    {"name": "colors.band1", "type": "color", "label": "Band 1 Color", "default": "#5e2577"},
+    {"name": "colors.band2", "type": "color", "label": "Band 2 Color", "default": "#a44875"},
+    {"name": "colors.band3", "type": "color", "label": "Band 3 Color", "default": "#d36075"},
+    {"name": "colors.band4", "type": "color", "label": "Band 4 Color", "default": "#ed7c75"},
+    {"name": "colors.band5", "type": "color", "label": "Band 5 Color", "default": "#f59d70"},
+    {"name": "colors.band6", "type": "color", "label": "Band 6 Color", "default": "#ffdfb6"}
+  ],
+  "vfx": {
+    "effects": [
+      {"name": "flash", "label": "Flash"},
+      {"name": "glitch", "label": "Glitch"},
+      {"name": "scanlines", "label": "Scanlines"},
+      {"name": "sparkle", "label": "Sparkle"}
+    ]
+  },
+  "audioMapping": {
+      "band1": {"description": "Very low frequencies", "frequency": "40-200 Hz", "effect": "Particle density band 1"},
+      "band2": {"description": "Low frequencies", "frequency": "200-400 Hz", "effect": "Particle density band 2"},
+      "band3": {"description": "Low mid frequencies", "frequency": "400-600 Hz", "effect": "Particle density band 3"},
+      "band4": {"description": "Mid frequencies", "frequency": "600-1000 Hz", "effect": "Particle density band 4"},
+      "band5": {"description": "High mid frequencies", "frequency": "1000-10000 Hz", "effect": "Particle density band 5"},
+      "band6": {"description": "High frequencies", "frequency": "10000-22000 Hz", "effect": "Particle density band 6"}
+  },
+  "performance": {"complexity": "low", "recommendedFPS": 60, "gpuIntensive": false}
+}

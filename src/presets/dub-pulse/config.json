@@ -1,0 +1,20 @@
+{
+  "name": "Dub Pulse",
+  "description": "Bass driven expanding ring",
+  "author": "AudioVisualizer",
+  "version": "1.0.0",
+  "category": "audio-reactive",
+  "tags": ["dub", "pulse", "ring"],
+  "thumbnail": "dub_pulse_thumb.png",
+  "note": 73,
+  "defaultConfig": {
+    "color": "#66ff99"
+  },
+  "controls": [
+    { "name": "color", "type": "color", "label": "Color", "default": "#66ff99" }
+  ],
+  "audioMapping": {
+    "low": { "description": "Bass energy", "frequency": "20-250 Hz", "effect": "Ring scale" }
+  },
+  "performance": { "complexity": "low", "recommendedFPS": 60, "gpuIntensive": false }
+}

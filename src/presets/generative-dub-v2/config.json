@@ -1,0 +1,38 @@
+{
+  "name": "Generative Dub V2",
+  "description": "Smooth evolving abstract lines and forms reacting gently to audio FFT.",
+  "author": "AudioVisualizer",
+  "version": "2.0.0",
+  "category": "generative",
+  "tags": [
+    "auto",
+    "infinite",
+    "dub",
+    "abstract",
+    "audio-reactive",
+    "fft",
+    "fractal",
+    "mandelbrot",
+    "cold",
+    "grayscale"
+  ],
+  "thumbnail": "generative_dub_v2_thumb.png",
+  "defaultConfig": {
+    "opacity": 1.0
+  },
+  "controls": [],
+  "vfx": {
+    "effects": [
+      {"name": "flash", "label": "Flash"},
+      {"name": "glitch", "label": "Glitch"},
+      {"name": "noise", "label": "Noise"}
+    ]
+  },
+  "audioMapping": {
+    "low": { "description": "Subtle color shift", "frequency": "20-250 Hz", "effect": "Color warmth" },
+    "mid": { "description": "Smooth movement variations", "frequency": "250-4000 Hz", "effect": "Motion" },
+    "high": { "description": "Adds soft detail", "frequency": "4000+ Hz", "effect": "Texture" },
+    "fft": { "description": "Gently scales patterns", "frequency": "full spectrum", "effect": "Scale modulation" }
+  },
+  "performance": { "complexity": "medium", "recommendedFPS": 60, "gpuIntensive": true }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Instanced Demo",
+  "description": "Simple instanced cubes showcasing InstancedMesh",
+  "author": "AI",
+  "version": "1.0.0",
+  "category": "demo",
+  "tags": ["instanced", "performance"],
+  "thumbnail": "instanced_demo_thumb.png",
+  "note": 0,
+  "defaultConfig": {},
+  "controls": [],
+  "audioMapping": {},
+  "performance": { "complexity": "low", "recommendedFPS": 60, "gpuIntensive": false }
+}

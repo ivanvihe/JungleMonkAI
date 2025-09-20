@@ -1,0 +1,60 @@
+{
+  "name": "ROBOTICA Cinematic Intro",
+  "description": "Cinematic title 'ROBOTICA' with letter-by-letter appearance and glow effects",
+  "author": "AudioVisualizer Pro",
+  "version": "1.0.0",
+  "category": "text",
+  "tags": ["text", "intro", "robotica", "cinematic", "title"],
+  "thumbnail": "robotica_cinematic_thumb.png",
+  "note": 61,
+  "defaultConfig": {
+    "opacity": 1.0,
+    "fadeMs": 200,
+    "text": {
+      "content": "ROBOTICA",
+      "fontSize": 180,
+      "fontFamily": "Arial Black, Helvetica, sans-serif",
+      "letterSpacing": 0.15,
+      "scale": 1.0
+    },
+    "animation": {
+      "duration": 15.0,
+      "letterDelay": 0.8,
+      "fadeInDuration": 2.0,
+      "glowIntensity": 3.5,
+      "pulseSpeed": 1.5,
+      "animationOrder": [1, 7, 2, 4, 0, 5, 6, 3]
+    },
+    "colors": {
+      "text": "#FFFFFF",
+      "glow": "#00FFFF",
+      "accent": "#FF00FF"
+    },
+    "effects": {
+      "enableGlow": true,
+      "enablePulse": true,
+      "enableSparkle": true,
+      "enableCinematicFade": true
+    }
+  },
+  "controls": [
+    {"name": "text.content", "type": "text", "label": "Text", "default": "ROBOTICA"},
+    {"name": "text.fontSize", "type": "slider", "label": "Font Size", "min": 40, "max": 240, "step": 10, "default": 180},
+    {"name": "text.letterSpacing", "type": "slider", "label": "Letter Spacing", "min": 0.0, "max": 1.0, "step": 0.01, "default": 0.15},
+    {"name": "animation.letterDelay", "type": "slider", "label": "Letter Delay", "min": 0.1, "max": 2.0, "step": 0.1, "default": 0.8},
+    {"name": "animation.glowIntensity", "type": "slider", "label": "Glow Intensity", "min": 0.0, "max": 5.0, "step": 0.1, "default": 3.5},
+    {"name": "animation.pulseSpeed", "type": "slider", "label": "Pulse Speed", "min": 0.5, "max": 5.0, "step": 0.1, "default": 1.5},
+    {"name": "colors.text", "type": "color", "label": "Text Color", "default": "#FFFFFF"},
+    {"name": "colors.glow", "type": "color", "label": "Glow Color", "default": "#00FFFF"},
+    {"name": "colors.accent", "type": "color", "label": "Accent Color", "default": "#FF00FF"},
+    {"name": "effects.enableGlow", "type": "checkbox", "label": "Enable Glow", "default": true},
+    {"name": "effects.enablePulse", "type": "checkbox", "label": "Enable Pulse", "default": true},
+    {"name": "effects.enableSparkle", "type": "checkbox", "label": "Enable Sparkle", "default": true}
+  ],
+  "audioMapping": {
+    "low": {"description": "Controls animation speed", "frequency": "20-250 Hz", "effect": "Letter appearance speed"},
+    "mid": {"description": "Controls pulse and glow", "frequency": "250-4000 Hz", "effect": "Pulse and glow intensity"},
+    "high": {"description": "Controls sparkles", "frequency": "4000+ Hz", "effect": "Sparkles and special effects"}
+  },
+  "performance": {"complexity": "medium", "recommendedFPS": 60, "gpuIntensive": false}
+}

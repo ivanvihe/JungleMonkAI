@@ -53,6 +53,23 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   } = useMessages();
   const { models } = useLocalModels();
 
+  const configuredProviders = useMemo(() => {
+    const map = new Map<string, string>();
+    Object.entries(apiKeys).forEach(([key, value]) => {
+      if (typeof value !== 'string') {
+        if (value) {
+          map.set(key.trim().toLowerCase(), String(value));
+        }
+        return;
+      }
+      const trimmed = value.trim();
+      if (trimmed) {
+        map.set(key.trim().toLowerCase(), trimmed);
+      }
+    });
+    return map;
+  }, [apiKeys]);
+
   const providerSummaries = useMemo<ProviderSummary[]>(() => {
     const grouped = new Map<
       string,
@@ -62,14 +79,19 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     agents
       .filter(agent => agent.kind === 'cloud')
       .forEach(agent => {
-        const providerId = agent.provider || agent.channel || agent.id;
+        const providerKey = (agent.provider || agent.channel || agent.id).toLowerCase();
+        const providerValue = configuredProviders.get(providerKey);
+        if (!providerValue) {
+          return;
+        }
+        const providerId = providerKey;
         const summary = grouped.get(providerId) ?? {
           id: providerId,
           label: PROVIDER_LABELS[providerId] ?? providerId.toUpperCase(),
           status: 'offline' as AgentPresenceStatus,
           active: 0,
           total: 0,
-          hasKey: Boolean(apiKeys[providerId]),
+          hasKey: Boolean(providerValue),
           statusCounts: {
             online: 0,
             offline: 0,
@@ -83,7 +105,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({
         summary.total += 1;
         summary.active += agent.active ? 1 : 0;
         summary.statusCounts[status] += 1;
-        summary.hasKey = summary.hasKey || Boolean(apiKeys[providerId]);
+        summary.hasKey = summary.hasKey || Boolean(providerValue);
         grouped.set(providerId, summary);
       });
 
@@ -108,7 +130,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [agents, apiKeys, presenceMap]);
+  }, [agents, apiKeys, configuredProviders, presenceMap]);
 
   const activeModel = useMemo(() => models.find(model => model.active), [models]);
 

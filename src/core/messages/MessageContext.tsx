@@ -323,6 +323,7 @@ interface MentionParseResult {
   promptsByAgent: Record<string, string>;
   unmatchedMentions: Array<{ alias: string; candidates: AgentDefinition[] }>;
   hasMentions: boolean;
+  defaultPrompt: string;
 }
 
 const parseAgentMentions = (
@@ -331,7 +332,13 @@ const parseAgentMentions = (
   activeAgents: AgentDefinition[],
 ): MentionParseResult => {
   if (!input.trim()) {
-    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+    return {
+      targetedAgents: [],
+      promptsByAgent: {},
+      unmatchedMentions: [],
+      hasMentions: false,
+      defaultPrompt: '',
+    };
   }
 
   const aliasToAgents = new Map<string, AgentDefinition[]>();
@@ -357,7 +364,13 @@ const parseAgentMentions = (
   });
 
   if (!aliasToAgents.size) {
-    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+    return {
+      targetedAgents: [],
+      promptsByAgent: {},
+      unmatchedMentions: [],
+      hasMentions: false,
+      defaultPrompt: input.trim(),
+    };
   }
 
   const aliasPattern = Array.from(aliasToAgents.keys())
@@ -365,10 +378,16 @@ const parseAgentMentions = (
     .join('|');
 
   if (!aliasPattern) {
-    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+    return {
+      targetedAgents: [],
+      promptsByAgent: {},
+      unmatchedMentions: [],
+      hasMentions: false,
+      defaultPrompt: input.trim(),
+    };
   }
 
-  const mentionRegex = new RegExp(`(^|[\\s,;])(${aliasPattern})\\s*:`, 'gi');
+  const mentionRegex = new RegExp(`(?:^|[\\r\\n]+)\\s*(${aliasPattern})\\s*([:,])`, 'gi');
   const mentions: Array<{
     index: number;
     contentStart: number;
@@ -381,7 +400,7 @@ const parseAgentMentions = (
 
   let match: RegExpExecArray | null;
   while ((match = mentionRegex.exec(input)) !== null) {
-    const originalAlias = match[2];
+    const originalAlias = match[1];
     const normalizedAlias = originalAlias.toLowerCase();
     const candidates = aliasToAgents.get(normalizedAlias) ?? [];
     const activeCandidate = candidates.find(candidate => activeIds.has(candidate.id));
@@ -403,14 +422,20 @@ const parseAgentMentions = (
   }
 
   if (!mentions.length) {
-    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+    return {
+      targetedAgents: [],
+      promptsByAgent: {},
+      unmatchedMentions: [],
+      hasMentions: false,
+      defaultPrompt: input.trim(),
+    };
   }
 
   const promptsByAgent: Record<string, string> = {};
   const targetedAgents: AgentDefinition[] = [];
   const seenAgents = new Set<string>();
   const firstMention = mentions[0];
-  const globalPrefix = input.slice(0, firstMention.index).trim();
+  const defaultPrompt = input.slice(0, firstMention.index).trim();
 
   for (let i = 0; i < mentions.length; i += 1) {
     const mention = mentions[i];
@@ -432,9 +457,7 @@ const parseAgentMentions = (
       const appended = [existing, slice].filter(Boolean).join('\n').trim();
       promptsByAgent[mention.agent.id] = appended || existing;
     } else {
-      const segments = [globalPrefix, slice].filter(Boolean);
-      const combined = segments.join('\n').trim();
-      promptsByAgent[mention.agent.id] = combined || globalPrefix || slice;
+      promptsByAgent[mention.agent.id] = slice;
     }
   }
 
@@ -443,6 +466,7 @@ const parseAgentMentions = (
     promptsByAgent,
     unmatchedMentions: Array.from(unmatchedMap.values()),
     hasMentions: true,
+    defaultPrompt,
   };
 };
 
@@ -745,12 +769,28 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     }
 
     const mentionPlan = parseAgentMentions(trimmed, agents, activeAgents);
+    const jarvisAgent = activeAgents.find(
+      agent => agent.kind === 'local' && agent.channel === 'jarvis' && agent.active,
+    );
+    const agentPrompts: Record<string, string> = { ...mentionPlan.promptsByAgent };
+    const targetedAgents: AgentDefinition[] = [...mentionPlan.targetedAgents];
+
+    if (mentionPlan.defaultPrompt && jarvisAgent) {
+      const existing = agentPrompts[jarvisAgent.id];
+      agentPrompts[jarvisAgent.id] = existing
+        ? [existing, mentionPlan.defaultPrompt].filter(Boolean).join('\n').trim()
+        : mentionPlan.defaultPrompt;
+      if (!targetedAgents.some(agent => agent.id === jarvisAgent.id)) {
+        targetedAgents.push(jarvisAgent);
+      }
+    }
+
     const participants =
-      mentionPlan.targetedAgents.length > 0
-        ? mentionPlan.targetedAgents
-        : mentionPlan.hasMentions
-        ? []
-        : activeAgents;
+      targetedAgents.length > 0
+        ? targetedAgents
+        : jarvisAgent
+        ? [jarvisAgent]
+        : [];
 
     const formatCandidateLabel = (candidate: AgentDefinition): string => {
       const displayName = getAgentDisplayName(candidate);
@@ -813,7 +853,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       agents: participants,
       snapshot: sharedSnapshot,
       roles: rolesMap,
-      agentPrompts: mentionPlan.promptsByAgent,
+      agentPrompts,
     });
 
     const bridgeMessages: ChatMessage[] = plan.sharedBridgeMessages.map(message => ({

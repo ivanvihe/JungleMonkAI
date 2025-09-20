@@ -5,6 +5,8 @@ import {
   CommandPreset,
   DefaultRoutingRules,
   GlobalSettings,
+  PluginSettingsEntry,
+  PluginSettingsMap,
   RoutingRule,
   SupportedProvider,
 } from '../types/globalSettings';
@@ -16,7 +18,7 @@ import type {
 } from '../types/agents';
 
 const STORAGE_KEY = 'global-settings';
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
 
@@ -90,6 +92,21 @@ const agentManifestCacheEntrySchema: JSONSchemaType<AgentManifestCacheEntry> = {
   additionalProperties: false,
 };
 
+const pluginSettingsEntrySchema: JSONSchemaType<PluginSettingsEntry> = {
+  type: 'object',
+  properties: {
+    enabled: { type: 'boolean' },
+    credentials: {
+      type: 'object',
+      required: [],
+      additionalProperties: { type: 'string' },
+    } as unknown as JSONSchemaType<PluginSettingsEntry['credentials']>,
+    lastApprovedChecksum: { type: 'string', nullable: true },
+  },
+  required: ['enabled', 'credentials'],
+  additionalProperties: false,
+};
+
 const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
   type: 'object',
   properties: {
@@ -148,6 +165,11 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
       required: [],
       additionalProperties: agentManifestCacheEntrySchema,
     } as unknown as JSONSchemaType<AgentManifestCache>,
+    pluginSettings: {
+      type: 'object',
+      required: [],
+      additionalProperties: pluginSettingsEntrySchema,
+    } as unknown as JSONSchemaType<PluginSettingsMap>,
   },
   required: [
     'version',
@@ -156,6 +178,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     'defaultRoutingRules',
     'enabledPlugins',
     'approvedManifests',
+    'pluginSettings',
   ],
   additionalProperties: false,
 };
@@ -418,6 +441,58 @@ const normalizeApprovedManifests = (
   }, {});
 };
 
+const normalizePluginSettings = (
+  input: PluginSettingsMap | undefined,
+): PluginSettingsMap => {
+  const normalized: PluginSettingsMap = {};
+
+  if (!input || typeof input !== 'object') {
+    return normalized;
+  }
+
+  Object.entries(input).forEach(([pluginId, value]) => {
+    if (!value || typeof value !== 'object') {
+      return;
+    }
+
+    const credentials: Record<string, string> = {};
+    if (value.credentials && typeof value.credentials === 'object') {
+      Object.entries(value.credentials).forEach(([key, credentialValue]) => {
+        if (typeof credentialValue === 'string') {
+          credentials[key] = credentialValue;
+        }
+      });
+    }
+
+    const entry: PluginSettingsEntry = {
+      enabled: Boolean((value as PluginSettingsEntry).enabled),
+      credentials,
+    };
+
+    const checksum = (value as PluginSettingsEntry).lastApprovedChecksum;
+    if (typeof checksum === 'string' && checksum.trim()) {
+      entry.lastApprovedChecksum = checksum.trim();
+    }
+
+    normalized[pluginId] = entry;
+  });
+
+  return normalized;
+};
+
+const mergeEnabledPluginList = (
+  enabled: string[],
+  pluginSettings: PluginSettingsMap,
+): string[] => {
+  const set = new Set(enabled.map(pluginId => pluginId.trim()).filter(Boolean));
+  Object.entries(pluginSettings).forEach(([pluginId, entry]) => {
+    if (entry.enabled) {
+      set.add(pluginId);
+    }
+  });
+  return Array.from(set);
+};
+
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   version: CURRENT_SCHEMA_VERSION,
   apiKeys: normalizeApiKeys({}),
@@ -425,6 +500,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   defaultRoutingRules: {},
   enabledPlugins: [],
   approvedManifests: {},
+  pluginSettings: {},
 };
 
 export const isSupportedProvider = (value: string): value is SupportedProvider =>
@@ -432,14 +508,23 @@ export const isSupportedProvider = (value: string): value is SupportedProvider =
 
 type PersistedSettings = Partial<GlobalSettings> & { version?: number };
 
-const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSettings => ({
-  version: CURRENT_SCHEMA_VERSION,
-  apiKeys: normalizeApiKeys(raw?.apiKeys as ApiKeySettings),
-  commandPresets: normalizeCommandPresets(raw?.commandPresets as CommandPreset[]),
-  defaultRoutingRules: normalizeRoutingRules(raw?.defaultRoutingRules as DefaultRoutingRules),
-  enabledPlugins: normalizeEnabledPlugins(raw?.enabledPlugins),
-  approvedManifests: normalizeApprovedManifests(raw?.approvedManifests as AgentManifestCache),
-});
+const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSettings => {
+  const pluginSettings = normalizePluginSettings(raw?.pluginSettings as PluginSettingsMap);
+  const enabledPlugins = mergeEnabledPluginList(
+    normalizeEnabledPlugins(raw?.enabledPlugins),
+    pluginSettings,
+  );
+
+  return {
+    version: CURRENT_SCHEMA_VERSION,
+    apiKeys: normalizeApiKeys(raw?.apiKeys as ApiKeySettings),
+    commandPresets: normalizeCommandPresets(raw?.commandPresets as CommandPreset[]),
+    defaultRoutingRules: normalizeRoutingRules(raw?.defaultRoutingRules as DefaultRoutingRules),
+    enabledPlugins,
+    approvedManifests: normalizeApprovedManifests(raw?.approvedManifests as AgentManifestCache),
+    pluginSettings,
+  };
+};
 
 const migrateSettings = (raw: PersistedSettings | undefined): GlobalSettings => {
   if (!raw || typeof raw !== 'object') {
@@ -464,11 +549,7 @@ const migrateSettings = (raw: PersistedSettings | undefined): GlobalSettings => 
     };
   }
 
-  if (version === 2) {
-    return buildNormalizedSettings(raw);
-  }
-
-  if (version === CURRENT_SCHEMA_VERSION) {
+  if (version >= 2) {
     const normalized = buildNormalizedSettings(raw);
     if (validateGlobalSettings(normalized)) {
       return normalized;
@@ -509,7 +590,11 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       apiKeys: normalizeApiKeys(settings.apiKeys),
       commandPresets: normalizeCommandPresets(settings.commandPresets),
       defaultRoutingRules: normalizeRoutingRules(settings.defaultRoutingRules),
-      enabledPlugins: normalizeEnabledPlugins(settings.enabledPlugins),
+      pluginSettings: normalizePluginSettings(settings.pluginSettings),
+      enabledPlugins: mergeEnabledPluginList(
+        normalizeEnabledPlugins(settings.enabledPlugins),
+        normalizePluginSettings(settings.pluginSettings),
+      ),
       approvedManifests: normalizeApprovedManifests(settings.approvedManifests),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));

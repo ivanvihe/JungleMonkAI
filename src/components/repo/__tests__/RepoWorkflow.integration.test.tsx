@@ -6,6 +6,8 @@ import { RepoWorkflowProvider } from '../../../core/codex';
 import { MessageActions } from '../../chat/messages/MessageActions';
 import { RepoStudio } from '../RepoStudio';
 import type { ChatMessage } from '../../../core/messages/messageTypes';
+import { PluginHostProvider } from '../../../core/plugins/PluginHostProvider';
+import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
@@ -52,13 +54,26 @@ describe('Repo workflow integration', () => {
   });
 
   it('propagates message content to Repo Studio and triggers auto-PR workflow', async () => {
+    const PluginWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+      const [settings, setSettings] = React.useState(() => ({
+        ...JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)),
+      }));
+      return (
+        <PluginHostProvider settings={settings} onSettingsChange={setSettings}>
+          {children}
+        </PluginHostProvider>
+      );
+    };
+
     const { container } = render(
       <AgentProvider apiKeys={{}}>
         <RepoWorkflowProvider>
-          <div>
-            <MessageActions messageId="message-123" value={canonicalSnippet} />
-            <RepoStudio />
-          </div>
+          <PluginWrapper>
+            <div>
+              <MessageActions messageId="message-123" value={canonicalSnippet} />
+              <RepoStudio />
+            </div>
+          </PluginWrapper>
         </RepoWorkflowProvider>
       </AgentProvider>,
     );

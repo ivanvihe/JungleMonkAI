@@ -14,6 +14,7 @@ import {
   getAgentDisplayName,
   getAgentVersionLabel,
 } from '../../utils/agentDisplay';
+import { usePluginHost } from '../../core/plugins/PluginHostProvider';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
@@ -64,6 +65,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   const [gitlabStored, setGitlabStored] = useState(false);
 
   const { agents, agentMap, toggleAgent, assignAgentRole } = useAgents();
+  const { sidePanels: pluginPanels } = usePluginHost();
   const {
     quickCommands,
     appendToDraft,
@@ -417,6 +419,16 @@ export const SidePanel: React.FC<SidePanelProps> = ({
         <section className="panel-section">
           <ModelGallery />
         </section>
+
+        {pluginPanels.map(panel => (
+          <section key={`${panel.pluginId}-${panel.id}`} className="panel-section">
+            <header className="panel-section-header">
+              <h2>{panel.label}</h2>
+              <p>Integración proporcionada por el plugin {panel.pluginId}.</p>
+            </header>
+            <panel.Component />
+          </section>
+        ))}
 
         <section className="panel-section">
           <header className="panel-section-header">

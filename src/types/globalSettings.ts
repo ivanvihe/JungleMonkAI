@@ -38,4 +38,13 @@ export interface GlobalSettings {
   defaultRoutingRules: DefaultRoutingRules;
   enabledPlugins: string[];
   approvedManifests: AgentManifestCache;
+  pluginSettings: PluginSettingsMap;
 }
+
+export interface PluginSettingsEntry {
+  enabled: boolean;
+  credentials: Record<string, string>;
+  lastApprovedChecksum?: string;
+}
+
+export type PluginSettingsMap = Record<string, PluginSettingsEntry>;

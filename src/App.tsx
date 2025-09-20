@@ -14,6 +14,7 @@ import { RepoWorkflowProvider } from './core/codex';
 import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
 import { DEFAULT_GLOBAL_SETTINGS, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
 import { ChatActorFilter } from './types/chat';
+import { PluginHostProvider } from './core/plugins/PluginHostProvider';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -117,17 +118,19 @@ const App: React.FC = () => {
   };
 
   return (
-    <AgentProvider
-      apiKeys={globalSettings.apiKeys}
-      enabledPlugins={globalSettings.enabledPlugins}
-      approvedManifests={globalSettings.approvedManifests}
-    >
-      <MessageProvider apiKeys={globalSettings.apiKeys}>
-        <RepoWorkflowProvider>
-          <AppContent apiKeys={globalSettings.apiKeys} onApiKeyChange={handleApiKeyChange} />
-        </RepoWorkflowProvider>
-      </MessageProvider>
-    </AgentProvider>
+    <PluginHostProvider settings={globalSettings} onSettingsChange={setGlobalSettings}>
+      <AgentProvider
+        apiKeys={globalSettings.apiKeys}
+        enabledPlugins={globalSettings.enabledPlugins}
+        approvedManifests={globalSettings.approvedManifests}
+      >
+        <MessageProvider apiKeys={globalSettings.apiKeys}>
+          <RepoWorkflowProvider>
+            <AppContent apiKeys={globalSettings.apiKeys} onApiKeyChange={handleApiKeyChange} />
+          </RepoWorkflowProvider>
+        </MessageProvider>
+      </AgentProvider>
+    </PluginHostProvider>
   );
 };
 

@@ -1,52 +1,234 @@
+import {
+  ChatAttachment,
+  ChatContentPart,
+  ChatModality,
+  ChatTranscription,
+} from '../core/messages/messageTypes';
+
+export type ProviderContent = string | ChatContentPart[];
+
 export interface ChatProviderRequest {
   apiKey: string;
   model: string;
-  prompt: string;
-  systemPrompt?: string;
+  prompt: ProviderContent;
+  systemPrompt?: ProviderContent;
   maxTokens?: number;
   temperature?: number;
+}
+
+export interface ChatProviderResponse {
+  content: ProviderContent;
+  modalities: ChatModality[];
+  attachments?: ChatAttachment[];
+  transcriptions?: ChatTranscription[];
 }
 
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_TEMPERATURE = 0.7;
 
-const resolveMessage = (value: unknown): string => {
+const toContentParts = (value: unknown): ChatContentPart[] => {
   if (!value) {
-    return '';
+    return [];
   }
   if (typeof value === 'string') {
-    return value;
+    return [{ type: 'text', text: value }];
   }
   if (Array.isArray(value)) {
     return value
       .map(entry => {
         if (!entry) {
-          return '';
+          return undefined;
         }
         if (typeof entry === 'string') {
-          return entry;
+          return { type: 'text', text: entry };
         }
-        if (typeof entry === 'object' && 'text' in entry) {
-          const text = (entry as { text?: string }).text;
-          return typeof text === 'string' ? text : '';
+        if (typeof entry === 'object') {
+          if ('text' in entry && typeof (entry as { text?: unknown }).text === 'string') {
+            return { type: 'text', text: (entry as { text: string }).text };
+          }
+          if ('type' in entry) {
+            const type = (entry as { type?: string }).type;
+            if (type === 'text' && typeof (entry as { text?: unknown }).text === 'string') {
+              return { type: 'text', text: (entry as { text: string }).text };
+            }
+            if (type === 'image_url') {
+              const url = (entry as { image_url?: { url?: string } }).image_url?.url;
+              if (typeof url === 'string') {
+                return { type: 'image', url };
+              }
+            }
+            if (type === 'image' && typeof (entry as { url?: unknown }).url === 'string') {
+              return { type: 'image', url: (entry as { url: string }).url };
+            }
+            if (type === 'audio' && typeof (entry as { url?: unknown }).url === 'string') {
+              return {
+                type: 'audio',
+                url: (entry as { url: string }).url,
+                durationSeconds: (entry as { duration?: number }).duration,
+              };
+            }
+            if (type === 'file' && typeof (entry as { url?: unknown }).url === 'string') {
+              return {
+                type: 'file',
+                url: (entry as { url: string }).url,
+                name: (entry as { name?: string }).name,
+                mimeType: (entry as { mimeType?: string }).mimeType,
+              };
+            }
+          }
+          if ('content' in entry) {
+            return toContentParts((entry as { content?: unknown }).content);
+          }
         }
-        return '';
+        return undefined;
       })
-      .filter(Boolean)
-      .join('\n');
+      .flat()
+      .filter((part): part is ChatContentPart => Boolean(part));
   }
   if (typeof value === 'object' && 'content' in (value as Record<string, unknown>)) {
-    return resolveMessage((value as Record<string, unknown>).content);
+    return toContentParts((value as Record<string, unknown>).content);
   }
-  return '';
+  return [];
 };
 
-const ensureContent = (raw: string, provider: string): string => {
-  const content = raw.trim();
-  if (!content) {
+const collapseContent = (parts: ChatContentPart[]): ProviderContent => {
+  if (!parts.length) {
+    return '';
+  }
+
+  if (parts.length === 1) {
+    const [first] = parts;
+    if (typeof first === 'string') {
+      return first;
+    }
+    if (first.type === 'text') {
+      return first.text;
+    }
+  }
+
+  return parts.map(part => (typeof part === 'string' ? { type: 'text', text: part } : part));
+};
+
+const detectModalities = (
+  content: ProviderContent,
+  attachments?: ChatAttachment[],
+  transcriptions?: ChatTranscription[],
+): ChatModality[] => {
+  const modalities = new Set<ChatModality>();
+
+  const registerPart = (part: ChatContentPart) => {
+    if (typeof part === 'string') {
+      modalities.add('text');
+      return;
+    }
+
+    if (part.type === 'text') {
+      modalities.add('text');
+      return;
+    }
+
+    if (part.type === 'image') {
+      modalities.add('image');
+      return;
+    }
+
+    if (part.type === 'audio') {
+      modalities.add('audio');
+      return;
+    }
+
+    if (part.type === 'file') {
+      modalities.add('file');
+    }
+  };
+
+  if (Array.isArray(content)) {
+    content.forEach(registerPart);
+  } else if (typeof content === 'string') {
+    if (content.trim()) {
+      modalities.add('text');
+    }
+  }
+
+  attachments?.forEach(attachment => {
+    if (attachment.type === 'image') {
+      modalities.add('image');
+    }
+    if (attachment.type === 'audio') {
+      modalities.add('audio');
+    }
+    if (attachment.type === 'file') {
+      modalities.add('file');
+    }
+  });
+
+  transcriptions?.forEach(() => modalities.add('text'));
+
+  return Array.from(modalities);
+};
+
+const ensureContent = (content: ProviderContent, provider: string): ProviderContent => {
+  const asText = typeof content === 'string' ? content : contentToPlainText(content);
+  if (!asText.trim()) {
     throw new Error(`${provider} devolvió una respuesta vacía`);
   }
   return content;
+};
+
+const contentToPlainText = (content: ProviderContent): string => {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content
+    .map(part => {
+      if (typeof part === 'string') {
+        return part;
+      }
+      if (part.type === 'text') {
+        return part.text;
+      }
+      if (part.type === 'image') {
+        return part.alt ?? '[imagen]';
+      }
+      if (part.type === 'audio') {
+        return part.transcript ?? '[audio]';
+      }
+      if (part.type === 'file') {
+        return part.name ?? '[archivo]';
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+};
+
+const mapContentToOpenAI = (content: ProviderContent) => {
+  const parts = Array.isArray(content) ? content : [{ type: 'text', text: content }];
+
+  return parts.map(part => {
+    if (typeof part === 'string') {
+      return { type: 'text', text: part };
+    }
+
+    if (part.type === 'text') {
+      return { type: 'text', text: part.text };
+    }
+
+    if (part.type === 'image') {
+      return { type: 'image_url', image_url: { url: part.url } };
+    }
+
+    if (part.type === 'audio') {
+      return { type: 'input_audio', input_audio: { url: part.url } };
+    }
+
+    if (part.type === 'file') {
+      return { type: 'file', file: { url: part.url, name: part.name, mimeType: part.mimeType } };
+    }
+
+    return { type: 'text', text: '' };
+  });
 };
 
 export const callOpenAIChat = async ({
@@ -56,7 +238,7 @@ export const callOpenAIChat = async ({
   systemPrompt,
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
-}: ChatProviderRequest): Promise<string> => {
+}: ChatProviderRequest): Promise<ChatProviderResponse> => {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -72,13 +254,13 @@ export const callOpenAIChat = async ({
           ? [
               {
                 role: 'system',
-                content: systemPrompt,
+                content: mapContentToOpenAI(systemPrompt),
               },
             ]
           : []),
         {
           role: 'user',
-          content: prompt,
+          content: mapContentToOpenAI(prompt),
         },
       ],
     }),
@@ -91,7 +273,13 @@ export const callOpenAIChat = async ({
 
   const payload = await response.json();
   const choice = payload?.choices?.[0]?.message?.content;
-  return ensureContent(resolveMessage(choice), 'OpenAI');
+  const contentParts = toContentParts(choice);
+  const content = collapseContent(contentParts);
+  const ensuredContent = ensureContent(content, 'OpenAI');
+  return {
+    content: ensuredContent,
+    modalities: detectModalities(ensuredContent),
+  };
 };
 
 export const callGroqChat = async ({
@@ -101,7 +289,7 @@ export const callGroqChat = async ({
   systemPrompt,
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
-}: ChatProviderRequest): Promise<string> => {
+}: ChatProviderRequest): Promise<ChatProviderResponse> => {
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -117,13 +305,13 @@ export const callGroqChat = async ({
           ? [
               {
                 role: 'system',
-                content: systemPrompt,
+                content: contentToPlainText(systemPrompt),
               },
             ]
           : []),
         {
           role: 'user',
-          content: prompt,
+          content: contentToPlainText(prompt),
         },
       ],
     }),
@@ -136,7 +324,13 @@ export const callGroqChat = async ({
 
   const payload = await response.json();
   const choice = payload?.choices?.[0]?.message?.content;
-  return ensureContent(resolveMessage(choice), 'Groq');
+  const contentParts = toContentParts(choice);
+  const content = collapseContent(contentParts);
+  const ensuredContent = ensureContent(content, 'Groq');
+  return {
+    content: ensuredContent,
+    modalities: detectModalities(ensuredContent),
+  };
 };
 
 export const callAnthropicChat = async ({
@@ -146,7 +340,7 @@ export const callAnthropicChat = async ({
   systemPrompt,
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
-}: ChatProviderRequest): Promise<string> => {
+}: ChatProviderRequest): Promise<ChatProviderResponse> => {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -158,11 +352,15 @@ export const callAnthropicChat = async ({
       model,
       max_tokens: maxTokens,
       temperature,
-      ...(systemPrompt ? { system: systemPrompt } : {}),
+      ...(systemPrompt
+        ? {
+            system: contentToPlainText(systemPrompt),
+          }
+        : {}),
       messages: [
         {
           role: 'user',
-          content: prompt,
+          content: contentToPlainText(prompt),
         },
       ],
     }),
@@ -176,5 +374,11 @@ export const callAnthropicChat = async ({
 
   const payload = await response.json();
   const content = payload?.content;
-  return ensureContent(resolveMessage(content), 'Anthropic');
+  const contentParts = toContentParts(content);
+  const normalizedContent = collapseContent(contentParts);
+  const ensuredContent = ensureContent(normalizedContent, 'Anthropic');
+  return {
+    content: ensuredContent,
+    modalities: detectModalities(ensuredContent),
+  };
 };

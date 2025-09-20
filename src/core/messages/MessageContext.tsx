@@ -11,24 +11,27 @@ import { ApiKeySettings } from '../../types/globalSettings';
 import { AgentDefinition } from '../agents/agentRegistry';
 import { useAgents } from '../agents/AgentContext';
 import { fetchAgentReply } from '../agents/providerRouter';
-
-export type ChatAuthor = 'system' | 'user' | 'agent';
-
-export interface ChatMessage {
-  id: string;
-  author: ChatAuthor;
-  content: string;
-  timestamp: string;
-  agentId?: string;
-  status?: 'pending' | 'sent';
-  sourcePrompt?: string;
-}
+import type { ChatProviderResponse } from '../../utils/aiProviders';
+import {
+  ChatAttachment,
+  ChatContentPart,
+  ChatMessage,
+  ChatModality,
+  ChatTranscription,
+} from './messageTypes';
 
 interface MessageContextValue {
   messages: ChatMessage[];
   draft: string;
   setDraft: (value: string) => void;
   appendToDraft: (value: string) => void;
+  composerAttachments: ChatAttachment[];
+  addAttachment: (attachment: ChatAttachment) => void;
+  removeAttachment: (attachmentId: string) => void;
+  composerTranscriptions: ChatTranscription[];
+  upsertTranscription: (transcription: ChatTranscription) => void;
+  removeTranscription: (transcriptionId: string) => void;
+  composerModalities: ChatModality[];
   sendMessage: () => void;
   pendingResponses: number;
   lastUserMessage?: ChatMessage;
@@ -58,6 +61,186 @@ const formatTimestamp = (isoString: string): string => {
 };
 
 const buildMessageId = (prefix: string): string => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+const contentToPlainText = (content: ChatMessage['content']): string => {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content
+    .map(part => {
+      if (!part) {
+        return '';
+      }
+
+      if (typeof part === 'string') {
+        return part;
+      }
+
+      if (part.type === 'text') {
+        return part.text;
+      }
+
+      if (part.type === 'image') {
+        return part.alt ?? '[imagen]';
+      }
+
+      if (part.type === 'audio') {
+        return part.transcript ?? '[audio]';
+      }
+
+      if (part.type === 'file') {
+        return part.name ?? '[archivo]';
+      }
+
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+};
+
+const buildContentPartsFromComposer = (
+  text: string,
+  attachments: ChatAttachment[],
+): ChatContentPart[] => {
+  const parts: ChatContentPart[] = [];
+
+  if (text.trim()) {
+    parts.push({ type: 'text', text });
+  }
+
+  attachments.forEach(attachment => {
+    if (attachment.type === 'image' && attachment.url) {
+      parts.push({ type: 'image', url: attachment.url, alt: attachment.name });
+    }
+
+    if (attachment.type === 'audio' && attachment.url) {
+      parts.push({ type: 'audio', url: attachment.url, durationSeconds: attachment.durationSeconds });
+    }
+
+    if (attachment.type === 'file' && attachment.url) {
+      parts.push({ type: 'file', url: attachment.url, name: attachment.name, mimeType: attachment.mimeType });
+    }
+  });
+
+  return parts;
+};
+
+const ensureModalities = (
+  draft: string,
+  attachments: ChatAttachment[],
+  transcriptions: ChatTranscription[],
+): ChatModality[] => {
+  const modalities = new Set<ChatModality>();
+
+  if (draft.trim()) {
+    modalities.add('text');
+  }
+
+  attachments.forEach(attachment => {
+    if (attachment.type === 'image') {
+      modalities.add('image');
+    }
+
+    if (attachment.type === 'audio') {
+      modalities.add('audio');
+    }
+
+    if (attachment.type === 'file') {
+      modalities.add('file');
+    }
+  });
+
+  if (transcriptions.length) {
+    modalities.add('text');
+  }
+
+  return Array.from(modalities);
+};
+
+const normalizeProviderContent = (content: ChatProviderResponse['content']): ChatMessage['content'] => {
+  if (Array.isArray(content)) {
+    const normalized = content.map(part => (typeof part === 'string' ? { type: 'text', text: part } : part));
+    if (normalized.length === 1) {
+      const [first] = normalized;
+      if (typeof first === 'string') {
+        return first;
+      }
+      if (first.type === 'text') {
+        return first.text;
+      }
+    }
+    return normalized;
+  }
+
+  return content;
+};
+
+const ensureResponseModalities = (
+  response: ChatProviderResponse,
+): Required<Pick<ChatMessage, 'modalities'>>['modalities'] => {
+  if (response.modalities?.length) {
+    return response.modalities;
+  }
+
+  const normalizedContent = normalizeProviderContent(response.content);
+  const modalities = new Set<ChatModality>();
+
+  const registerPart = (part: ChatContentPart | string) => {
+    if (typeof part === 'string') {
+      if (part.trim()) {
+        modalities.add('text');
+      }
+      return;
+    }
+
+    if (part.type === 'text') {
+      if (part.text.trim()) {
+        modalities.add('text');
+      }
+      return;
+    }
+
+    if (part.type === 'image') {
+      modalities.add('image');
+      return;
+    }
+
+    if (part.type === 'audio') {
+      modalities.add('audio');
+      return;
+    }
+
+    if (part.type === 'file') {
+      modalities.add('file');
+    }
+  };
+
+  if (Array.isArray(normalizedContent)) {
+    normalizedContent.forEach(registerPart);
+  } else {
+    registerPart(normalizedContent);
+  }
+
+  response.attachments?.forEach(attachment => {
+    if (attachment.type === 'image') {
+      modalities.add('image');
+    }
+    if (attachment.type === 'audio') {
+      modalities.add('audio');
+    }
+    if (attachment.type === 'file') {
+      modalities.add('file');
+    }
+  });
+
+  if (response.transcriptions?.length) {
+    modalities.add('text');
+  }
+
+  const inferred = Array.from(modalities);
+  return inferred.length ? inferred : ['text'];
+};
 
 const mockAgentReply = (agent: AgentDefinition, prompt?: string): string => {
   const safePrompt = prompt?.replace(/\s+/g, ' ').trim() ?? '';
@@ -92,9 +275,12 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       author: 'system',
       content: 'Bienvenido a JungleMonk.AI Control Hub. Activa tus modelos y coordina la conversación multimodal desde un solo lugar.',
       timestamp: new Date().toISOString(),
+      modalities: ['text'],
     },
   ]);
   const [draft, setDraftState] = useState('');
+  const [composerAttachments, setComposerAttachments] = useState<ChatAttachment[]>([]);
+  const [composerTranscriptions, setComposerTranscriptions] = useState<ChatTranscription[]>([]);
   const scheduledResponsesRef = useRef<Set<string>>(new Set());
 
   const setDraft = useCallback((value: string) => {
@@ -107,16 +293,37 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
   const sendMessage = useCallback(() => {
     const trimmed = draft.trim();
-    if (!trimmed) {
+    if (!trimmed && composerAttachments.length === 0) {
       return;
     }
 
     const timestamp = new Date().toISOString();
+    const contentParts = buildContentPartsFromComposer(trimmed, composerAttachments);
+    let messageContent: ChatMessage['content'] = trimmed;
+
+    if (contentParts.length === 1) {
+      const [first] = contentParts;
+      if (typeof first === 'string') {
+        messageContent = first;
+      } else if (first.type === 'text') {
+        messageContent = first.text;
+      } else {
+        messageContent = contentParts;
+      }
+    } else if (contentParts.length > 1) {
+      messageContent = contentParts;
+    }
+
+    const messageModalities = ensureModalities(trimmed, composerAttachments, composerTranscriptions);
+
     const userMessage: ChatMessage = {
       id: buildMessageId('user'),
       author: 'user',
-      content: trimmed,
+      content: messageContent,
       timestamp,
+      attachments: composerAttachments.length ? composerAttachments : undefined,
+      modalities: messageModalities.length ? messageModalities : undefined,
+      transcriptions: composerTranscriptions.length ? composerTranscriptions : undefined,
     };
 
     const agentReplies: ChatMessage[] = activeAgents.map((agent, index) => ({
@@ -131,7 +338,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
     setMessages(prev => [...prev, userMessage, ...agentReplies]);
     setDraftState('');
-  }, [activeAgents, draft]);
+    setComposerAttachments([]);
+    setComposerTranscriptions([]);
+  }, [activeAgents, composerAttachments, composerTranscriptions, draft]);
 
   const resolveAgentReply = useCallback(
     (agent: AgentDefinition, prompt: string) =>
@@ -167,15 +376,42 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
         const resolve = async () => {
           try {
-            let content: string;
             if (agent.kind === 'cloud') {
-              content = await resolveAgentReply(agent, message.sourcePrompt ?? message.content);
-            } else {
-              content = await new Promise<string>(resolvePromise => {
-                const delay = 700 + Math.random() * 1200;
-                setTimeout(() => resolvePromise(mockAgentReply(agent, message.sourcePrompt)), delay);
-              });
+              const prompt = message.sourcePrompt ?? contentToPlainText(message.content);
+              const response = await resolveAgentReply(agent, prompt);
+
+              if (cancelled) {
+                return;
+              }
+
+              const normalizedContent = normalizeProviderContent(response.content);
+              const plain = contentToPlainText(normalizedContent);
+              const hasContent = plain.trim().length > 0;
+              const finalContent: ChatMessage['content'] = hasContent
+                ? normalizedContent
+                : `${agent.name} no devolvió contenido.`;
+
+              setMessages(prev =>
+                prev.map(item =>
+                  item.id === message.id
+                    ? {
+                        ...item,
+                        status: 'sent',
+                        content: finalContent,
+                        attachments: response.attachments?.length ? response.attachments : undefined,
+                        modalities: ensureResponseModalities(response),
+                        transcriptions: response.transcriptions?.length ? response.transcriptions : undefined,
+                      }
+                    : item,
+                ),
+              );
+              return;
             }
+
+            const content = await new Promise<string>(resolvePromise => {
+              const delay = 700 + Math.random() * 1200;
+              setTimeout(() => resolvePromise(mockAgentReply(agent, message.sourcePrompt)), delay);
+            });
 
             if (cancelled) {
               return;
@@ -192,6 +428,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                       ...item,
                       status: 'sent',
                       content: normalizedContent,
+                      attachments: undefined,
+                      modalities: ['text'],
+                      transcriptions: undefined,
                     }
                   : item,
               ),
@@ -213,6 +452,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                       ...item,
                       status: 'sent',
                       content: fallbackMessage,
+                      attachments: undefined,
+                      modalities: ['text'],
+                      transcriptions: undefined,
                     }
                   : item,
               ),
@@ -247,12 +489,43 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     [messages],
   );
 
+  const composerModalities = useMemo(
+    () => ensureModalities(draft.trim(), composerAttachments, composerTranscriptions),
+    [composerAttachments, composerTranscriptions, draft],
+  );
+
+  const addAttachment = useCallback((attachment: ChatAttachment) => {
+    setComposerAttachments(prev => [...prev, attachment]);
+  }, []);
+
+  const removeAttachment = useCallback((attachmentId: string) => {
+    setComposerAttachments(prev => prev.filter(attachment => attachment.id !== attachmentId));
+  }, []);
+
+  const upsertTranscription = useCallback((transcription: ChatTranscription) => {
+    setComposerTranscriptions(prev => {
+      const others = prev.filter(item => item.id !== transcription.id);
+      return [...others, transcription];
+    });
+  }, []);
+
+  const removeTranscription = useCallback((transcriptionId: string) => {
+    setComposerTranscriptions(prev => prev.filter(item => item.id !== transcriptionId));
+  }, []);
+
   const value = useMemo(
     () => ({
       messages,
       draft,
       setDraft,
       appendToDraft,
+      composerAttachments,
+      addAttachment,
+      removeAttachment,
+      composerTranscriptions,
+      upsertTranscription,
+      removeTranscription,
+      composerModalities,
       sendMessage,
       pendingResponses,
       lastUserMessage,
@@ -260,7 +533,23 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       quickCommands: QUICK_COMMANDS,
       formatTimestamp,
     }),
-    [agentResponses, appendToDraft, draft, lastUserMessage, messages, pendingResponses, sendMessage, setDraft],
+    [
+      addAttachment,
+      agentResponses,
+      appendToDraft,
+      composerAttachments,
+      composerModalities,
+      composerTranscriptions,
+      draft,
+      lastUserMessage,
+      messages,
+      pendingResponses,
+      removeAttachment,
+      removeTranscription,
+      sendMessage,
+      setDraft,
+      upsertTranscription,
+    ],
   );
 
   return <MessageContext.Provider value={value}>{children}</MessageContext.Provider>;

@@ -1,10 +1,20 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { invoke } from '@tauri-apps/api/tauri';
 import type { CodexRequest } from './types';
 import type { ChatMessage } from '../messages/messageTypes';
 import { useMessages } from '../messages/MessageContext';
 import { CodexEngine } from './CodexEngine';
 import { buildRepoWorkflowSubmission, type RepoWorkflowSubmission } from './bridge';
 import { useProjects } from '../projects/ProjectContext';
+import { isTauriEnvironment } from '../storage/userDataPathsClient';
 
 export interface RepoWorkflowRequest {
   id: string;
@@ -19,6 +29,7 @@ export interface RepoWorkflowRequest {
   tags: string[];
   originalResponse: string;
   canonicalCode?: string;
+  remoteName?: string;
 }
 
 interface QueuePayload {
@@ -29,13 +40,41 @@ interface QueuePayload {
   riskLevel?: RepoWorkflowSubmission['request']['context']['riskLevel'];
 }
 
+interface RepoSyncOptions {
+  repositoryPath: string;
+  remote?: string | null;
+  branch?: string | null;
+}
+
 interface RepoWorkflowContextValue {
   pendingRequest: RepoWorkflowRequest | null;
   queueRequest: (payload: QueuePayload) => void;
   clearPendingRequest: () => void;
+  syncRepository: (options: RepoSyncOptions) => Promise<string | null>;
 }
 
 const RepoWorkflowContext = createContext<RepoWorkflowContextValue | undefined>(undefined);
+
+let externalQueueRequest: ((payload: QueuePayload) => void) | null = null;
+let externalSyncRepository: ((options: RepoSyncOptions) => Promise<string | null>) | null = null;
+
+export const enqueueRepoWorkflowRequest = (payload: QueuePayload): void => {
+  if (!externalQueueRequest) {
+    console.warn('No hay proveedor activo de Repo Studio para procesar la solicitud.');
+    return;
+  }
+  externalQueueRequest(payload);
+};
+
+export const syncRepositoryViaWorkflow = async (
+  options: RepoSyncOptions,
+): Promise<string | null> => {
+  if (!externalSyncRepository) {
+    console.warn('No hay proveedor activo de Repo Studio para sincronizar el repositorio.');
+    return null;
+  }
+  return externalSyncRepository(options);
+};
 
 const generateRequestId = (): string => {
   return `repo-request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -59,6 +98,28 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [pendingRequest, setPendingRequest] = useState<RepoWorkflowRequest | null>(null);
   const { activeProject } = useProjects();
 
+  const syncRepository = useCallback(async (options: RepoSyncOptions) => {
+    const { repositoryPath, remote, branch } = options;
+    if (!repositoryPath) {
+      return null;
+    }
+    if (!isTauriEnvironment()) {
+      return 'Sincronización omitida: entorno no compatible.';
+    }
+
+    try {
+      const result = await invoke<string>('git_pull_repository', {
+        repoPath: repositoryPath,
+        remote: remote ?? null,
+        branch: branch ?? null,
+      });
+      return result;
+    } catch (error) {
+      const message = (error as Error)?.message ?? 'Error desconocido al sincronizar el repositorio.';
+      throw new Error(message);
+    }
+  }, []);
+
   const queueRequest = useCallback(
     (payload: QueuePayload) => {
       const { messageId, canonicalCode, repositoryPath, branch, riskLevel } = payload;
@@ -66,6 +127,7 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
       const defaultRepositoryPath = repositoryPath ?? activeProject?.repositoryPath;
       const defaultBranch = branch ?? activeProject?.defaultBranch;
+      const remoteName = activeProject?.defaultRemote ?? 'origin';
       const defaultActor = activeProject
         ? [activeProject.preferredProvider, activeProject.preferredModel]
             .filter(Boolean)
@@ -103,6 +165,7 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
         tags: submission.tags,
         originalResponse: submission.originalResponse,
         canonicalCode: submission.canonicalCode ?? canonicalCode,
+        remoteName,
       };
 
       setPendingRequest(request);
@@ -114,13 +177,27 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setPendingRequest(null);
   }, []);
 
+  useEffect(() => {
+    externalQueueRequest = queueRequest;
+    externalSyncRepository = syncRepository;
+    return () => {
+      if (externalQueueRequest === queueRequest) {
+        externalQueueRequest = null;
+      }
+      if (externalSyncRepository === syncRepository) {
+        externalSyncRepository = null;
+      }
+    };
+  }, [queueRequest, syncRepository]);
+
   const value = useMemo(
     () => ({
       pendingRequest,
       queueRequest,
       clearPendingRequest,
+      syncRepository,
     }),
-    [pendingRequest, queueRequest, clearPendingRequest],
+    [pendingRequest, queueRequest, clearPendingRequest, syncRepository],
   );
 
   return <RepoWorkflowContext.Provider value={value}>{children}</RepoWorkflowContext.Provider>;

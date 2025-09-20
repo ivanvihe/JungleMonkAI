@@ -4,21 +4,17 @@ mod git;
 mod gpu;
 mod midi;
 mod models;
+mod plugins;
 
 use config::{Config, ConfigState, LayerConfig};
-use log::error;
 use git::{
-    apply_patch as git_apply_patch,
-    commit_changes as git_commit_changes,
-    create_pull_request as git_create_pull_request,
-    get_file_diff as git_get_file_diff,
-    has_secret as git_has_secret,
-    list_repository_files as git_list_repository_files,
-    push_changes as git_push_changes,
-    repository_status as git_repository_status,
-    store_secret as git_store_secret,
-    SecretManager,
+    apply_patch as git_apply_patch, commit_changes as git_commit_changes,
+    create_pull_request as git_create_pull_request, get_file_diff as git_get_file_diff,
+    has_secret as git_has_secret, list_repository_files as git_list_repository_files,
+    push_changes as git_push_changes, repository_status as git_repository_status,
+    store_secret as git_store_secret, SecretManager,
 };
+use log::error;
 use models::{activate_model, download_model, list_models, ModelRegistry};
 use std::path::PathBuf;
 use tauri::{Manager, State};
@@ -68,6 +64,7 @@ fn main() {
     let models_dir = data_dir.join("models");
 
     let cfg = Config::load(&config_path);
+    let plugins_dir = config_dir.join("plugins");
     let model_registry = ModelRegistry::load(models_manifest, models_dir)
         .expect("no se pudo cargar el inventario de modelos");
 
@@ -81,6 +78,10 @@ fn main() {
                 .expect("no se pudo inicializar el gestor de secretos"),
         )
         .manage(model_registry)
+        .manage(
+            plugins::PluginManager::new(plugins_dir.clone())
+                .expect("no se pudo inicializar el gestor de plugins"),
+        )
         .invoke_handler(tauri::generate_handler![
             set_layer_opacity,
             get_config,
@@ -98,9 +99,16 @@ fn main() {
             git_get_file_diff,
             git_store_secret,
             git_has_secret,
-            git::reveal_secret
+            git::reveal_secret,
+            plugins::plugin_list,
+            plugins::plugin_invoke
         ])
         .setup(|app| {
+            if let Some(manager) = app.try_state::<plugins::PluginManager>() {
+                if let Err(error) = manager.refresh() {
+                    error!("failed to load plugins: {error:?}");
+                }
+            }
             if let Err(e) = midi::start(app.handle().clone()) {
                 error!("failed to start midi: {e:?}");
                 let _ = app.emit_all("error", format!("midi start error: {e}"));

@@ -3,6 +3,7 @@ import { AgentPresenceList } from '../../agents/AgentPresenceList';
 import { useAgents } from '../../../core/agents/AgentContext';
 import type { AgentPresenceEntry } from '../../../core/agents/presence';
 import { useRepoWorkflow } from '../../../core/codex';
+import { usePluginHost } from '../../../core/plugins/PluginHostProvider';
 
 interface MessageActionsProps {
   messageId: string;
@@ -21,6 +22,7 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
   const { agents } = useAgents();
   const { queueRequest } = useRepoWorkflow();
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const { messageActions: pluginActions } = usePluginHost();
 
   const handleCopy = useCallback(() => {
     const clipboard = typeof window !== 'undefined' ? window.navigator?.clipboard : undefined;
@@ -83,6 +85,13 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
     queueRequest({ messageId, canonicalCode: value });
   }, [messageId, queueRequest, value]);
 
+  const handlePluginAction = useCallback(
+    (action: (typeof pluginActions)[number]) => {
+      void action.run({ messageId, value });
+    },
+    [messageId, value],
+  );
+
   useEffect(() => {
     if (!isPickerOpen) {
       return;
@@ -121,6 +130,17 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
       <button type="button" className="message-action" onClick={handleSendToRepoStudio}>
         Enviar a Repo Studio
       </button>
+      {pluginActions.map(action => (
+        <button
+          key={`${action.pluginId}-${action.id}`}
+          type="button"
+          className="message-action"
+          onClick={() => handlePluginAction(action)}
+          title={action.description}
+        >
+          {action.label}
+        </button>
+      ))}
       {onShare && isPickerOpen ? (
         <div className="message-action-popover" role="dialog" aria-label={`Compartir mensaje ${messageId}`}>
           {shareableAgents.length === 0 ? (

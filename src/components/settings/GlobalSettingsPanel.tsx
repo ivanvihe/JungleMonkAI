@@ -6,9 +6,11 @@ import {
   RoutingRule,
   SupportedProvider,
 } from '../../types/globalSettings';
+import type { PluginCapability } from '../../core/plugins';
 import { useProviderDiagnostics } from '../../hooks/useProviderDiagnostics';
 import '../GlobalSettingsModal.css';
 import './GlobalSettingsPanel.css';
+import { usePluginHost } from '../../core/plugins/PluginHostProvider';
 
 type ProviderTestState = {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -58,6 +60,17 @@ const cloneSettings = (value: GlobalSettings): GlobalSettings => ({
     },
     {} as GlobalSettings['approvedManifests'],
   ),
+  pluginSettings: Object.entries(value.pluginSettings ?? {}).reduce(
+    (acc, [pluginId, entry]) => {
+      acc[pluginId] = {
+        enabled: entry.enabled,
+        credentials: { ...entry.credentials },
+        lastApprovedChecksum: entry.lastApprovedChecksum,
+      };
+      return acc;
+    },
+    {} as GlobalSettings['pluginSettings'],
+  ),
 });
 
 const getPresetId = () => {
@@ -81,6 +94,23 @@ const toTitle = (value: string) => {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 };
 
+const describeCapability = (capability: PluginCapability): string => {
+  switch (capability.type) {
+    case 'agent-provider':
+      return 'Manifiestos de agentes';
+    case 'chat-action':
+      return `Acción de chat: ${capability.label}`;
+    case 'workspace-panel':
+      return capability.slot === 'side-panel'
+        ? 'Panel lateral integrado'
+        : 'Panel principal personalizado';
+    case 'mcp-endpoint':
+      return `Endpoint MCP (${capability.transport.toUpperCase()})`;
+    default:
+      return capability.type;
+  }
+};
+
 export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
   isOpen,
   settings,
@@ -92,10 +122,102 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
     useProviderDiagnostics();
   const builtinProviders = useMemo(() => supportedProviders, [supportedProviders]);
   const [draft, setDraft] = useState<GlobalSettings>(() => cloneSettings(settings));
-  const [activeTab, setActiveTab] = useState<'providers' | 'presets' | 'routing'>('providers');
+  const [activeTab, setActiveTab] = useState<'providers' | 'presets' | 'routing' | 'plugins'>('providers');
   const [touchedProviders, setTouchedProviders] = useState<Record<string, boolean>>({});
   const [testStates, setTestStates] = useState<Record<string, ProviderTestState>>({});
   const [newProviderId, setNewProviderId] = useState('');
+  const { plugins: discoveredPlugins, refresh: refreshPlugins } = usePluginHost();
+
+  const pluginEntries = useMemo(
+    () => {
+      const map = new Map<
+        string,
+        {
+          runtime: (typeof discoveredPlugins)[number] | null;
+          settings: GlobalSettings['pluginSettings'][string];
+        }
+      >();
+
+      discoveredPlugins.forEach(plugin => {
+        map.set(plugin.pluginId, {
+          runtime: plugin,
+          settings:
+            draft.pluginSettings[plugin.pluginId] ?? {
+              enabled: false,
+              credentials: {},
+            },
+        });
+      });
+
+      Object.entries(draft.pluginSettings).forEach(([pluginId, entry]) => {
+        if (!map.has(pluginId)) {
+          map.set(pluginId, {
+            runtime: null,
+            settings: entry,
+          });
+        }
+      });
+
+      return Array.from(map.entries())
+        .map(([pluginId, value]) => ({
+          pluginId,
+          runtime: value.runtime,
+          settings: value.settings,
+        }))
+        .sort((a, b) => a.pluginId.localeCompare(b.pluginId));
+    },
+    [discoveredPlugins, draft.pluginSettings],
+  );
+
+  const handleTogglePlugin = useCallback((pluginId: string, enabled: boolean) => {
+    setDraft(prev => {
+      const current = prev.pluginSettings[pluginId] ?? { enabled: false, credentials: {} };
+      const nextEntry = {
+        ...current,
+        enabled,
+        credentials: { ...current.credentials },
+      };
+      const pluginSettings = {
+        ...prev.pluginSettings,
+        [pluginId]: nextEntry,
+      };
+      const enabledSet = new Set(prev.enabledPlugins);
+      if (enabled) {
+        enabledSet.add(pluginId);
+      } else {
+        enabledSet.delete(pluginId);
+      }
+      return {
+        ...prev,
+        pluginSettings,
+        enabledPlugins: Array.from(enabledSet),
+      };
+    });
+  }, []);
+
+  const handlePluginCredentialChange = useCallback(
+    (pluginId: string, fieldId: string, value: string) => {
+      setDraft(prev => {
+        const current = prev.pluginSettings[pluginId] ?? { enabled: false, credentials: {} };
+        const nextEntry = {
+          ...current,
+          credentials: {
+            ...current.credentials,
+            [fieldId]: value,
+          },
+        };
+
+        return {
+          ...prev,
+          pluginSettings: {
+            ...prev.pluginSettings,
+            [pluginId]: nextEntry,
+          },
+        };
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -405,6 +527,7 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
               { id: 'providers', label: 'Credenciales', icon: '🔑' },
               { id: 'presets', label: 'Comandos', icon: '🧩' },
               { id: 'routing', label: 'Preferencias', icon: '🧭' },
+              { id: 'plugins', label: 'Plugins', icon: '🔌' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -701,6 +824,112 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
                     </label>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {activeTab === 'plugins' && (
+              <div className="settings-section">
+                <div className="setting-header">
+                  <h3>Gestión de plugins</h3>
+                  <button type="button" className="setting-button" onClick={() => refreshPlugins()}>
+                    Reexplorar
+                  </button>
+                </div>
+
+                {pluginEntries.length === 0 ? (
+                  <p className="setting-hint">
+                    No se han detectado plugins en la carpeta <code>plugins/</code> del entorno actual.
+                  </p>
+                ) : (
+                  pluginEntries.map(entry => {
+                    const manifest = entry.runtime?.manifest;
+                    const credentialFields = manifest?.credentials ?? [];
+                    const capabilities = manifest?.capabilities ?? [];
+                    const checksum = entry.runtime?.checksum ?? null;
+                    const enabled = entry.settings?.enabled ?? false;
+                    const approvedChecksum = entry.settings?.lastApprovedChecksum ?? null;
+                    const checksumMismatch = Boolean(
+                      approvedChecksum && checksum && approvedChecksum !== checksum,
+                    );
+
+                    return (
+                      <div className="setting-card" key={entry.pluginId}>
+                        <div className="setting-card-header">
+                          <div>
+                            <h4>{manifest?.name ?? entry.pluginId}</h4>
+                            <p className="setting-hint">
+                              {manifest?.description ??
+                                'Plugin pendiente de instalación o validación.'}
+                            </p>
+                          </div>
+                          <label className="setting-label">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={(event) => handleTogglePlugin(entry.pluginId, event.target.checked)}
+                              disabled={!manifest}
+                            />
+                            <span>Activo</span>
+                          </label>
+                        </div>
+
+                        <div className="setting-meta">
+                          <span>{manifest ? 'Disponible' : 'No detectado'}</span>
+                          {manifest && <span>Versión {manifest.version}</span>}
+                          {checksum && <span className="setting-code">Checksum {checksum.slice(0, 12)}…</span>}
+                        </div>
+
+                        {checksumMismatch && (
+                          <p className="setting-error">
+                            La firma aprobada ({approvedChecksum?.slice(0, 12)}…) no coincide con el
+                            manifiesto actual. Revisa el contenido antes de continuar.
+                          </p>
+                        )}
+
+                        {capabilities.length > 0 && (
+                          <ul className="setting-list">
+                            {capabilities.map((capability, index) => (
+                              <li key={`${entry.pluginId}-cap-${index}`}>
+                                {describeCapability(capability)}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {credentialFields.length > 0 && (
+                          <div className="setting-group">
+                            <h5>Credenciales del plugin</h5>
+                            {credentialFields.map(field => (
+                              <label key={field.id} className="setting-label">
+                                <span>{field.label}</span>
+                                <input
+                                  type={field.secret ? 'password' : 'text'}
+                                  className="setting-input"
+                                  placeholder={field.description}
+                                  value={entry.settings?.credentials?.[field.id] ?? ''}
+                                  onChange={(event) =>
+                                    handlePluginCredentialChange(
+                                      entry.pluginId,
+                                      field.id,
+                                      event.target.value,
+                                    )
+                                  }
+                                  disabled={!manifest}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {!manifest && (
+                          <p className="setting-hint">
+                            Copia el plugin en <code>plugins/{entry.pluginId}</code> y pulsa «Reexplorar».
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
           </div>

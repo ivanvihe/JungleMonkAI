@@ -126,12 +126,10 @@ describe('Gestión de proyectos y modelos', () => {
     expect(onOpenGlobalSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('permite crear un proyecto desde los ajustes globales', () => {
+  it('informa sobre la nueva ubicación de la gestión de proyectos en los ajustes', () => {
     const TestHarness: React.FC = () => {
       const [settings, setSettings] = React.useState(() => ({
         ...DEFAULT_GLOBAL_SETTINGS,
-        projectProfiles: [],
-        activeProjectId: null,
       }));
 
       return (
@@ -160,26 +158,9 @@ describe('Gestión de proyectos y modelos', () => {
 
     render(<TestHarness />);
 
-    fireEvent.click(screen.getByRole('button', { name: '🗂 Proyectos' }));
-
-    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Monorepo' } });
-    fireEvent.change(screen.getByLabelText('Repositorio'), {
-      target: { value: '/workspace/monorepo' },
-    });
-    fireEvent.change(screen.getByLabelText('Rama por defecto'), { target: { value: 'main' } });
-    fireEvent.change(screen.getByLabelText('Proveedor preferido'), { target: { value: 'openai' } });
-    fireEvent.change(screen.getByLabelText('Modelo preferido'), { target: { value: 'gpt-4' } });
-    fireEvent.change(screen.getByLabelText('Instrucciones fijas'), {
-      target: { value: 'Validar los tests antes de PR.' },
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-
-    const states = screen.getAllByTestId('project-state');
-    expect(states.at(-1)).toHaveTextContent('Monorepo|1');
-    expect((screen.getByLabelText('Repositorio') as HTMLInputElement).value).toBe(
-      '/workspace/monorepo',
-    );
+    expect(
+      screen.getByText('La administración de perfiles de proyecto ahora se realiza directamente desde Repo Studio.'),
+    ).toBeInTheDocument();
   });
 
   it('permite cambiar el proyecto activo desde la barra superior', () => {

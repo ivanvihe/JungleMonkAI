@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, expect, it, beforeAll, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
 import { AgentProvider } from '../../../core/agents/AgentContext';
 import { RepoWorkflowProvider } from '../../../core/codex';
 import { MessageActions } from '../../chat/messages/MessageActions';
@@ -14,6 +15,10 @@ const invokeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@tauri-apps/api/tauri', () => ({
   invoke: invokeMock,
+}));
+
+vi.mock('../../../core/storage/userDataPathsClient', () => ({
+  isTauriEnvironment: () => true,
 }));
 
 const messagesRef: { current: ChatMessage[] } = { current: [] };
@@ -50,7 +55,59 @@ const buildStubMessage = (): ChatMessage => ({
 describe('Repo workflow integration', () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    invokeMock.mockResolvedValue({ url: 'https://example.com/pr/1' });
+    invokeMock.mockImplementation((command, args) => {
+      switch (command) {
+        case 'git_list_repository_files':
+          return Promise.resolve([]);
+        case 'git_repository_status':
+          return Promise.resolve({ entries: [] });
+        case 'git_get_repository_context':
+          return Promise.resolve({
+            branch: 'main',
+            last_commit: {
+              id: 'abc123',
+              message: 'Initial commit',
+              author: 'Repo Bot',
+              time: 1_700_000_000,
+            },
+            remote: {
+              name: 'origin',
+              url: 'https://github.com/acme/wonder-project.git',
+              branch: 'main',
+            },
+          });
+        case 'git_create_pull_request':
+          return Promise.resolve({ url: 'https://example.com/pr/1' });
+        case 'git_commit_changes':
+          return Promise.resolve('abc123');
+        case 'git_push_changes':
+          return Promise.resolve('ok');
+        case 'git_pull_changes':
+          return Promise.resolve('Already up to date.');
+        case 'git_apply_patch':
+          return Promise.resolve({});
+        case 'git_list_user_repos':
+          return Promise.resolve([
+            {
+              id: 42,
+              name: 'wonder-project',
+              full_name: 'acme/wonder-project',
+              owner: 'acme',
+              description: 'Proyecto remoto de ejemplo',
+              default_branch: 'main',
+              html_url: 'https://github.com/acme/wonder-project',
+              clone_url: 'https://github.com/acme/wonder-project.git',
+              ssh_url: 'git@github.com:acme/wonder-project.git',
+              private: false,
+              visibility: 'public',
+            },
+          ]);
+        case 'git_clone_repository':
+          return Promise.resolve({});
+        default:
+          return Promise.resolve({});
+      }
+    });
     setMockMessages?.([buildStubMessage()]);
   });
 
@@ -136,5 +193,13 @@ describe('Repo workflow integration', () => {
     expect(payload.payload.body).toContain('Etiquetas sugeridas: `feature` `automation`');
 
     await screen.findByText(/Auto PR\/MR creado:/);
+
+    const remoteEntries = await screen.findAllByText('acme/wonder-project');
+    expect(remoteEntries.length).toBeGreaterThan(0);
+    expect(screen.getByText('Proyecto remoto de ejemplo')).toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledWith(
+      'git_list_user_repos',
+      expect.objectContaining({ request: expect.any(Object) }),
+    );
   });
 });

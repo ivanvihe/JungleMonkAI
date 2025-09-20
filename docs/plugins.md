@@ -78,6 +78,7 @@ Cada plugin se describe mediante un JSON que sigue este esquema simplificado:
   - `chat-action`: añade botones a `MessageActions` que delegan en un comando del plugin.
   - `workspace-panel`: registra un componente React adicional para `SidePanel` o la zona principal.
   - `mcp-endpoint`: documenta endpoints compatibles con el protocolo MCP.
+  - `mcp-session`: describe sesiones MCP completas, incluyendo endpoints WebSocket/OSC/REST y los permisos disponibles para cada interacción.
 
 ## Flujo de carga
 
@@ -101,3 +102,22 @@ node -e "const fs=require('fs');const crypto=require('crypto');const raw=fs.read
 ```
 
 Incluye el hash resultante en `integrity.hash`.
+
+## Plugins de referencia
+
+### Ableton Remote (`ableton-remote`)
+
+El plugin `ableton-remote` demuestra cómo traducir mensajes MCP en comandos MIDI/OSC:
+
+- Declara una capacidad `mcp-session` con endpoints OSC (`udp://127.0.0.1:9001`) y WebSocket para supervisar el estado de Ableton Live.
+- Sus permisos `trigger-scene` y `stop-transport` aparecen como botones adicionales en `MessageActions`. Al pulsarlos, el host invoca el módulo Tauri `ableton.rs`, que reutiliza la configuración de `midi.rs` para enviar notas y mensajes de parada.
+- Para utilizarlo basta con seleccionar el puerto MIDI correcto desde los ajustes globales y habilitar el plugin en la pestaña de plugins.
+
+### VS Code Bridge (`vscode-bridge`)
+
+El plugin `vscode-bridge` expone un puente WebSocket (`ws://127.0.0.1:17654`) que permite sincronizar parches y commits con una extensión de VS Code:
+
+- Las sesiones `mcp-session` describen tanto el endpoint WebSocket como un endpoint REST auxiliar pensado para operaciones diagnósticas.
+- El módulo `vscode.rs` levanta el servidor y reutiliza `git::apply_patch` y `git::commit_changes` cuando la extensión remota envía mensajes RPC.
+- Desde la interfaz los permisos `Abrir en VS Code` y `Aplicar diff en VS Code` publican eventos en el bridge para que los clientes conectados reaccionen.
+- Puedes cambiar el puerto por defecto definiendo la variable de entorno `VSCODE_BRIDGE_PORT` antes de iniciar la aplicación.

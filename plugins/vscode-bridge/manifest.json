@@ -1,0 +1,46 @@
+{
+  "id": "vscode-bridge",
+  "name": "VS Code Bridge",
+  "version": "0.1.0",
+  "description": "Sincroniza el espacio de trabajo local con una extensión VS Code a través de WebSocket y comandos Git nativos.",
+  "capabilities": [
+    {
+      "type": "mcp-session",
+      "id": "vscode-rpc",
+      "label": "VS Code RPC",
+      "description": "Expone un canal WebSocket para coordinar parches y commits desde VS Code.",
+      "endpoints": [
+        { "transport": "ws", "url": "ws://127.0.0.1:17654" },
+        { "transport": "rest", "url": "http://127.0.0.1:17655/api" }
+      ],
+      "permissions": [
+        {
+          "id": "open-in-vscode",
+          "label": "Abrir en VS Code",
+          "description": "Solicita a la extensión enfocarse en el mensaje y abrir el archivo relacionado.",
+          "command": "focus_message",
+          "scopes": ["editor:focus"]
+        },
+        {
+          "id": "send-patch",
+          "label": "Aplicar diff en VS Code",
+          "description": "Publica el diff actual para que la extensión lo aplique o revise.",
+          "command": "send_patch",
+          "scopes": ["git:apply", "git:review"]
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "focus_message",
+      "description": "Envía un evento de enfoque a los clientes conectados.",
+      "signature": "vscode-focus-message-v1"
+    },
+    {
+      "name": "send_patch",
+      "description": "Distribuye un diff MCP y notifica a los clientes conectados.",
+      "signature": "vscode-send-patch-v1"
+    }
+  ]
+}

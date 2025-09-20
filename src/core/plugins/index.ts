@@ -26,7 +26,28 @@ export type PluginCapability =
       id: string;
       transport: 'http' | 'ws';
       url: string;
+    }
+  | {
+      type: 'mcp-session';
+      id: string;
+      label: string;
+      description?: string;
+      endpoints: PluginMcpSessionEndpoint[];
+      permissions: PluginMcpSessionPermission[];
     };
+
+export interface PluginMcpSessionEndpoint {
+  transport: 'ws' | 'osc' | 'rest';
+  url: string;
+}
+
+export interface PluginMcpSessionPermission {
+  id: string;
+  label: string;
+  description?: string;
+  command: string;
+  scopes?: string[];
+}
 
 export interface PluginCredentialField {
   id: string;
@@ -149,36 +170,106 @@ const isPluginManifest = (value: unknown): value is PluginManifest => {
 };
 
 const validateCapabilities = (capabilities: PluginCapability[]): PluginCapability[] => {
-  return capabilities.filter(capability => {
+  const sanitized: PluginCapability[] = [];
+
+  capabilities.forEach(capability => {
     if (!capability || typeof capability !== 'object') {
-      return false;
+      return;
     }
+
     switch (capability.type) {
       case 'agent-provider':
-        return true;
+        sanitized.push(capability);
+        break;
       case 'chat-action':
-        return (
+        if (
           typeof capability.id === 'string' &&
           typeof capability.label === 'string' &&
           typeof capability.command === 'string'
-        );
+        ) {
+          sanitized.push({ ...capability });
+        }
+        break;
       case 'workspace-panel':
-        return (
+        if (
           typeof capability.id === 'string' &&
           typeof capability.label === 'string' &&
           (capability.slot === 'side-panel' || capability.slot === 'workspace') &&
           typeof capability.module === 'string'
-        );
+        ) {
+          sanitized.push({ ...capability });
+        }
+        break;
       case 'mcp-endpoint':
-        return (
+        if (
           typeof capability.id === 'string' &&
           (capability.transport === 'http' || capability.transport === 'ws') &&
           typeof capability.url === 'string'
-        );
+        ) {
+          sanitized.push({ ...capability });
+        }
+        break;
+      case 'mcp-session': {
+        if (typeof capability.id !== 'string' || typeof capability.label !== 'string') {
+          break;
+        }
+
+        const endpoints = Array.isArray(capability.endpoints)
+          ? capability.endpoints
+              .filter(
+                endpoint =>
+                  endpoint &&
+                  (endpoint.transport === 'ws' ||
+                    endpoint.transport === 'osc' ||
+                    endpoint.transport === 'rest') &&
+                  typeof endpoint.url === 'string',
+              )
+              .map(endpoint => ({
+                transport: endpoint.transport,
+                url: endpoint.url,
+              }))
+          : [];
+
+        const permissions = Array.isArray(capability.permissions)
+          ? capability.permissions
+              .filter(
+                permission =>
+                  permission &&
+                  typeof permission.id === 'string' &&
+                  typeof permission.label === 'string' &&
+                  typeof permission.command === 'string',
+              )
+              .map(permission => ({
+                id: permission.id,
+                label: permission.label,
+                description: permission.description,
+                command: permission.command,
+                scopes: Array.isArray(permission.scopes)
+                  ? permission.scopes.filter((scope): scope is string => typeof scope === 'string')
+                  : undefined,
+              }))
+          : [];
+
+        if (!endpoints.length || !permissions.length) {
+          break;
+        }
+
+        sanitized.push({
+          type: 'mcp-session',
+          id: capability.id,
+          label: capability.label,
+          description: capability.description,
+          endpoints,
+          permissions,
+        });
+        break;
+      }
       default:
-        return false;
+        break;
     }
   });
+
+  return sanitized;
 };
 
 const validateCredentials = (credentials: PluginCredentialField[] | undefined) => {

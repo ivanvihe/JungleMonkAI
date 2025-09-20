@@ -106,6 +106,12 @@ const describeCapability = (capability: PluginCapability): string => {
         : 'Panel principal personalizado';
     case 'mcp-endpoint':
       return `Endpoint MCP (${capability.transport.toUpperCase()})`;
+    case 'mcp-session': {
+      const transports = capability.endpoints
+        .map(endpoint => endpoint.transport.toUpperCase())
+        .join(', ');
+      return `Sesión MCP (${transports || 'SIN ENDPOINTS'})`;
+    }
     default:
       return capability.type;
   }

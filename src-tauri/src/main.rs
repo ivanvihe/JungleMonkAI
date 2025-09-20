@@ -1,3 +1,4 @@
+mod ableton;
 mod audio;
 mod config;
 mod git;
@@ -5,6 +6,7 @@ mod gpu;
 mod midi;
 mod models;
 mod plugins;
+mod vscode;
 
 use config::{Config, ConfigState, LayerConfig};
 use git::{
@@ -82,6 +84,8 @@ fn main() {
             plugins::PluginManager::new(plugins_dir.clone())
                 .expect("no se pudo inicializar el gestor de plugins"),
         )
+        .manage(ableton::AbletonState::default())
+        .manage(vscode::VsCodeBridgeState::default())
         .invoke_handler(tauri::generate_handler![
             set_layer_opacity,
             get_config,
@@ -113,9 +117,15 @@ fn main() {
                 error!("failed to start midi: {e:?}");
                 let _ = app.emit_all("error", format!("midi start error: {e}"));
             }
+            if let Err(e) = ableton::start(app.handle().clone()) {
+                error!("failed to start ableton bridge: {e:?}");
+            }
             if let Err(e) = audio::start(app.handle().clone()) {
                 error!("failed to start audio: {e:?}");
                 let _ = app.emit_all("error", format!("audio start error: {e}"));
+            }
+            if let Err(e) = vscode::start(app.handle().clone()) {
+                error!("failed to start vscode bridge: {e:?}");
             }
             tauri::async_runtime::spawn(gpu::init());
             Ok(())

@@ -53,4 +53,55 @@ describe('loadPluginManifest', () => {
       }),
     ).rejects.toThrow(/requiere la versión 9\.9\.9/);
   });
+
+  it('normaliza capacidades mcp-session y filtra endpoints inválidos', async () => {
+    const loaded = await loadPluginManifest({
+      source: {
+        ...baseManifest,
+        capabilities: [
+          ...baseManifest.capabilities,
+          {
+            type: 'mcp-session',
+            id: 'session-1',
+            label: 'Sesión de prueba',
+            endpoints: [
+              { transport: 'ws', url: 'ws://localhost:17654' },
+              { transport: 'invalid', url: 'ipc://socket' },
+            ],
+            permissions: [
+              {
+                id: 'perm',
+                label: 'Permiso válido',
+                command: 'send-snippet',
+                scopes: ['test:scope', 42],
+              },
+              {
+                id: 'invalid',
+                label: 'Invalid',
+                command: 123,
+              } as unknown as Record<string, unknown>,
+            ],
+          },
+        ],
+      },
+      currentVersion: '0.1.0',
+    });
+
+    const session = loaded.manifest.capabilities.find(
+      capability => capability.type === 'mcp-session',
+    ) as Extract<typeof loaded.manifest.capabilities[number], { type: 'mcp-session' }>;
+
+    expect(session?.endpoints).toEqual([
+      { transport: 'ws', url: 'ws://localhost:17654' },
+    ]);
+    expect(session?.permissions).toEqual([
+      {
+        id: 'perm',
+        label: 'Permiso válido',
+        description: undefined,
+        command: 'send-snippet',
+        scopes: ['test:scope'],
+      },
+    ]);
+  });
 });

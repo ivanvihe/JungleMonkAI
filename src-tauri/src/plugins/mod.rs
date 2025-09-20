@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
+use tauri::AppHandle;
+
+use crate::{ableton, vscode};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +69,34 @@ pub enum PluginCapability {
         transport: String,
         url: String,
     },
+    #[serde(rename_all = "camelCase")]
+    McpSession {
+        id: String,
+        label: String,
+        #[serde(default)]
+        description: Option<String>,
+        endpoints: Vec<McpSessionEndpoint>,
+        permissions: Vec<McpSessionPermission>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpSessionEndpoint {
+    pub transport: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpSessionPermission {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub command: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -193,7 +224,13 @@ impl PluginManager {
         guard.values().cloned().collect()
     }
 
-    pub fn invoke_command(&self, plugin_id: &str, command: &str, _payload: Value) -> Result<Value> {
+    pub fn invoke_command(
+        &self,
+        plugin_id: &str,
+        command: &str,
+        payload: Value,
+        app: &AppHandle,
+    ) -> Result<Value> {
         let guard = self.plugins.read().unwrap();
         let plugin = guard
             .get(plugin_id)
@@ -213,11 +250,17 @@ impl PluginManager {
             );
         }
 
-        Ok(serde_json::json!({
-            "status": "queued",
-            "plugin": plugin_id,
-            "command": command,
-        }))
+        let response = match plugin_id {
+            "ableton-remote" => ableton::handle_plugin_command(app, command, payload.clone())?,
+            "vscode-bridge" => vscode::handle_plugin_command(app, command, payload.clone())?,
+            _ => serde_json::json!({
+                "status": "queued",
+                "plugin": plugin_id,
+                "command": command,
+            }),
+        };
+
+        Ok(response)
     }
 
     fn load_plugin(&self, dir: &Path) -> Result<PluginRuntimeDescriptor> {
@@ -360,11 +403,12 @@ pub async fn plugin_list(
 #[tauri::command]
 pub async fn plugin_invoke(
     manager: tauri::State<'_, PluginManager>,
+    app: tauri::AppHandle,
     plugin_id: String,
     command: String,
     payload: Value,
 ) -> Result<Value, String> {
     manager
-        .invoke_command(&plugin_id, &command, payload)
+        .invoke_command(&plugin_id, &command, payload, &app)
         .map_err(|error| error.to_string())
 }

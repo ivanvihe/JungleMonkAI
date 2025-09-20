@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
 import { ApiKeySettings } from '../../types/globalSettings';
+import { ModelGallery } from '../models/ModelGallery';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
@@ -80,6 +81,10 @@ export const SidePanel: React.FC<SidePanelProps> = ({ apiKeys, onApiKeyChange })
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="panel-section">
+          <ModelGallery />
         </section>
 
         <section className="panel-section">

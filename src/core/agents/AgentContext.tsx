@@ -1,13 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { isSupportedProvider } from '../../utils/globalSettings';
-import { AgentDefinition, initializeAgents, syncAgentWithApiKeys } from './agentRegistry';
+import { AgentDefinition, AgentStatus, initializeAgents, syncAgentWithApiKeys } from './agentRegistry';
 
 interface AgentContextValue {
   agents: AgentDefinition[];
   activeAgents: AgentDefinition[];
   agentMap: Map<string, AgentDefinition>;
   toggleAgent: (agentId: string) => void;
+  updateLocalAgentState: (agentId: string, status: AgentStatus, active?: boolean) => void;
 }
 
 const AgentContext = createContext<AgentContextValue | undefined>(undefined);
@@ -71,6 +72,30 @@ export const AgentProvider: React.FC<AgentProviderProps> = ({ apiKeys, children 
     [apiKeys],
   );
 
+  const updateLocalAgentState = useCallback(
+    (agentId: string, status: AgentStatus, active?: boolean) => {
+      setAgents(prev =>
+        prev.map(agent => {
+          if (agent.id !== agentId || agent.kind !== 'local') {
+            return agent;
+          }
+
+          const desiredActive = active ?? agent.active;
+          if (agent.status === status && agent.active === desiredActive) {
+            return agent;
+          }
+
+          return {
+            ...agent,
+            status,
+            active: desiredActive,
+          };
+        }),
+      );
+    },
+    [],
+  );
+
   const value = useMemo(() => {
     const activeAgents = agents.filter(agent => agent.active);
     const agentMap = new Map<string, AgentDefinition>();
@@ -81,8 +106,9 @@ export const AgentProvider: React.FC<AgentProviderProps> = ({ apiKeys, children 
       activeAgents,
       agentMap,
       toggleAgent,
+      updateLocalAgentState,
     };
-  }, [agents, toggleAgent]);
+  }, [agents, toggleAgent, updateLocalAgentState]);
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
 };

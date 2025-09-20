@@ -91,7 +91,9 @@ impl SecretManager {
         let cipher = self.cipher()?;
         let decrypted = cipher
             .decrypt(Nonce::from_slice(nonce_bytes), payload)
-            .map_err(|err| SecretError::Message(format!("No se pudo descifrar el almacén: {err}")))?;
+            .map_err(|err| {
+                SecretError::Message(format!("No se pudo descifrar el almacén: {err}"))
+            })?;
 
         let store: SecretStore = serde_json::from_slice(&decrypted)
             .map_err(|err| SecretError::Message(format!("No se pudo parsear el almacén: {err}")))?;
@@ -102,8 +104,9 @@ impl SecretManager {
     }
 
     fn write_all(&self, data: &HashMap<String, String>) -> Result<(), SecretError> {
-        let plaintext = serde_json::to_vec(&SecretStore(data.clone()))
-            .map_err(|err| SecretError::Message(format!("No se pudo serializar el almacén: {err}")))?;
+        let plaintext = serde_json::to_vec(&SecretStore(data.clone())).map_err(|err| {
+            SecretError::Message(format!("No se pudo serializar el almacén: {err}"))
+        })?;
 
         let mut nonce_bytes = [0u8; 12];
         rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);

@@ -61,6 +61,15 @@ export interface WorkspacePreferences {
   sidePanel: SidePanelPreferences;
 }
 
+export interface DataLocationSettings {
+  useCustomPath: boolean;
+  customPath?: string;
+  lastKnownBasePath?: string;
+  defaultPath?: string;
+  lastMigrationFrom?: string;
+  lastMigrationAt?: string;
+}
+
 export interface GlobalSettings {
   version: number;
   apiKeys: ApiKeySettings;
@@ -71,6 +80,7 @@ export interface GlobalSettings {
   pluginSettings: PluginSettingsMap;
   mcpProfiles: McpProfile[];
   workspacePreferences: WorkspacePreferences;
+  dataLocation: DataLocationSettings;
 }
 
 export interface PluginSettingsEntry {

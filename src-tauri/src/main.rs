@@ -6,6 +6,7 @@ mod gpu;
 mod midi;
 mod models;
 mod plugins;
+mod settings;
 mod vscode;
 
 use config::{Config, ConfigState, LayerConfig};
@@ -18,7 +19,7 @@ use git::{
 };
 use log::error;
 use models::{activate_model, download_model, list_models, ModelRegistry};
-use std::path::PathBuf;
+use settings::{UserDataPathsInfo, UserDataPathsState};
 use tauri::{Manager, State};
 
 #[tauri::command]
@@ -54,12 +55,35 @@ async fn stop_audio() {
     audio::stop();
 }
 
+#[tauri::command]
+fn get_user_data_paths(state: State<'_, UserDataPathsState>) -> Result<UserDataPathsInfo, String> {
+    Ok(state.info())
+}
+
+#[tauri::command]
+fn set_user_data_base_dir(
+    path: String,
+    state: State<'_, UserDataPathsState>,
+) -> Result<UserDataPathsInfo, String> {
+    let candidate = std::path::PathBuf::from(path);
+    state
+        .update_base_dir(candidate)
+        .map_err(|error| error.to_string())
+}
+
 fn main() {
     let app_config = tauri::Config::default();
-    let config_dir =
-        tauri::api::path::app_config_dir(&app_config).unwrap_or_else(|| PathBuf::from("."));
-    let data_dir =
-        tauri::api::path::app_data_dir(&app_config).unwrap_or_else(|| PathBuf::from("."));
+    let legacy_config_dir = tauri::api::path::app_config_dir(&app_config)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let legacy_data_dir = tauri::api::path::app_data_dir(&app_config)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+    let user_paths =
+        settings::UserDataPaths::initialize(legacy_config_dir.clone(), legacy_data_dir.clone())
+            .expect("no se pudo inicializar las rutas de datos de usuario");
+
+    let config_dir = user_paths.config_dir();
+    let data_dir = user_paths.data_dir();
 
     let config_path = config_dir.join("config.json");
     let models_manifest = data_dir.join("models.json");
@@ -75,6 +99,7 @@ fn main() {
             path: config_path,
             inner: std::sync::RwLock::new(cfg),
         })
+        .manage(UserDataPathsState::new(user_paths))
         .manage(
             SecretManager::new("JungleMonkAI", config_dir.clone())
                 .expect("no se pudo inicializar el gestor de secretos"),
@@ -104,6 +129,8 @@ fn main() {
             git_store_secret,
             git_has_secret,
             git::reveal_secret,
+            get_user_data_paths,
+            set_user_data_base_dir,
             plugins::plugin_list,
             plugins::plugin_invoke
         ])

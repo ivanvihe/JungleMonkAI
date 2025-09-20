@@ -9,7 +9,17 @@ El panel de conversación ahora permite reenviar respuestas entre agentes para a
 3. Selecciona el agente de destino. Se registrará un apunte interno y se creará una nueva respuesta pendiente con el contexto compartido.
 4. El contenido canónico (si procede de un bloque de código) se copia automáticamente al compositor para que puedas editarlo antes de reenviarlo.
 
-Cada compartición queda registrada en `shared-messages.json` (almacenamiento local o `AppData` en Tauri) junto al historial de correcciones para facilitar la trazabilidad del dashboard de calidad.
+Cada compartición queda registrada en `shared-messages.json` dentro de la carpeta de datos de usuario (por defecto en `%APPDATA%/JungleMonkAI`, `~/Library/Application Support/JungleMonkAI` o `~/.junglemonkai`) junto al historial de correcciones para facilitar la trazabilidad del dashboard de calidad.
+
+## Ubicación de datos de usuario
+
+La aplicación guarda la configuración, los registros de calidad y los modelos locales en una carpeta específica para cada usuario.
+
+- **Windows**: `%APPDATA%/JungleMonkAI/`
+- **macOS**: `~/Library/Application Support/JungleMonkAI/`
+- **Linux**: `~/.junglemonkai/`
+
+Al iniciar la versión de escritorio se detectan instalaciones previas en el directorio de la app y se migra la información al nuevo destino registrando el evento en `migration.log`. Desde los **Ajustes globales → Ubicación de datos** puedes seleccionar una ruta personalizada; la aplicación valida que el directorio sea escribible, mueve los ficheros existentes y actualiza los ajustes persistidos.
 
 ## Controles sobre los mensajes
 

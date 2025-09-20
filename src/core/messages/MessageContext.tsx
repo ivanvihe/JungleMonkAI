@@ -891,51 +891,34 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   );
 
   useEffect(() => {
-    const syncFromTauri = async () => {
-      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-        return;
-      }
-
+    const syncFromUserData = async () => {
       try {
-        const { readTextFile, BaseDirectory, createDir } = await import(
-          /* @vite-ignore */ '@tauri-apps/api/fs'
-        );
-
-        try {
-          const data = await readTextFile(CORRECTION_STORAGE_FILE, { dir: BaseDirectory.AppData });
-          if (!data) {
-            return;
-          }
-          const parsed = JSON.parse(data) as PersistedQualityState;
-          setFeedbackByMessage(parsed.feedback ?? {});
-          setCorrections(parsed.corrections ?? []);
-        } catch (error) {
-          if (error && typeof error === 'object' && 'code' in (error as Record<string, unknown>)) {
-            if ((error as { code?: string }).code === 'NotFound') {
-              await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-            }
-          }
+        const storage = await import('../storage/userDataFiles');
+        if (!storage.isTauriEnvironment()) {
+          return;
         }
 
-        try {
-          const sharedRaw = await readTextFile(SHARED_MESSAGES_STORAGE_FILE, { dir: BaseDirectory.AppData });
-          if (sharedRaw) {
-            const parsedShared = JSON.parse(sharedRaw) as PersistedSharedState;
-            setSharedMessageLog(Array.isArray(parsedShared.entries) ? parsedShared.entries : []);
-          }
-        } catch (error) {
-          if (error && typeof error === 'object' && 'code' in (error as Record<string, unknown>)) {
-            if ((error as { code?: string }).code === 'NotFound') {
-              await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-            }
-          }
+        await storage.ensureUserDataDirectory();
+
+        const [qualityState, sharedState] = await Promise.all([
+          storage.readUserDataJson<PersistedQualityState>(CORRECTION_STORAGE_FILE),
+          storage.readUserDataJson<PersistedSharedState>(SHARED_MESSAGES_STORAGE_FILE),
+        ]);
+
+        if (qualityState) {
+          setFeedbackByMessage(qualityState.feedback ?? {});
+          setCorrections(qualityState.corrections ?? []);
+        }
+
+        if (sharedState?.entries) {
+          setSharedMessageLog(Array.isArray(sharedState.entries) ? sharedState.entries : []);
         }
       } catch (error) {
-        console.warn('No se pudo inicializar el almacenamiento de correcciones en Tauri:', error);
+        console.warn('No se pudo inicializar el almacenamiento de datos de usuario:', error);
       }
     };
 
-    void syncFromTauri();
+    void syncFromUserData();
   }, []);
 
   useEffect(() => {
@@ -951,29 +934,23 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       }
     }
 
-    const persistToTauri = async () => {
-      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-        return;
-      }
-
+    const persistToUserData = async () => {
       try {
-        const { writeTextFile, BaseDirectory, createDir } = await import(
-          /* @vite-ignore */ '@tauri-apps/api/fs'
-        );
-        await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-        await writeTextFile(
-          {
-            contents: JSON.stringify({ feedback: feedbackByMessage, corrections }),
-            path: CORRECTION_STORAGE_FILE,
-          },
-          { dir: BaseDirectory.AppData },
-        );
+        const storage = await import('../storage/userDataFiles');
+        if (!storage.isTauriEnvironment()) {
+          return;
+        }
+
+        await storage.writeUserDataJson(CORRECTION_STORAGE_FILE, {
+          feedback: feedbackByMessage,
+          corrections,
+        });
       } catch (error) {
         console.warn('No se pudo persistir el historial de correcciones en Tauri:', error);
       }
     };
 
-    void persistToTauri();
+    void persistToUserData();
   }, [feedbackByMessage, corrections]);
 
   useEffect(() => {
@@ -986,29 +963,22 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       }
     }
 
-    const persistSharedToTauri = async () => {
-      if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-        return;
-      }
-
+    const persistSharedToUserData = async () => {
       try {
-        const { writeTextFile, BaseDirectory, createDir } = await import(
-          /* @vite-ignore */ '@tauri-apps/api/fs'
-        );
-        await createDir('', { dir: BaseDirectory.AppData, recursive: true });
-        await writeTextFile(
-          {
-            contents: JSON.stringify({ entries: sharedMessageLog }),
-            path: SHARED_MESSAGES_STORAGE_FILE,
-          },
-          { dir: BaseDirectory.AppData },
-        );
+        const storage = await import('../storage/userDataFiles');
+        if (!storage.isTauriEnvironment()) {
+          return;
+        }
+
+        await storage.writeUserDataJson(SHARED_MESSAGES_STORAGE_FILE, {
+          entries: sharedMessageLog,
+        });
       } catch (error) {
         console.warn('No se pudo persistir el historial de mensajes compartidos en Tauri:', error);
       }
     };
 
-    void persistSharedToTauri();
+    void persistSharedToUserData();
   }, [sharedMessageLog]);
 
   useEffect(() => {

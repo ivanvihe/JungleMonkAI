@@ -12,7 +12,12 @@ import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
 import { RepoWorkflowProvider } from './core/codex';
 import { ApiKeySettings, GlobalSettings, SidePanelPreferences } from './types/globalSettings';
-import { DEFAULT_GLOBAL_SETTINGS, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
+import {
+  DEFAULT_GLOBAL_SETTINGS,
+  loadGlobalSettings,
+  loadGlobalSettingsFromUserData,
+  saveGlobalSettings,
+} from './utils/globalSettings';
 import { ChatActorFilter } from './types/chat';
 import { PluginHostProvider } from './core/plugins/PluginHostProvider';
 
@@ -124,6 +129,28 @@ const App: React.FC = () => {
   const resolvedInitialSettings = initialSettingsRef.current ?? DEFAULT_GLOBAL_SETTINGS;
 
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(resolvedInitialSettings);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFromUserDir = async () => {
+      try {
+        const persisted = await loadGlobalSettingsFromUserData();
+        if (persisted && !cancelled) {
+          initialSettingsRef.current = persisted;
+          setGlobalSettings(persisted);
+        }
+      } catch (error) {
+        console.warn('No se pudo cargar la configuración global desde el directorio de usuario:', error);
+      }
+    };
+
+    void loadFromUserDir();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handlePanelPreferencesChange = useCallback(
     (updater: (previous: SidePanelPreferences) => SidePanelPreferences) => {

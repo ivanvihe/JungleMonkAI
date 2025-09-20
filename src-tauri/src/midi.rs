@@ -9,7 +9,9 @@ pub struct MidiState {
 
 impl Default for MidiState {
     fn default() -> Self {
-        Self { connection: Mutex::new(None) }
+        Self {
+            connection: Mutex::new(None),
+        }
     }
 }
 
@@ -19,13 +21,16 @@ impl Drop for MidiState {
             drop(conn);
         }
     }
-
 }
 
 #[tauri::command]
 pub fn list_midi_ports() -> Result<Vec<String>, String> {
     let midi_in = MidiInput::new("tauri-midi").map_err(|e| e.to_string())?;
-    Ok(midi_in.ports().iter().filter_map(|p| midi_in.port_name(p).ok()).collect())
+    Ok(midi_in
+        .ports()
+        .iter()
+        .filter_map(|p| midi_in.port_name(p).ok())
+        .collect())
 }
 
 fn connect_port(port_name: &str, app: AppHandle, state: &State<MidiState>) -> Result<(), String> {
@@ -41,28 +46,38 @@ fn connect_port(port_name: &str, app: AppHandle, state: &State<MidiState>) -> Re
     let ports = midi_in.ports();
     let port = ports
         .into_iter()
-        .find(|p| midi_in.port_name(p).ok().map(|n| n == port_name).unwrap_or(false))
+        .find(|p| {
+            midi_in
+                .port_name(p)
+                .ok()
+                .map(|n| n == port_name)
+                .unwrap_or(false)
+        })
         .ok_or_else(|| "port not found".to_string())?;
 
     let app_clone = app.clone();
     let conn = midi_in
-        .connect(&port, "midir", move |_stamp, message, _| {
-            if message.len() >= 3 {
-                let status = message[0];
-                let channel = status & 0x0F;
+        .connect(
+            &port,
+            "midir",
+            move |_stamp, message, _| {
+                if message.len() >= 3 {
+                    let status = message[0];
+                    let channel = status & 0x0F;
 
-                if (13..=15).contains(&channel) {
-                    let note = message[1];
-                    let vel = message[2];
-                    let _ = app_clone.emit_all("midi", &(channel + 1, note, vel));
+                    if (13..=15).contains(&channel) {
+                        let note = message[1];
+                        let vel = message[2];
+                        let _ = app_clone.emit_all("midi", &(channel + 1, note, vel));
+                    }
                 }
-            }
-        }, ())
+            },
+            (),
+        )
         .map_err(|e| e.to_string())?;
 
     let mut lock = state.connection.lock().unwrap();
     *lock = Some(conn);
-
 
     Ok(())
 }
@@ -91,4 +106,3 @@ pub fn start(app: AppHandle) {
         }
     }
 }
-

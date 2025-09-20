@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
-import { ApiKeySettings, SupportedProvider } from '../../types/globalSettings';
+import { ApiKeySettings } from '../../types/globalSettings';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
-  onApiKeyChange: (provider: SupportedProvider, value: string) => void;
+  onApiKeyChange: (provider: string, value: string) => void;
 }
 
 export const SidePanel: React.FC<SidePanelProps> = ({ apiKeys, onApiKeyChange }) => {

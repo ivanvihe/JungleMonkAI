@@ -8,12 +8,12 @@ import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { SidePanel } from './components/chat/SidePanel';
 import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
-import { ApiKeySettings, GlobalSettings, SupportedProvider } from './types/globalSettings';
+import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
 import { DEFAULT_GLOBAL_SETTINGS, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
-  onApiKeyChange: (provider: SupportedProvider, value: string) => void;
+  onApiKeyChange: (provider: string, value: string) => void;
 }
 
 const AppContent: React.FC<AppContentProps> = ({ apiKeys, onApiKeyChange }) => {
@@ -53,7 +53,7 @@ const App: React.FC = () => {
     saveGlobalSettings(globalSettings);
   }, [globalSettings]);
 
-  const handleApiKeyChange = (provider: SupportedProvider, value: string) => {
+  const handleApiKeyChange = (provider: string, value: string) => {
     setGlobalSettings(prev => ({
       ...prev,
       apiKeys: {

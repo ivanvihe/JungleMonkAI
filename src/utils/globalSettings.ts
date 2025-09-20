@@ -9,6 +9,8 @@ import {
   HuggingFacePreferences,
   McpProfile,
   McpProfileEndpoint,
+  McpCredentialEntry,
+  McpCredentialMap,
   ModelPreferences,
   PluginSettingsEntry,
   PluginSettingsMap,
@@ -27,7 +29,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
@@ -161,7 +163,24 @@ const isMcpProfile = (value: unknown): value is McpProfile =>
   (value.token === undefined || typeof value.token === 'string') &&
   Array.isArray(value.endpoints) &&
   value.endpoints.every(isMcpProfileEndpoint) &&
+  (value.scopes === undefined ||
+    (Array.isArray(value.scopes) && value.scopes.every(scope => typeof scope === 'string'))) &&
   value.endpoints.length > 0;
+
+const isMcpCredentialEntry = (value: unknown): value is McpCredentialEntry =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  (value.type === 'api-key' || value.type === 'oauth') &&
+  (value.value === undefined || typeof value.value === 'string') &&
+  (value.secretId === undefined || typeof value.secretId === 'string');
+
+const isMcpCredentialEntryMap = (
+  value: unknown,
+): value is Record<string, McpCredentialEntry> =>
+  isRecord(value) && Object.values(value).every(isMcpCredentialEntry);
+
+const isMcpCredentialMap = (value: unknown): value is McpCredentialMap =>
+  isRecord(value) && Object.values(value).every(isMcpCredentialEntryMap);
 
 const isSidePanelPreferences = (value: unknown): value is SidePanelPreferences =>
   isRecord(value) &&
@@ -224,6 +243,7 @@ const isGlobalSettings = (payload: unknown): payload is GlobalSettings =>
   isPluginSettingsMap(payload.pluginSettings) &&
   Array.isArray(payload.mcpProfiles) &&
   payload.mcpProfiles.every(isMcpProfile) &&
+  isMcpCredentialMap(payload.mcpCredentials) &&
   isWorkspacePreferences(payload.workspacePreferences) &&
   isDataLocationSettings(payload.dataLocation) &&
   isModelPreferences(payload.modelPreferences) &&
@@ -619,6 +639,12 @@ const normalizeMcpProfiles = (input: McpProfile[] | undefined): McpProfile[] => 
 
     const autoConnect = typeof entry.autoConnect === 'boolean' ? entry.autoConnect : false;
 
+    const scopes = Array.isArray(entry.scopes)
+      ? entry.scopes
+          .map(scope => (typeof scope === 'string' ? scope.trim() : ''))
+          .filter(scope => Boolean(scope))
+      : undefined;
+
     seen.add(uniqueId);
     acc.push({
       id: uniqueId,
@@ -627,9 +653,72 @@ const normalizeMcpProfiles = (input: McpProfile[] | undefined): McpProfile[] => 
       autoConnect,
       token,
       endpoints,
+      scopes: scopes && scopes.length > 0 ? scopes : undefined,
     });
     return acc;
   }, []);
+};
+
+const normalizeMcpCredentials = (
+  input: McpCredentialMap | undefined,
+): McpCredentialMap => {
+  if (!input || typeof input !== 'object') {
+    return {};
+  }
+
+  const normalized: McpCredentialMap = {};
+
+  Object.entries(input).forEach(([profileId, rawEntries]) => {
+    if (!rawEntries || typeof rawEntries !== 'object') {
+      return;
+    }
+
+    const trimmedProfileId = typeof profileId === 'string' ? profileId.trim() : '';
+    if (!trimmedProfileId) {
+      return;
+    }
+
+    const entries: Record<string, McpCredentialEntry> = {};
+
+    Object.entries(rawEntries as Record<string, Partial<McpCredentialEntry> | undefined>).forEach(
+      ([fieldId, raw]) => {
+        if (!raw || typeof raw !== 'object') {
+          return;
+        }
+
+        const sanitizedFieldId = typeof fieldId === 'string' ? fieldId.trim() : '';
+        const fallbackId =
+          typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : sanitizedFieldId;
+
+        let normalizedFieldId = sanitizedFieldId || fallbackId;
+        if (!normalizedFieldId) {
+          normalizedFieldId = `credential-${Object.keys(entries).length}`;
+        }
+
+        const id =
+          typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : normalizedFieldId;
+
+        const type: McpCredentialEntry['type'] = raw.type === 'oauth' ? 'oauth' : 'api-key';
+
+        const value =
+          typeof raw.value === 'string' && raw.value.trim() ? raw.value.trim() : undefined;
+
+        const secretId =
+          typeof raw.secretId === 'string' && raw.secretId.trim() ? raw.secretId.trim() : undefined;
+
+        entries[normalizedFieldId] = {
+          id,
+          type,
+          value,
+          secretId,
+        };
+      },
+    );
+
+    normalized[trimmedProfileId] = entries;
+  });
+
+  return normalized;
 };
 
 const mergeEnabledPluginList = (
@@ -860,6 +949,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   approvedManifests: {},
   pluginSettings: {},
   mcpProfiles: [],
+  mcpCredentials: {},
   workspacePreferences: {
     sidePanel: {
       position: 'right',
@@ -905,6 +995,7 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     approvedManifests: normalizeApprovedManifests(raw?.approvedManifests as AgentManifestCache),
     pluginSettings,
     mcpProfiles: normalizeMcpProfiles(raw?.mcpProfiles as McpProfile[]),
+    mcpCredentials: normalizeMcpCredentials(raw?.mcpCredentials as McpCredentialMap),
     workspacePreferences: normalizeWorkspacePreferences(
       raw?.workspacePreferences as WorkspacePreferences,
     ),
@@ -984,6 +1075,7 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       defaultRoutingRules: normalizeRoutingRules(settings.defaultRoutingRules),
       pluginSettings: normalizePluginSettings(settings.pluginSettings),
       mcpProfiles: normalizeMcpProfiles(settings.mcpProfiles),
+      mcpCredentials: normalizeMcpCredentials(settings.mcpCredentials),
       enabledPlugins: mergeEnabledPluginList(
         normalizeEnabledPlugins(settings.enabledPlugins),
         normalizePluginSettings(settings.pluginSettings),

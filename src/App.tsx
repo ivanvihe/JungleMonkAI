@@ -22,8 +22,8 @@ import { ChatActorFilter } from './types/chat';
 import { PluginHostProvider } from './core/plugins/PluginHostProvider';
 import { GlobalSettingsDialog } from './components/settings/GlobalSettingsDialog';
 import { OverlayModal } from './components/common/OverlayModal';
-import { PluginSummary } from './components/settings/PluginSummary';
-import { McpSummary } from './components/settings/McpSummary';
+import { PluginManagerModal } from './components/settings/PluginManagerModal';
+import { McpManagerModal } from './components/settings/McpManagerModal';
 import { ProjectProvider } from './core/projects/ProjectContext';
 import { ModelManagerModal } from './components/models/ModelManagerModal';
 
@@ -134,11 +134,15 @@ const AppContent: React.FC<AppContentProps> = ({
         isOpen={isPluginsOpen}
         onClose={() => setPluginsOpen(false)}
       >
-        <PluginSummary settings={settings} onSettingsChange={onSettingsChange} />
+        <PluginManagerModal settings={settings} onSettingsChange={onSettingsChange} />
       </OverlayModal>
 
-      <OverlayModal title="Perfiles MCP" isOpen={isMcpOpen} onClose={() => setMcpOpen(false)}>
-        <McpSummary settings={settings} />
+      <OverlayModal
+        title="Perfiles MCP"
+        isOpen={isMcpOpen}
+        onClose={() => setMcpOpen(false)}
+      >
+        <McpManagerModal settings={settings} onSettingsChange={onSettingsChange} />
       </OverlayModal>
 
       <ConversationStatsModal isOpen={isStatsOpen} onClose={() => setStatsOpen(false)} />

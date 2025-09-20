@@ -1,4 +1,12 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { GlobalSettings, PluginSettingsEntry } from '../../types/globalSettings';
 import type {
   LoadedPluginManifest,
@@ -200,6 +208,7 @@ export const PluginHostProvider: React.FC<PluginHostProviderProps> = ({
   const [messageActions, setMessageActions] = useState<PluginMessageActionContext[]>([]);
   const [sidePanels, setSidePanels] = useState<PluginSidePanelContribution[]>([]);
   const [revision, setRevision] = useState(0);
+  const enabledSnapshotRef = useRef<string>('');
 
   const refresh = useCallback(() => {
     setRevision(prev => prev + 1);
@@ -247,6 +256,14 @@ export const PluginHostProvider: React.FC<PluginHostProviderProps> = ({
       cancelled = true;
     };
   }, [appVersion, transport, revision]);
+
+  useEffect(() => {
+    const snapshot = settings.enabledPlugins.slice().sort().join('|');
+    if (enabledSnapshotRef.current && enabledSnapshotRef.current !== snapshot) {
+      setRevision(prev => prev + 1);
+    }
+    enabledSnapshotRef.current = snapshot;
+  }, [settings.enabledPlugins]);
 
   useEffect(() => {
     onSettingsChange(prev => {

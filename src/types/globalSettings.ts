@@ -23,7 +23,19 @@ export interface McpProfile {
   autoConnect: boolean;
   token?: string;
   endpoints: McpProfileEndpoint[];
+  scopes?: string[];
 }
+
+export type McpCredentialType = 'api-key' | 'oauth';
+
+export interface McpCredentialEntry {
+  id: string;
+  type: McpCredentialType;
+  value?: string;
+  secretId?: string;
+}
+
+export type McpCredentialMap = Record<string, Record<string, McpCredentialEntry>>;
 
 export interface CommandPresetSettings {
   temperature?: number;
@@ -106,6 +118,7 @@ export interface GlobalSettings {
   approvedManifests: AgentManifestCache;
   pluginSettings: PluginSettingsMap;
   mcpProfiles: McpProfile[];
+  mcpCredentials: McpCredentialMap;
   workspacePreferences: WorkspacePreferences;
   dataLocation: DataLocationSettings;
   modelPreferences: ModelPreferences;

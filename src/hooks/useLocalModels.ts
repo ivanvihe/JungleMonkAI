@@ -7,6 +7,8 @@ export interface LocalModel {
   id: string;
   name: string;
   description: string;
+  provider: string;
+  tags: string[];
   size: number;
   checksum: string;
   status: LocalModelStatus;
@@ -19,6 +21,8 @@ interface BackendModelSummary {
   id: string;
   name: string;
   description: string;
+  provider: string;
+  tags: string[];
   size: number;
   checksum: string;
   status: LocalModelStatus;
@@ -82,6 +86,8 @@ export const useLocalModels = (): UseLocalModelsResult => {
           id: agent.id,
           name: agent.name,
           description: agent.description,
+          provider: 'Catálogo local',
+          tags: [],
           size: 0,
           checksum: agent.model,
           status: agent.status === 'Cargando' ? 'downloading' : agent.status === 'Disponible' ? 'ready' : 'not_installed',
@@ -102,6 +108,8 @@ export const useLocalModels = (): UseLocalModelsResult => {
           id: model.id,
           name: model.name,
           description: model.description,
+          provider: model.provider,
+          tags: model.tags,
           size: model.size,
           checksum: model.checksum,
           status: model.status,

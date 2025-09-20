@@ -5,6 +5,7 @@ import './components/chat/ChatInterface.css';
 import { ChatTopBar } from './components/chat/ChatTopBar';
 import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { SidePanel } from './components/chat/SidePanel';
+import { ConversationStatsModal } from './components/chat/ConversationStatsModal';
 import { RepoStudio } from './components/repo/RepoStudio';
 import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
@@ -46,6 +47,7 @@ const AppContent: React.FC<AppContentProps> = ({
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isPluginsOpen, setPluginsOpen] = useState(false);
   const [isMcpOpen, setMcpOpen] = useState(false);
+  const [isStatsOpen, setStatsOpen] = useState(false);
 
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
 
@@ -60,6 +62,7 @@ const AppContent: React.FC<AppContentProps> = ({
         activeFilter={actorFilter}
         onFilterChange={setActorFilter}
         onRefreshPresence={() => void refresh()}
+        onOpenStats={() => setStatsOpen(true)}
         onOpenGlobalSettings={() => setSettingsOpen(true)}
         onOpenPlugins={() => setPluginsOpen(true)}
         onOpenMcp={() => setMcpOpen(true)}
@@ -113,6 +116,8 @@ const AppContent: React.FC<AppContentProps> = ({
       <OverlayModal title="Perfiles MCP" isOpen={isMcpOpen} onClose={() => setMcpOpen(false)}>
         <McpSummary settings={settings} />
       </OverlayModal>
+
+      <ConversationStatsModal isOpen={isStatsOpen} onClose={() => setStatsOpen(false)} />
     </div>
   );
 };

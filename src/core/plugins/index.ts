@@ -1,3 +1,6 @@
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
+
 import type { AgentManifest } from '../../types/agents';
 
 export type PluginCapability =
@@ -147,8 +150,7 @@ const computeSha256 = async (payload: string): Promise<string> => {
     return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
   }
 
-  const { createHash } = await import('crypto');
-  return createHash('sha256').update(payload).digest('hex');
+  return bytesToHex(sha256(data));
 };
 
 const prepareForChecksum = (manifest: PluginManifest): Omit<PluginManifest, 'integrity'> => {

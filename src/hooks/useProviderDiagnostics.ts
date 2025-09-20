@@ -1,10 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { callAnthropicChat, callGroqChat, callOpenAIChat } from '../utils/aiProviders';
-import {
-  getSupportedProviders,
-  isSupportedProvider,
-} from '../utils/globalSettings';
-import { SupportedProvider } from '../types/globalSettings';
+import { getSupportedProviders, isSupportedProvider } from '../utils/globalSettings';
+import { BuiltinProvider, SupportedProvider } from '../types/globalSettings';
 
 export interface ApiKeyValidationResult {
   valid: boolean;
@@ -18,13 +15,13 @@ export interface ProviderTestResult {
   message?: string;
 }
 
-const PROVIDER_PATTERNS: Partial<Record<SupportedProvider, RegExp>> = {
+const PROVIDER_PATTERNS: Partial<Record<BuiltinProvider, RegExp>> = {
   openai: /^sk-[a-zA-Z0-9]{20,}$/,
   anthropic: /^sk-ant-[a-zA-Z0-9]{20,}$/,
   groq: /^gsk_[a-zA-Z0-9]{20,}$/,
 };
 
-const PROVIDER_TEST_MODELS: Record<SupportedProvider, string> = {
+const PROVIDER_TEST_MODELS: Record<BuiltinProvider, string> = {
   openai: 'gpt-4o-mini',
   anthropic: 'claude-3-haiku-20240307',
   groq: 'mixtral-8x7b-32768',
@@ -35,7 +32,7 @@ const TEST_PROMPT = 'Responde únicamente con "OK".';
 const getTimestamp = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 export const useProviderDiagnostics = () => {
-  const supportedProviders = useMemo(() => getSupportedProviders(), []);
+  const supportedProviders = getSupportedProviders();
 
   const validateApiKey = useCallback(
     (provider: string, rawKey: string): ApiKeyValidationResult => {

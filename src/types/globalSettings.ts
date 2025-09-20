@@ -1,6 +1,10 @@
-export type SupportedProvider = 'openai' | 'anthropic' | 'groq' | 'github' | 'gitlab';
+import type { AgentManifestCache } from './agents';
 
-export const BUILTIN_PROVIDERS: SupportedProvider[] = ['openai', 'anthropic', 'groq', 'github', 'gitlab'];
+export type BuiltinProvider = 'openai' | 'anthropic' | 'groq' | 'github' | 'gitlab';
+
+export type SupportedProvider = BuiltinProvider | (string & {});
+
+export const BUILTIN_PROVIDERS: BuiltinProvider[] = ['openai', 'anthropic', 'groq', 'github', 'gitlab'];
 
 export type ApiKeySettings = Record<string, string>;
 
@@ -32,4 +36,6 @@ export interface GlobalSettings {
   apiKeys: ApiKeySettings;
   commandPresets: CommandPreset[];
   defaultRoutingRules: DefaultRoutingRules;
+  enabledPlugins: string[];
+  approvedManifests: AgentManifestCache;
 }

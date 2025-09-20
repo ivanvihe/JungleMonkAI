@@ -13,7 +13,6 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@noble/hashes": "^1.8.0",
     "@tauri-apps/api": "^1.5.0",
     "@types/three": "^0.179.0",
     "react": "^18.2.0",

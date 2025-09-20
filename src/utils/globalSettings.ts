@@ -1,5 +1,3 @@
-import { Validator } from 'jsonschema';
-import type { Schema } from 'jsonschema';
 import {
   ApiKeySettings,
   BUILTIN_PROVIDERS,
@@ -27,12 +25,7 @@ import type {
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
 export const CURRENT_SCHEMA_VERSION = 8;
-
-const validator = new Validator();
-
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
-
-const allowNull = (schema: Schema): Schema => ({ anyOf: [schema, { type: 'null' }] });
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
 
@@ -56,235 +49,161 @@ const DEFAULT_SIDE_PANEL_WIDTH = 320;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
-const agentManifestModelSchema: Schema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    name: { type: 'string' },
-    model: { type: 'string' },
-    description: { type: 'string' },
-    kind: { type: 'string', enum: ['cloud', 'local'] },
-    accent: allowNull({ type: 'string' }),
-    channel: allowNull({ type: 'string' }),
-    aliases: allowNull({ type: 'array', items: { type: 'string' } }),
-    defaultActive: allowNull({ type: 'boolean' }),
-  },
-  required: ['id', 'name', 'model', 'description', 'kind'],
-  additionalProperties: false,
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  isRecord(value) && Object.values(value).every(entry => typeof entry === 'string');
+
+const isOptionalString = (value: unknown): value is string | undefined =>
+  value === undefined || typeof value === 'string';
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isCommandPresetSettings = (value: unknown): value is CommandPreset['settings'] => {
+  if (value === undefined) {
+    return true;
+  }
+
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(([key, entry]) => {
+    if (key !== 'temperature' && key !== 'maxTokens') {
+      return false;
+    }
+
+    return entry === undefined || isFiniteNumber(entry);
+  });
 };
 
-const agentManifestSchema: Schema = {
-  type: 'object',
-  properties: {
-    provider: { type: 'string' },
-    models: {
-      type: 'array',
-      items: agentManifestModelSchema,
-    },
-    capabilities: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-  },
-  required: ['provider', 'models', 'capabilities'],
-  additionalProperties: false,
-};
+const isCommandPreset = (value: unknown): value is CommandPreset =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.label === 'string' &&
+  typeof value.prompt === 'string' &&
+  isOptionalString(value.description) &&
+  isOptionalString(value.provider) &&
+  isOptionalString(value.model) &&
+  isCommandPresetSettings(value.settings);
 
-const agentManifestCacheEntrySchema: Schema = {
-  type: 'object',
-  properties: {
-    checksum: { type: 'string' },
-    approvedAt: { type: 'string' },
-    manifests: {
-      type: 'array',
-      items: agentManifestSchema,
-    },
-  },
-  required: ['checksum', 'approvedAt', 'manifests'],
-  additionalProperties: false,
-};
+const isRoutingRule = (value: unknown): value is RoutingRule =>
+  isRecord(value) &&
+  typeof value.provider === 'string' &&
+  typeof value.model === 'string' &&
+  (value.commandPresetId === undefined || typeof value.commandPresetId === 'string');
 
-const pluginSettingsEntrySchema: Schema = {
-  type: 'object',
-  properties: {
-    enabled: { type: 'boolean' },
-    credentials: {
-      type: 'object',
-      additionalProperties: { type: 'string' },
-    },
-    lastApprovedChecksum: allowNull({ type: 'string' }),
-  },
-  required: ['enabled', 'credentials'],
-  additionalProperties: false,
-};
+const isDefaultRoutingRules = (value: unknown): value is DefaultRoutingRules =>
+  isRecord(value) && Object.values(value).every(isRoutingRule);
 
-const mcpProfileEndpointSchema: Schema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    transport: { type: 'string', enum: ['ws', 'osc', 'rest'] },
-    url: { type: 'string' },
-  },
-  required: ['id', 'transport', 'url'],
-  additionalProperties: false,
-};
+const isPluginSettingsEntry = (value: unknown): value is PluginSettingsEntry =>
+  isRecord(value) &&
+  typeof value.enabled === 'boolean' &&
+  isStringRecord(value.credentials) &&
+  isOptionalString(value.lastApprovedChecksum);
 
-const mcpProfileSchema: Schema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    label: { type: 'string' },
-    description: allowNull({ type: 'string' }),
-    autoConnect: { type: 'boolean' },
-    token: allowNull({ type: 'string' }),
-    endpoints: {
-      type: 'array',
-      items: mcpProfileEndpointSchema,
-      minItems: 1,
-    },
-  },
-  required: ['id', 'label', 'autoConnect', 'endpoints'],
-  additionalProperties: false,
-};
+const isPluginSettingsMap = (value: unknown): value is PluginSettingsMap =>
+  isRecord(value) && Object.values(value).every(isPluginSettingsEntry);
 
-const sidePanelPreferencesSchema: Schema = {
-  type: 'object',
-  properties: {
-    position: { type: 'string', enum: ['left', 'right'] },
-    width: { type: 'number', minimum: MIN_SIDE_PANEL_WIDTH, maximum: MAX_SIDE_PANEL_WIDTH },
-    collapsed: { type: 'boolean' },
-    activeSectionId: allowNull({ type: 'string' }),
-  },
-  required: ['position', 'width', 'collapsed', 'activeSectionId'],
-  additionalProperties: false,
-};
+const isAgentManifestModel = (value: unknown): value is AgentManifestModel =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.name === 'string' &&
+  typeof value.model === 'string' &&
+  typeof value.description === 'string' &&
+  (value.kind === 'cloud' || value.kind === 'local') &&
+  (value.accent === undefined || typeof value.accent === 'string') &&
+  (value.channel === undefined || typeof value.channel === 'string') &&
+  (value.aliases === undefined || (Array.isArray(value.aliases) && value.aliases.every(item => typeof item === 'string'))) &&
+  (value.defaultActive === undefined || typeof value.defaultActive === 'boolean');
 
-const workspacePreferencesSchema: Schema = {
-  type: 'object',
-  properties: {
-    sidePanel: sidePanelPreferencesSchema,
-  },
-  required: ['sidePanel'],
-  additionalProperties: false,
-};
+const isAgentManifest = (value: unknown): value is AgentManifest =>
+  isRecord(value) &&
+  typeof value.provider === 'string' &&
+  Array.isArray(value.models) &&
+  value.models.every(isAgentManifestModel) &&
+  Array.isArray(value.capabilities) &&
+  value.capabilities.every(capability => typeof capability === 'string');
 
-const projectProfileSchema: Schema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    name: { type: 'string' },
-    repositoryPath: { type: 'string' },
-    defaultBranch: allowNull({ type: 'string' }),
-    instructions: allowNull({ type: 'string' }),
-    preferredProvider: allowNull({ type: 'string' }),
-    preferredModel: allowNull({ type: 'string' }),
-  },
-  required: ['id', 'name', 'repositoryPath'],
-  additionalProperties: false,
-};
+const isAgentManifestCacheEntry = (value: unknown): value is AgentManifestCacheEntry =>
+  isRecord(value) &&
+  typeof value.checksum === 'string' &&
+  typeof value.approvedAt === 'string' &&
+  Array.isArray(value.manifests) &&
+  value.manifests.every(isAgentManifest);
 
-const dataLocationSchema: Schema = {
-  type: 'object',
-  properties: {
-    useCustomPath: { type: 'boolean' },
-    customPath: allowNull({ type: 'string' }),
-    lastKnownBasePath: allowNull({ type: 'string' }),
-    defaultPath: allowNull({ type: 'string' }),
-    lastMigrationFrom: allowNull({ type: 'string' }),
-    lastMigrationAt: allowNull({ type: 'string' }),
-  },
-  required: ['useCustomPath'],
-  additionalProperties: false,
-};
+const isAgentManifestCache = (value: unknown): value is AgentManifestCache =>
+  isRecord(value) && Object.values(value).every(isAgentManifestCacheEntry);
 
-const globalSettingsSchema: Schema = {
-  type: 'object',
-  properties: {
-    version: { type: 'integer', minimum: 1 },
-    apiKeys: {
-      type: 'object',
-      additionalProperties: { type: 'string' },
-    },
-    commandPresets: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          id: { type: 'string' },
-          label: { type: 'string' },
-          prompt: { type: 'string' },
-          description: allowNull({ type: 'string' }),
-          provider: allowNull({ type: 'string' }),
-          model: allowNull({ type: 'string' }),
-          settings: allowNull({
-            type: 'object',
-            properties: {
-              temperature: allowNull({ type: 'number' }),
-              maxTokens: allowNull({ type: 'integer' }),
-            },
-            additionalProperties: false,
-          }),
-        },
-        required: ['id', 'label', 'prompt'],
-        additionalProperties: false,
-      },
-    },
-    defaultRoutingRules: {
-      type: 'object',
-      additionalProperties: {
-        type: 'object',
-        properties: {
-          provider: { type: 'string' },
-          model: { type: 'string' },
-          commandPresetId: allowNull({ type: 'string' }),
-        },
-        required: ['provider', 'model'],
-        additionalProperties: false,
-      },
-    },
-    enabledPlugins: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-    approvedManifests: {
-      type: 'object',
-      additionalProperties: agentManifestCacheEntrySchema,
-    },
-    pluginSettings: {
-      type: 'object',
-      additionalProperties: pluginSettingsEntrySchema,
-    },
-    mcpProfiles: {
-      type: 'array',
-      items: mcpProfileSchema,
-    },
-    workspacePreferences: workspacePreferencesSchema,
-    dataLocation: dataLocationSchema,
-    projectProfiles: {
-      type: 'array',
-      items: projectProfileSchema,
-    },
-    activeProjectId: allowNull({ type: 'string' }),
-  },
-  required: [
-    'version',
-    'apiKeys',
-    'commandPresets',
-    'defaultRoutingRules',
-    'enabledPlugins',
-    'approvedManifests',
-    'pluginSettings',
-    'mcpProfiles',
-    'workspacePreferences',
-    'dataLocation',
-    'projectProfiles',
-    'activeProjectId',
-  ],
-  additionalProperties: false,
-};
+const isMcpProfileEndpoint = (value: unknown): value is McpProfileEndpoint =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  (value.transport === 'ws' || value.transport === 'osc' || value.transport === 'rest') &&
+  typeof value.url === 'string';
+
+const isMcpProfile = (value: unknown): value is McpProfile =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.label === 'string' &&
+  (value.description === undefined || typeof value.description === 'string') &&
+  typeof value.autoConnect === 'boolean' &&
+  (value.token === undefined || typeof value.token === 'string') &&
+  Array.isArray(value.endpoints) &&
+  value.endpoints.every(isMcpProfileEndpoint) &&
+  value.endpoints.length > 0;
+
+const isSidePanelPreferences = (value: unknown): value is SidePanelPreferences =>
+  isRecord(value) &&
+  (value.position === 'left' || value.position === 'right') &&
+  isFiniteNumber(value.width) &&
+  typeof value.collapsed === 'boolean' &&
+  (value.activeSectionId === null || typeof value.activeSectionId === 'string');
+
+const isWorkspacePreferences = (value: unknown): value is WorkspacePreferences =>
+  isRecord(value) && isSidePanelPreferences(value.sidePanel);
+
+const isDataLocationSettings = (value: unknown): value is DataLocationSettings =>
+  isRecord(value) &&
+  typeof value.useCustomPath === 'boolean' &&
+  isOptionalString(value.customPath) &&
+  isOptionalString(value.lastKnownBasePath) &&
+  isOptionalString(value.defaultPath) &&
+  isOptionalString(value.lastMigrationFrom) &&
+  isOptionalString(value.lastMigrationAt);
+
+const isProjectProfile = (value: unknown): value is ProjectProfile =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.name === 'string' &&
+  typeof value.repositoryPath === 'string' &&
+  isOptionalString(value.defaultBranch) &&
+  isOptionalString(value.instructions) &&
+  isOptionalString(value.preferredProvider) &&
+  isOptionalString(value.preferredModel);
+
+const isGlobalSettings = (payload: unknown): payload is GlobalSettings =>
+  isRecord(payload) &&
+  typeof payload.version === 'number' &&
+  isStringRecord(payload.apiKeys) &&
+  Array.isArray(payload.commandPresets) &&
+  payload.commandPresets.every(isCommandPreset) &&
+  isDefaultRoutingRules(payload.defaultRoutingRules) &&
+  Array.isArray(payload.enabledPlugins) &&
+  payload.enabledPlugins.every(entry => typeof entry === 'string') &&
+  isAgentManifestCache(payload.approvedManifests) &&
+  isPluginSettingsMap(payload.pluginSettings) &&
+  Array.isArray(payload.mcpProfiles) &&
+  payload.mcpProfiles.every(isMcpProfile) &&
+  isWorkspacePreferences(payload.workspacePreferences) &&
+  isDataLocationSettings(payload.dataLocation) &&
+  Array.isArray(payload.projectProfiles) &&
+  payload.projectProfiles.every(isProjectProfile) &&
+  (payload.activeProjectId === null || typeof payload.activeProjectId === 'string');
 
 const validateGlobalSettings = (payload: unknown): payload is GlobalSettings =>
-  validator.validate(payload, globalSettingsSchema).valid;
+  isGlobalSettings(payload);
 
 const normalizeApiKeys = (input: ApiKeySettings | undefined): ApiKeySettings => {
   const normalized: ApiKeySettings = {};

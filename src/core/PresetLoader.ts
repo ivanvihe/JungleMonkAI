@@ -1,12 +1,123 @@
 import * as THREE from 'three';
 
-import { Validator } from 'jsonschema';
-import type { Schema } from 'jsonschema';
-import presetSchema from '../../presets/schema.json';
+interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
 
-const presetValidator = new Validator();
-const validatePresetConfig = (candidate: unknown) =>
-  presetValidator.validate(candidate, presetSchema as Schema);
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(entry => typeof entry === 'string');
+
+const isControlConfig = (value: unknown): boolean => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const { name, type, label } = value;
+  if (typeof name !== 'string' || typeof type !== 'string' || typeof label !== 'string') {
+    return false;
+  }
+
+  if (!['slider', 'color', 'checkbox', 'select', 'text'].includes(type)) {
+    return false;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(value, 'default')) {
+    return false;
+  }
+
+  if (value.options !== undefined && !isStringArray(value.options)) {
+    return false;
+  }
+
+  const numericKeys: Array<'min' | 'max' | 'step'> = ['min', 'max', 'step'];
+  return numericKeys.every(key => value[key] === undefined || typeof value[key] === 'number');
+};
+
+const isAudioMappingEntry = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.description === 'string' &&
+  typeof value.frequency === 'string' &&
+  typeof value.effect === 'string';
+
+const isAudioMapping = (value: unknown): boolean =>
+  isRecord(value) && Object.values(value).every(isAudioMappingEntry);
+
+const isVfxConfig = (value: unknown): boolean => {
+  if (value === undefined) {
+    return true;
+  }
+
+  return (
+    isRecord(value) &&
+    Array.isArray(value.effects) &&
+    value.effects.every(effect =>
+      isRecord(effect) && typeof effect.name === 'string' && typeof effect.label === 'string',
+    )
+  );
+};
+
+const isPerformanceConfig = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.complexity === 'low' || value.complexity === 'medium' || value.complexity === 'high') &&
+  typeof value.recommendedFPS === 'number' &&
+  typeof value.gpuIntensive === 'boolean';
+
+const validatePresetConfig = (candidate: unknown): ValidationResult => {
+  const errors: string[] = [];
+
+  if (!isRecord(candidate)) {
+    errors.push('Preset config must be an object');
+    return { valid: false, errors };
+  }
+
+  const requiredStringFields: Array<keyof PresetConfig> = [
+    'name',
+    'description',
+    'author',
+    'version',
+    'category',
+  ];
+
+  requiredStringFields.forEach(field => {
+    if (typeof candidate[field] !== 'string') {
+      errors.push(`Field "${field}" must be a string`);
+    }
+  });
+
+  if (!isStringArray(candidate.tags)) {
+    errors.push('Field "tags" must be an array of strings');
+  }
+
+  if (candidate.thumbnail !== undefined && typeof candidate.thumbnail !== 'string') {
+    errors.push('Field "thumbnail" must be a string when provided');
+  }
+
+  if (candidate.note !== undefined && typeof candidate.note !== 'number') {
+    errors.push('Field "note" must be a number when provided');
+  }
+
+  if (!Array.isArray(candidate.controls) || !candidate.controls.every(isControlConfig)) {
+    errors.push('Field "controls" must be an array of valid control definitions');
+  }
+
+  if (!isAudioMapping(candidate.audioMapping)) {
+    errors.push('Field "audioMapping" must map strings to audio descriptors');
+  }
+
+  if (!isPerformanceConfig(candidate.performance)) {
+    errors.push('Field "performance" must describe complexity, FPS and GPU usage');
+  }
+
+  if (!isVfxConfig(candidate.vfx)) {
+    errors.push('Field "vfx" must define an effects array when provided');
+  }
+
+  return { valid: errors.length === 0, errors };
+};
 
 export interface PresetConfig {
   name: string;

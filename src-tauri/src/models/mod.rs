@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use futures_util::StreamExt;
 use once_cell::sync::Lazy;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -12,6 +13,8 @@ use tauri::{State, Window};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
+
+use crate::git::SecretManager;
 
 const APP_USER_AGENT: &str = "JungleMonkAI/1.0";
 
@@ -248,10 +251,128 @@ struct HuggingFaceSibling {
     sha256: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct HuggingFaceModelApiEntry {
+    id: String,
+    pipeline_tag: Option<String>,
+    downloads: Option<u64>,
+    siblings: Option<Vec<HuggingFaceSibling>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HuggingFaceModelEntry {
+    pub id: String,
+    pub pipeline_tag: Option<String>,
+    pub downloads: Option<u64>,
+    pub files: Vec<HuggingFaceModelFile>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HuggingFaceModelFile {
+    pub file_name: String,
+    pub size: Option<u64>,
+}
+
 fn huggingface_token() -> Option<String> {
     env::var("HF_TOKEN")
         .or_else(|_| env::var("HUGGINGFACE_TOKEN"))
         .ok()
+}
+
+fn resolve_huggingface_token(manager: &SecretManager) -> Option<String> {
+    manager
+        .read("huggingface")
+        .ok()
+        .and_then(|stored| {
+            if stored.trim().is_empty() {
+                None
+            } else {
+                Some(stored)
+            }
+        })
+        .or_else(huggingface_token)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+#[allow(non_snake_case)]
+pub async fn query_huggingface_models(
+    apiBaseUrl: Option<String>,
+    limit: Option<u32>,
+    search: Option<String>,
+    filter_library: Option<String>,
+    pipeline_tag: Option<String>,
+    manager: State<'_, SecretManager>,
+) -> Result<Vec<HuggingFaceModelEntry>, String> {
+    let base_url = apiBaseUrl.unwrap_or_else(|| "https://huggingface.co".to_string());
+    let mut url =
+        Url::parse(&base_url).map_err(|err| format!("URL base inválida ({base_url}): {err}"))?;
+    url.set_path("/api/models");
+
+    {
+        let mut query_pairs = url.query_pairs_mut();
+        if let Some(limit) = limit {
+            query_pairs.append_pair("limit", &limit.to_string());
+        }
+        if let Some(search) = search.as_ref() {
+            if !search.is_empty() {
+                query_pairs.append_pair("search", search);
+            }
+        }
+        if let Some(library) = filter_library.as_ref() {
+            if !library.is_empty() {
+                query_pairs.append_pair("filter", &format!("library:{library}"));
+            }
+        }
+        if let Some(pipeline_tag) = pipeline_tag.as_ref() {
+            if !pipeline_tag.is_empty() {
+                query_pairs.append_pair("pipeline_tag", pipeline_tag);
+            }
+        }
+    }
+
+    let client = reqwest::Client::new();
+    let mut request = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, APP_USER_AGENT);
+
+    if let Some(token) = resolve_huggingface_token(&manager) {
+        request = request.bearer_auth(token);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|err| format!("Error consultando Hugging Face: {err}"))?;
+
+    let response = response
+        .error_for_status()
+        .map_err(|err| format!("Respuesta inválida de Hugging Face: {err}"))?;
+
+    let payload: Vec<HuggingFaceModelApiEntry> = response
+        .json()
+        .await
+        .map_err(|err| format!("No se pudo parsear la respuesta de Hugging Face: {err}"))?;
+
+    let models = payload
+        .into_iter()
+        .map(|entry| HuggingFaceModelEntry {
+            id: entry.id,
+            pipeline_tag: entry.pipeline_tag,
+            downloads: entry.downloads,
+            files: entry
+                .siblings
+                .unwrap_or_default()
+                .into_iter()
+                .map(|sibling| HuggingFaceModelFile {
+                    file_name: sibling.file_name,
+                    size: sibling.size,
+                })
+                .collect(),
+        })
+        .collect();
+
+    Ok(models)
 }
 
 async fn fetch_model_asset(

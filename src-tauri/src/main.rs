@@ -15,13 +15,15 @@ use git::{
     apply_patch as git_apply_patch, clone_repository as git_clone_repository,
     commit_changes as git_commit_changes, create_pull_request as git_create_pull_request,
     get_file_diff as git_get_file_diff, get_repository_context as git_get_repository_context,
-    git_pull_repository, has_secret as git_has_secret, list_repository_files as git_list_repository_files,
-    list_user_repos as git_list_user_repos, pull_changes as git_pull_changes,
-    push_changes as git_push_changes, repository_status as git_repository_status,
-    store_secret as git_store_secret, SecretManager,
+    git_pull_repository, has_secret as git_has_secret,
+    list_repository_files as git_list_repository_files, list_user_repos as git_list_user_repos,
+    pull_changes as git_pull_changes, push_changes as git_push_changes,
+    repository_status as git_repository_status, store_secret as git_store_secret, SecretManager,
 };
 use log::error;
-use models::{activate_model, download_model, list_models, ModelRegistry};
+use models::{
+    activate_model, download_model, list_models, query_huggingface_models, ModelRegistry,
+};
 use settings::{UserDataPathsInfo, UserDataPathsState};
 use tauri::{Manager, State};
 
@@ -122,6 +124,7 @@ fn main() {
             list_models,
             download_model,
             activate_model,
+            query_huggingface_models,
             ai::providers_chat,
             git_list_repository_files,
             git_repository_status,

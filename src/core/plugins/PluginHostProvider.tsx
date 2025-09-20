@@ -5,6 +5,7 @@ import type {
   PluginCapability,
   PluginManifest,
   PluginCommandDescriptor,
+  PluginMcpSessionPermission,
 } from './index';
 import { loadPluginManifest } from './index';
 
@@ -23,6 +24,10 @@ interface PluginMessageActionContext {
   icon?: string;
   signature: string;
   command: string;
+  type: 'chat-action' | 'mcp-session';
+  capabilityId?: string;
+  permissionId?: string;
+  scopes?: string[];
   run: (input: { messageId: string; value: string }) => Promise<void>;
 }
 
@@ -330,27 +335,60 @@ export const PluginHostProvider: React.FC<PluginHostProviderProps> = ({
       });
 
       plugin.manifest.capabilities
-        .filter(capability => capability.type === 'chat-action')
         .forEach(capability => {
-          const signature = commandMap.get(capability.command);
-          if (!signature) {
-            return;
+          if (capability.type === 'chat-action') {
+            const signature = commandMap.get(capability.command);
+            if (!signature) {
+              return;
+            }
+            actionEntries.push({
+              pluginId: plugin.pluginId,
+              id: capability.id,
+              label: capability.label,
+              description: capability.description,
+              icon: capability.icon,
+              signature,
+              command: capability.command,
+              type: 'chat-action',
+              run: async ({ messageId, value }) => {
+                await transport.invokeCommand(plugin.pluginId, capability.command, {
+                  messageId,
+                  value,
+                });
+              },
+            });
           }
-          actionEntries.push({
-            pluginId: plugin.pluginId,
-            id: capability.id,
-            label: capability.label,
-            description: capability.description,
-            icon: capability.icon,
-            signature,
-            command: capability.command,
-            run: async ({ messageId, value }) => {
-              await transport.invokeCommand(plugin.pluginId, capability.command, {
-                messageId,
-                value,
+
+          if (capability.type === 'mcp-session') {
+            const permissions = capability.permissions ?? [];
+            permissions.forEach((permission: PluginMcpSessionPermission) => {
+              const signature = commandMap.get(permission.command);
+              if (!signature) {
+                return;
+              }
+              actionEntries.push({
+                pluginId: plugin.pluginId,
+                id: `${capability.id}:${permission.id}`,
+                label: permission.label,
+                description: permission.description,
+                signature,
+                command: permission.command,
+                type: 'mcp-session',
+                capabilityId: capability.id,
+                permissionId: permission.id,
+                scopes: permission.scopes ?? [],
+                run: async ({ messageId, value }) => {
+                  await transport.invokeCommand(plugin.pluginId, permission.command, {
+                    messageId,
+                    value,
+                    capabilityId: capability.id,
+                    permissionId: permission.id,
+                    scopes: permission.scopes ?? [],
+                  });
+                },
               });
-            },
-          });
+            });
+          }
         });
     });
 

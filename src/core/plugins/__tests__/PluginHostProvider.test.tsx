@@ -23,12 +23,34 @@ const manifestSource = {
       label: 'Notificar',
       command: 'notify',
     },
+    {
+      type: 'mcp-session' as const,
+      id: 'ableton-session',
+      label: 'Ableton Session',
+      endpoints: [
+        { transport: 'osc', url: 'udp://127.0.0.1:9001' },
+        { transport: 'ws', url: 'ws://localhost:17653' },
+      ],
+      permissions: [
+        {
+          id: 'trigger',
+          label: 'Disparar escena en Ableton',
+          command: 'trigger_scene',
+          scopes: ['ableton:scene:trigger'],
+        },
+      ],
+    },
   ],
   commands: [
     {
       name: 'notify',
       description: 'Envía una notificación al backend.',
       signature: 'signature-notify',
+    },
+    {
+      name: 'trigger_scene',
+      description: 'Activa una escena en Ableton Live.',
+      signature: 'signature-scene',
     },
   ],
 };
@@ -71,7 +93,8 @@ describe('PluginHostProvider', () => {
 
     const Consumer: React.FC = () => {
       const { sidePanels, messageActions, plugins } = usePluginHost();
-      const action = messageActions[0];
+      const notifyAction = messageActions.find(entry => entry.id === 'notify');
+      const abletonAction = messageActions.find(entry => entry.id === 'ableton-session:trigger');
 
       return (
         <div>
@@ -82,10 +105,18 @@ describe('PluginHostProvider', () => {
           <button
             type="button"
             data-testid="trigger-action"
-            disabled={!action}
-            onClick={() => action?.run({ messageId: 'msg-1', value: 'Hola' })}
+            disabled={!notifyAction}
+            onClick={() => notifyAction?.run({ messageId: 'msg-1', value: 'Hola' })}
           >
             Ejecutar acción
+          </button>
+          <button
+            type="button"
+            data-testid="trigger-ableton"
+            disabled={!abletonAction}
+            onClick={() => abletonAction?.run({ messageId: 'msg-1', value: 'Escena 7' })}
+          >
+            Disparar Ableton
           </button>
         </div>
       );
@@ -110,6 +141,22 @@ describe('PluginHostProvider', () => {
     expect(transport.invokeCommand).toHaveBeenCalledWith('test-plugin', 'notify', {
       messageId: 'msg-1',
       value: 'Hola',
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('trigger-ableton').hasAttribute('disabled')).toBe(false),
+    );
+
+    await act(async () => {
+      screen.getByTestId('trigger-ableton').click();
+    });
+
+    expect(transport.invokeCommand).toHaveBeenCalledWith('test-plugin', 'trigger_scene', {
+      messageId: 'msg-1',
+      value: 'Escena 7',
+      capabilityId: 'ableton-session',
+      permissionId: 'trigger',
+      scopes: ['ableton:scene:trigger'],
     });
   });
 });

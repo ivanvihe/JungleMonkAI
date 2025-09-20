@@ -1,0 +1,46 @@
+{
+  "id": "ableton-remote",
+  "name": "Ableton Live Remote",
+  "version": "0.1.0",
+  "description": "Controla escenas y transporte de Ableton Live mediante sesiones MCP conectadas al motor MIDI de JungleMonkAI.",
+  "capabilities": [
+    {
+      "type": "mcp-session",
+      "id": "ableton",
+      "label": "Ableton Live Session",
+      "description": "Expone endpoints OSC y WebSocket para sincronizar escenas y transporte.",
+      "endpoints": [
+        { "transport": "osc", "url": "udp://127.0.0.1:9001" },
+        { "transport": "ws", "url": "ws://127.0.0.1:17653" }
+      ],
+      "permissions": [
+        {
+          "id": "trigger-scene",
+          "label": "Disparar escena en Ableton",
+          "description": "Analiza el mensaje MCP para obtener el índice de escena y dispara una nota MIDI.",
+          "command": "trigger_scene",
+          "scopes": ["ableton:scene:trigger"]
+        },
+        {
+          "id": "stop-transport",
+          "label": "Detener transporte de Ableton",
+          "description": "Envía un mensaje STOP al transporte global de Ableton Live.",
+          "command": "stop_transport",
+          "scopes": ["ableton:transport:stop"]
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "trigger_scene",
+      "description": "Traduce un mensaje MCP a un comando MIDI de escena.",
+      "signature": "ableton-trigger-scene-v1"
+    },
+    {
+      "name": "stop_transport",
+      "description": "Envía un comando de parada global a Ableton Live.",
+      "signature": "ableton-stop-transport-v1"
+    }
+  ]
+}

@@ -69,6 +69,7 @@ export interface CoordinationStrategy {
     agents: AgentDefinition[];
     snapshot: SharedConversationSnapshot;
     roles: Record<string, AgentRoleAssignment | undefined>;
+    agentPrompts?: Record<string, string | undefined>;
   }) => OrchestrationPlan;
 }
 

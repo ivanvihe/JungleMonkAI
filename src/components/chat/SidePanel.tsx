@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
-import { AgentPresenceEntry } from '../../core/agents/presence';
+import { AgentPresenceEntry, AgentPresenceStatus } from '../../core/agents/presence';
 import { useMessages } from '../../core/messages/MessageContext';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { ModelGallery } from '../models/ModelGallery';
@@ -9,12 +9,47 @@ import { ChatMessage } from '../../core/messages/messageTypes';
 import { QualityDashboard } from '../quality/QualityDashboard';
 import { AgentConversationPanel } from '../orchestration/AgentConversationPanel';
 import { providerSecretExists, storeProviderSecret } from '../../utils/secrets';
+import {
+  getAgentChannelLabel,
+  getAgentDisplayName,
+  getAgentVersionLabel,
+} from '../../utils/agentDisplay';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
   onApiKeyChange: (provider: string, value: string) => void;
   presenceMap: Map<string, AgentPresenceEntry>;
   onRefreshAgentPresence: (agentId?: string) => void | Promise<void>;
+}
+
+const CHANNEL_STATUS_LABELS: Record<AgentPresenceStatus, string> = {
+  online: 'Operativo',
+  offline: 'En espera',
+  error: 'Con incidencias',
+  loading: 'Verificando…',
+};
+
+const getChannelStatusClass = (status: AgentPresenceStatus): string => {
+  switch (status) {
+    case 'online':
+      return 'is-online';
+    case 'error':
+      return 'is-error';
+    case 'loading':
+      return 'is-loading';
+    default:
+      return 'is-offline';
+  }
+};
+
+interface ChannelStatusView {
+  key: string;
+  label: string;
+  version: string;
+  status: AgentPresenceStatus;
+  accent: string;
+  message?: string;
+  active: boolean;
 }
 
 export const SidePanel: React.FC<SidePanelProps> = ({
@@ -32,12 +67,15 @@ export const SidePanel: React.FC<SidePanelProps> = ({
   const {
     quickCommands,
     appendToDraft,
+    messages,
+    pendingResponses,
     agentResponses,
     formatTimestamp,
     toPlainText,
     feedbackByMessage,
     markMessageFeedback,
     submitCorrection,
+    correctionHistory,
     coordinationStrategy,
     setCoordinationStrategy,
     sharedSnapshot,
@@ -129,9 +167,152 @@ export const SidePanel: React.FC<SidePanelProps> = ({
     [onApiKeyChange],
   );
 
+  const channelStatuses = useMemo<ChannelStatusView[]>(() => {
+    const entries: ChannelStatusView[] = [];
+    const baseChannels: Array<{ id: string; fallback: string }> = [
+      { id: 'claude', fallback: 'Claude' },
+      { id: 'gpt', fallback: 'GPT' },
+      { id: 'groq', fallback: 'Groq' },
+    ];
+
+    baseChannels.forEach(({ id, fallback }) => {
+      const agent = agents.find(candidate => candidate.channel === id);
+      if (!agent) {
+        entries.push({
+          key: id,
+          label: fallback,
+          version: 'No disponible',
+          status: 'offline',
+          accent: 'rgba(255, 255, 255, 0.35)',
+          message: 'Activa el agente en la consola.',
+          active: false,
+        });
+        return;
+      }
+
+      const presenceEntry = presenceMap.get(agent.id);
+      entries.push({
+        key: id,
+        label: getAgentChannelLabel(agent),
+        version: getAgentVersionLabel(agent),
+        status: presenceEntry?.status ?? (agent.active ? 'loading' : 'offline'),
+        accent: agent.accent,
+        message: presenceEntry?.message,
+        active: agent.active,
+      });
+    });
+
+    const localAgents = agents.filter(agent => agent.kind === 'local');
+    const activeLocal = localAgents.find(agent => agent.active) ?? localAgents[0];
+    const localPresence = activeLocal ? presenceMap.get(activeLocal.id) : undefined;
+    const localStatus: AgentPresenceStatus = localPresence?.status
+      ?? (activeLocal ? (activeLocal.status === 'Cargando' ? 'loading' : 'offline') : 'offline');
+
+    entries.push({
+      key: 'jarvis',
+      label: 'Jarvis',
+      version: activeLocal ? getAgentVersionLabel(activeLocal) : 'Sin modelo activo',
+      status: localStatus,
+      accent: activeLocal?.accent ?? '#4DD0E1',
+      message: activeLocal ? localPresence?.message : 'Carga un modelo local para habilitar Jarvis.',
+      active: Boolean(activeLocal?.active),
+    });
+
+    return entries;
+  }, [agents, presenceMap]);
+
+  const usageStats = useMemo(
+    () => {
+      const userCount = messages.filter(message => message.author === 'user').length;
+      const agentCount = messages.filter(message => message.author === 'agent').length;
+      const systemCount = messages.filter(message => message.author === 'system').length;
+
+      return [
+        { label: 'Mensajes usuario', value: userCount },
+        { label: 'Mensajes agentes', value: agentCount },
+        { label: 'Mensajes sistema', value: systemCount },
+        { label: 'Pendientes', value: pendingResponses },
+      ];
+    },
+    [messages, pendingResponses],
+  );
+
+  const dataStats = useMemo(
+    () => {
+      const configuredProviders = (['openai', 'anthropic', 'groq'] as Array<keyof ApiKeySettings>).filter(
+        provider => Boolean(apiKeys[provider]),
+      );
+      const secureTokens = (githubStored ? 1 : 0) + (gitlabStored ? 1 : 0);
+
+      return [
+        { label: 'API keys activas', value: configuredProviders.length },
+        { label: 'Tokens seguros', value: secureTokens },
+        { label: 'Correcciones', value: correctionHistory.length },
+        { label: 'Comandos rápidos', value: quickCommands.length },
+      ];
+    },
+    [apiKeys, correctionHistory, githubStored, gitlabStored, quickCommands],
+  );
+
   return (
     <aside className="controls-panel">
       <div className="controls-panel-content">
+        <section className="panel-section">
+          <header className="panel-section-header">
+            <h2>Canales conectados</h2>
+            <p>Estado en tiempo real de tus proveedores.</p>
+          </header>
+          <ul className="channel-status-list">
+            {channelStatuses.map(entry => (
+              <li key={entry.key} className={`channel-status-item ${entry.active ? 'is-active' : 'is-idle'}`}>
+                <span
+                  className={`channel-status-led ${getChannelStatusClass(entry.status)}`}
+                  style={{ background: entry.accent, color: entry.accent }}
+                  aria-hidden
+                />
+                <div className="channel-status-body">
+                  <div className="channel-status-text">
+                    <span className="channel-status-name">{entry.label}</span>
+                    {entry.version && <em className="channel-status-version">{entry.version}</em>}
+                  </div>
+                  <span className="channel-status-state">{CHANNEL_STATUS_LABELS[entry.status]}</span>
+                  {entry.message && <span className="channel-status-hint">{entry.message}</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="panel-section">
+          <header className="panel-section-header">
+            <h2>Estadísticas de uso</h2>
+            <p>Actividad general de esta sesión.</p>
+          </header>
+          <ul className="sidebar-metrics">
+            {usageStats.map(stat => (
+              <li key={stat.label}>
+                <span className="sidebar-metric-label">{stat.label}</span>
+                <span className="sidebar-metric-value">{stat.value}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="panel-section">
+          <header className="panel-section-header">
+            <h2>Datos guardados</h2>
+            <p>Resumen del contenido almacenado en local.</p>
+          </header>
+          <ul className="sidebar-metrics">
+            {dataStats.map(stat => (
+              <li key={stat.label}>
+                <span className="sidebar-metric-label">{stat.label}</span>
+                <span className="sidebar-metric-value">{stat.value}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
         <section className="panel-section">
           <header className="panel-section-header">
             <h2>Credenciales</h2>
@@ -292,12 +473,16 @@ export const SidePanel: React.FC<SidePanelProps> = ({
                     .join(' · ')
                 : message.content;
 
+              const displayName = getAgentDisplayName(agent);
+              const variantLabel = agent.kind === 'local' ? getAgentVersionLabel(agent) : undefined;
+
               return (
                 <li key={message.id} className="activity-item">
                   <span className="activity-dot" style={{ background: agent.accent }} />
                   <div className="activity-content">
                     <div className="activity-title">
-                      <strong>{agent.name}</strong>
+                      <strong>{displayName}</strong>
+                      {variantLabel && <span className="activity-variant">{variantLabel}</span>}
                       <span>{formatTimestamp(message.timestamp)}</span>
                       {feedbackByMessage[message.id]?.hasError && (
                         <span className="activity-flag">Revisión pendiente</span>

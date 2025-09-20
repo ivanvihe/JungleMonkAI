@@ -6,6 +6,7 @@ import {
   AgentPresenceSummaryByKind,
 } from '../../core/agents/presence';
 import { ChatActorFilter } from '../../types/chat';
+import { getAgentDisplayName } from '../../utils/agentDisplay';
 
 interface ChatTopBarProps {
   agents: AgentDefinition[];
@@ -86,7 +87,7 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
     agents
       .filter(agent => agent.active)
       .forEach(agent => {
-        base.push({ value: `agent:${agent.id}` as ChatActorFilter, label: agent.name });
+        base.push({ value: `agent:${agent.id}` as ChatActorFilter, label: getAgentDisplayName(agent) });
       });
 
     return base;

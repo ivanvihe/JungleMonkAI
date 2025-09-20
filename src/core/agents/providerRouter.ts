@@ -9,6 +9,7 @@ import { isSupportedProvider } from '../../utils/globalSettings';
 import { ChatContentPart, ChatMessage } from '../messages/messageTypes';
 import type { CoordinationStrategyId, MultiAgentContext } from '../orchestration';
 import { AgentDefinition } from './agentRegistry';
+import { getAgentDisplayName } from '../../utils/agentDisplay';
 
 export const AGENT_SYSTEM_PROMPT =
   'Actúas como parte de un colectivo de agentes creativos. Responde de forma concisa, en español cuando sea posible, y especifica los supuestos importantes que utilices al contestar.';
@@ -118,12 +119,13 @@ export const fetchAgentReply = async ({
   context,
   onTrace,
 }: FetchAgentReplyOptions): Promise<ChatProviderResponse> => {
+  const displayName = getAgentDisplayName(agent);
   const providerKey = agent.provider.toLowerCase();
   if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
     const fallbackContent = fallback(agent, prompt, context);
     onTrace?.({
       agentId: agent.id,
-      agentName: agent.name,
+      agentName: displayName,
       type: 'fallback',
       payload: fallbackContent,
       timestamp: new Date().toISOString(),
@@ -137,10 +139,10 @@ export const fetchAgentReply = async ({
 
   const apiKey = apiKeys[providerKey];
   if (!apiKey) {
-    const payload = `${agent.name} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`;
+    const payload = `${displayName} no tiene una API key configurada. Abre los ajustes globales para habilitar sus respuestas.`;
     onTrace?.({
       agentId: agent.id,
-      agentName: agent.name,
+      agentName: displayName,
       type: 'fallback',
       payload,
       timestamp: new Date().toISOString(),
@@ -157,7 +159,7 @@ export const fetchAgentReply = async ({
     const payload = 'Necesito un prompt válido para generar una respuesta.';
     onTrace?.({
       agentId: agent.id,
-      agentName: agent.name,
+      agentName: displayName,
       type: 'fallback',
       payload,
       timestamp: new Date().toISOString(),
@@ -172,7 +174,7 @@ export const fetchAgentReply = async ({
   const { prompt: decoratedPrompt, systemPrompt } = buildPromptWithContext(agent, sanitizedPrompt, context);
   onTrace?.({
     agentId: agent.id,
-    agentName: agent.name,
+    agentName: displayName,
     type: 'request',
     payload: decoratedPrompt,
     timestamp: new Date().toISOString(),
@@ -185,7 +187,7 @@ export const fetchAgentReply = async ({
     const response = await executor();
     onTrace?.({
       agentId: agent.id,
-      agentName: agent.name,
+      agentName: displayName,
       type: 'response',
       payload: contentToPlainText(response.content),
       timestamp: new Date().toISOString(),
@@ -230,7 +232,7 @@ export const fetchAgentReply = async ({
   const fallbackContent = fallback(agent, prompt, context);
   onTrace?.({
     agentId: agent.id,
-    agentName: agent.name,
+    agentName: displayName,
     type: 'fallback',
     payload: fallbackContent,
     timestamp: new Date().toISOString(),
@@ -306,7 +308,7 @@ export const buildCorrectionPipeline = ({
 
   const promptSections = [
     contextHeader,
-    `Mensaje original del agente ${agent.name}:\n${originalText || '[vacío]'}`,
+    `Mensaje original del agente ${getAgentDisplayName(agent)}:\n${originalText || '[vacío]'}`,
     `Propuesta corregida por el operador:\n${correctedText.trim() || '[sin contenido]'}`,
     notesLine,
     tagLine,

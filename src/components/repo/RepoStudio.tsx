@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import {
   CodexEngine,
@@ -8,6 +8,7 @@ import {
   RepoWorkflowRequest,
   useRepoWorkflow,
 } from '../../core/codex';
+import { useProjects } from '../../core/projects/ProjectContext';
 import './RepoStudio.css';
 
 type RepoEntryKind = 'file' | 'directory';
@@ -73,12 +74,43 @@ export const RepoStudio: React.FC = () => {
   const [activeWorkflow, setActiveWorkflow] = useState<RepoWorkflowRequest | null>(null);
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [autoPrTriggered, setAutoPrTriggered] = useState<boolean>(false);
+  const { activeProject } = useProjects();
+  const lastProjectIdRef = useRef<string | null>(null);
 
   const planReady = execution?.readyToExecute ?? false;
 
   const updateExecution = useCallback((currentPlan: CodexPlan | null, currentReviews: CodexReview[]) => {
     setExecution(ensurePlanApproval(currentPlan, currentReviews));
   }, []);
+
+  useEffect(() => {
+    const nextProjectId = activeProject?.id ?? null;
+    if (lastProjectIdRef.current === nextProjectId) {
+      return;
+    }
+
+    lastProjectIdRef.current = nextProjectId;
+
+    if (!activeProject) {
+      setRepoPath('.');
+      setRemoteName('origin');
+      setRemoteBranch('');
+      setPrOwner('');
+      setPrRepository('');
+      setPrProvider('github');
+      setPushProvider('github');
+      return;
+    }
+
+    setRepoPath(activeProject.repositoryPath);
+    setRemoteName(activeProject.defaultRemote || 'origin');
+    setRemoteBranch(activeProject.defaultBranch || '');
+    setPrOwner(activeProject.gitOwner ?? '');
+    setPrRepository(activeProject.gitRepository ?? '');
+    const provider = activeProject.gitProvider === 'gitlab' ? 'gitlab' : 'github';
+    setPrProvider(provider);
+    setPushProvider(provider);
+  }, [activeProject]);
 
   useEffect(() => {
     if (!pendingRequest) {

@@ -4,6 +4,7 @@ import {
   CommandPreset,
   DefaultRoutingRules,
   DataLocationSettings,
+  GitHostingProvider,
   GlobalSettings,
   McpProfile,
   McpProfileEndpoint,
@@ -24,7 +25,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
@@ -173,11 +174,18 @@ const isDataLocationSettings = (value: unknown): value is DataLocationSettings =
   isOptionalString(value.lastMigrationFrom) &&
   isOptionalString(value.lastMigrationAt);
 
+const isGitProvider = (value: unknown): value is GitHostingProvider =>
+  value === 'github' || value === 'gitlab';
+
 const isProjectProfile = (value: unknown): value is ProjectProfile =>
   isRecord(value) &&
   typeof value.id === 'string' &&
   typeof value.name === 'string' &&
   typeof value.repositoryPath === 'string' &&
+  (value.gitProvider === undefined || isGitProvider(value.gitProvider)) &&
+  isOptionalString(value.gitOwner) &&
+  isOptionalString(value.gitRepository) &&
+  isOptionalString(value.defaultRemote) &&
   isOptionalString(value.defaultBranch) &&
   isOptionalString(value.instructions) &&
   isOptionalString(value.preferredProvider) &&
@@ -200,7 +208,8 @@ const isGlobalSettings = (payload: unknown): payload is GlobalSettings =>
   isDataLocationSettings(payload.dataLocation) &&
   Array.isArray(payload.projectProfiles) &&
   payload.projectProfiles.every(isProjectProfile) &&
-  (payload.activeProjectId === null || typeof payload.activeProjectId === 'string');
+  (payload.activeProjectId === null || typeof payload.activeProjectId === 'string') &&
+  (payload.githubDefaultOwner === undefined || typeof payload.githubDefaultOwner === 'string');
 
 const validateGlobalSettings = (payload: unknown): payload is GlobalSettings =>
   isGlobalSettings(payload);
@@ -707,6 +716,31 @@ const normalizeProjectProfiles = (input: unknown): ProjectProfile[] => {
       repositoryPath,
     };
 
+    const gitProvider =
+      typeof candidate.gitProvider === 'string'
+        ? candidate.gitProvider.trim().toLowerCase()
+        : '';
+    if (gitProvider === 'github' || gitProvider === 'gitlab') {
+      profile.gitProvider = gitProvider as GitHostingProvider;
+    }
+
+    const gitOwner = typeof candidate.gitOwner === 'string' ? candidate.gitOwner.trim() : '';
+    if (gitOwner) {
+      profile.gitOwner = gitOwner;
+    }
+
+    const gitRepository =
+      typeof candidate.gitRepository === 'string' ? candidate.gitRepository.trim() : '';
+    if (gitRepository) {
+      profile.gitRepository = gitRepository;
+    }
+
+    const defaultRemote =
+      typeof candidate.defaultRemote === 'string' ? candidate.defaultRemote.trim() : '';
+    if (defaultRemote) {
+      profile.defaultRemote = defaultRemote;
+    }
+
     const defaultBranch =
       typeof candidate.defaultBranch === 'string' ? candidate.defaultBranch.trim() : '';
     if (defaultBranch) {
@@ -753,6 +787,15 @@ const normalizeActiveProjectId = (
   return projects.length > 0 ? projects[0].id : null;
 };
 
+const normalizeGithubDefaultOwner = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   version: CURRENT_SCHEMA_VERSION,
   apiKeys: normalizeApiKeys({}),
@@ -780,6 +823,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   },
   projectProfiles: [],
   activeProjectId: null,
+  githubDefaultOwner: undefined,
 };
 
 export const isSupportedProvider = (value: string): value is SupportedProvider =>
@@ -811,6 +855,7 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     dataLocation: normalizeDataLocation(raw?.dataLocation as DataLocationSettings),
     projectProfiles,
     activeProjectId: normalizeActiveProjectId(raw?.activeProjectId, projectProfiles),
+    githubDefaultOwner: normalizeGithubDefaultOwner(raw?.githubDefaultOwner),
   };
 };
 
@@ -891,6 +936,7 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       dataLocation: normalizeDataLocation(settings.dataLocation),
       projectProfiles,
       activeProjectId: normalizeActiveProjectId(settings.activeProjectId, projectProfiles),
+      githubDefaultOwner: normalizeGithubDefaultOwner(settings.githubDefaultOwner),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     void persistGlobalSettingsToUserDir(payload);

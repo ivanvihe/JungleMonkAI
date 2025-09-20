@@ -18,19 +18,7 @@ export default defineConfig({
           react: ['react', 'react-dom'],
           three: ['three']
         }
-      },
-      // Externalizar las APIs de Tauri para evitar errores de build en Electron
-      external: [
-        '@tauri-apps/api/event',
-        '@tauri-apps/api/window',
-        '@tauri-apps/api/fs',
-        '@tauri-apps/api/path',
-        '@tauri-apps/api/dialog',
-        '@tauri-apps/api/shell',
-        '@tauri-apps/api/app',
-        '@tauri-apps/api/os',
-        '@tauri-apps/api'
-      ]
+      }
     }
   },
   assetsInclude: ['**/*.wgsl'],
@@ -41,19 +29,5 @@ export default defineConfig({
     modules: {
       localsConvention: 'camelCase'
     }
-  },
-  // Configurar el manejo de dependencias opcionales
-  optimizeDeps: {
-    exclude: [
-      '@tauri-apps/api',
-      '@tauri-apps/api/event',
-      '@tauri-apps/api/window',
-      '@tauri-apps/api/fs',
-      '@tauri-apps/api/path',
-      '@tauri-apps/api/dialog',
-      '@tauri-apps/api/shell',
-      '@tauri-apps/api/app',
-      '@tauri-apps/api/os'
-    ]
   }
 });

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AgentPresenceList } from '../../agents/AgentPresenceList';
 import { useAgents } from '../../../core/agents/AgentContext';
 import type { AgentPresenceEntry } from '../../../core/agents/presence';
+import { useRepoWorkflow } from '../../../core/codex';
 
 interface MessageActionsProps {
   messageId: string;
@@ -18,6 +19,7 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { agents } = useAgents();
+  const { queueRequest } = useRepoWorkflow();
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -74,6 +76,13 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
     [onShare, value],
   );
 
+  const handleSendToRepoStudio = useCallback(() => {
+    if (!value.trim()) {
+      return;
+    }
+    queueRequest({ messageId, canonicalCode: value });
+  }, [messageId, queueRequest, value]);
+
   useEffect(() => {
     if (!isPickerOpen) {
       return;
@@ -109,6 +118,9 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
           Enviar a…
         </button>
       ) : null}
+      <button type="button" className="message-action" onClick={handleSendToRepoStudio}>
+        Enviar a Repo Studio
+      </button>
       {onShare && isPickerOpen ? (
         <div className="message-action-popover" role="dialog" aria-label={`Compartir mensaje ${messageId}`}>
           {shareableAgents.length === 0 ? (

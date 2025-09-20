@@ -1,6 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import { CodexEngine, CodexPlan, CodexPlanExecution, CodexReview } from '../../core/codex';
+import {
+  CodexEngine,
+  CodexPlan,
+  CodexPlanExecution,
+  CodexReview,
+  RepoWorkflowRequest,
+  useRepoWorkflow,
+} from '../../core/codex';
 import './RepoStudio.css';
 
 type RepoEntryKind = 'file' | 'directory';
@@ -62,12 +69,38 @@ export const RepoStudio: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [patchContent, setPatchContent] = useState<string>('');
   const [patchDryRun, setPatchDryRun] = useState<boolean>(true);
+  const { pendingRequest, clearPendingRequest } = useRepoWorkflow();
+  const [activeWorkflow, setActiveWorkflow] = useState<RepoWorkflowRequest | null>(null);
+  const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
+  const [autoPrTriggered, setAutoPrTriggered] = useState<boolean>(false);
 
   const planReady = execution?.readyToExecute ?? false;
 
-  const updateExecution = (currentPlan: CodexPlan | null, currentReviews: CodexReview[]) => {
+  const updateExecution = useCallback((currentPlan: CodexPlan | null, currentReviews: CodexReview[]) => {
     setExecution(ensurePlanApproval(currentPlan, currentReviews));
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingRequest) {
+      return;
+    }
+
+    setActiveWorkflow(pendingRequest);
+    setRepoPath(pendingRequest.request.context.repositoryPath);
+    setAnalysisPrompt(pendingRequest.analysisPrompt);
+    setPlan(pendingRequest.plan);
+    setCommitMessage(pendingRequest.commitMessage);
+    setPrTitle(pendingRequest.prTitle);
+    setPrBody(pendingRequest.prBody);
+    setReviews([]);
+    updateExecution(pendingRequest.plan, []);
+    setMessages(prev => [
+      { message: `Solicitud recibida desde el chat: ${pendingRequest.plan.summary}` },
+      ...prev,
+    ]);
+    setAutoPrTriggered(false);
+    clearPendingRequest();
+  }, [pendingRequest, clearPendingRequest, updateExecution]);
 
   const fetchEntries = async () => {
     setError(null);
@@ -268,6 +301,57 @@ export const RepoStudio: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!autoPrEnabled || autoPrTriggered || !execution?.readyToExecute || !activeWorkflow) {
+      return;
+    }
+
+    if (!prOwner.trim() || !prRepository.trim() || !prHead.trim()) {
+      setError('Configura propietario, repositorio y rama origen antes de ejecutar el auto-PR.');
+      setAutoPrEnabled(false);
+      return;
+    }
+
+    const runAutoPullRequest = async () => {
+      setIsLoading(true);
+      try {
+        const response = await invoke<{ url: string; number?: number }>('git_create_pull_request', {
+          payload: {
+            provider: prProvider,
+            owner: prOwner,
+            repository: prRepository,
+            title: activeWorkflow.prTitle || prTitle || activeWorkflow.plan.intent,
+            body: activeWorkflow.prBody,
+            head: prHead,
+            base: prBase,
+            draft: prDraft,
+          },
+        });
+        setMessages(prev => [{ message: `Auto PR/MR creado: ${response.url}` }, ...prev]);
+      } catch (err) {
+        setError((err as Error).message ?? 'No se pudo crear el PR/MR automáticamente');
+      } finally {
+        setIsLoading(false);
+        setAutoPrTriggered(true);
+        setAutoPrEnabled(false);
+      }
+    };
+
+    void runAutoPullRequest();
+  }, [
+    activeWorkflow,
+    autoPrEnabled,
+    autoPrTriggered,
+    execution,
+    prBase,
+    prDraft,
+    prHead,
+    prOwner,
+    prProvider,
+    prRepository,
+    prTitle,
+  ]);
 
   const runPatch = async () => {
     if (!patchContent.trim()) {
@@ -530,6 +614,15 @@ export const RepoStudio: React.FC = () => {
           <label className="inline">
             <input type="checkbox" checked={prDraft} onChange={event => setPrDraft(event.target.checked)} />
             PR como borrador
+          </label>
+          <label className="inline">
+            <input
+              type="checkbox"
+              checked={autoPrEnabled}
+              onChange={event => setAutoPrEnabled(event.target.checked)}
+              disabled={!activeWorkflow}
+            />
+            Auto-PR al aprobar
           </label>
           <button type="button" onClick={runPullRequest} disabled={isLoading || !prTitle.trim() || !prHead.trim()}>
             Crear PR/MR

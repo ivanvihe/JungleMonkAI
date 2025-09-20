@@ -10,6 +10,7 @@ import { RepoStudio } from './components/repo/RepoStudio';
 import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
+import { RepoWorkflowProvider } from './core/codex';
 import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
 import { DEFAULT_GLOBAL_SETTINGS, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
 import { ChatActorFilter } from './types/chat';
@@ -118,7 +119,9 @@ const App: React.FC = () => {
   return (
     <AgentProvider apiKeys={globalSettings.apiKeys}>
       <MessageProvider apiKeys={globalSettings.apiKeys}>
-        <AppContent apiKeys={globalSettings.apiKeys} onApiKeyChange={handleApiKeyChange} />
+        <RepoWorkflowProvider>
+          <AppContent apiKeys={globalSettings.apiKeys} onApiKeyChange={handleApiKeyChange} />
+        </RepoWorkflowProvider>
       </MessageProvider>
     </AgentProvider>
   );

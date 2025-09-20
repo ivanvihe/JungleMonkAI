@@ -8,6 +8,7 @@ import { AudioPlayer } from './messages/AudioPlayer';
 import { ChatAttachment, ChatContentPart, ChatTranscription } from '../../core/messages/messageTypes';
 import { ChatActorFilter } from '../../types/chat';
 import { AgentKind } from '../../core/agents/agentRegistry';
+import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
 
 interface ChatWorkspaceProps {
   sidePanel: React.ReactNode;
@@ -193,6 +194,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
                     const isSystem = message.author === 'system';
                     const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
                     const chipColor = agent?.accent || 'var(--accent-color)';
+                    const agentDisplayName = agent ? getAgentDisplayName(agent) : undefined;
+                    const providerLabel = agent
+                      ? agent.kind === 'local'
+                        ? getAgentVersionLabel(agent)
+                        : agent.provider
+                      : undefined;
 
                     return (
                       <div
@@ -203,12 +210,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFi
                           <div className="message-card-author" style={{ borderColor: chipColor }}>
                             {isUser && 'Tú'}
                             {isSystem && 'Control Hub'}
-                            {!isUser && !isSystem && agent?.name}
+                            {!isUser && !isSystem && agentDisplayName}
                           </div>
                           <div className="message-card-meta">
-                            {!isUser && !isSystem && (
+                            {!isUser && !isSystem && providerLabel && (
                               <span className="message-card-tag" style={{ color: chipColor }}>
-                                {agent?.provider}
+                                {providerLabel}
                               </span>
                             )}
                             <span className="message-card-time">{formatTimestamp(message.timestamp)}</span>

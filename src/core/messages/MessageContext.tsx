@@ -23,6 +23,7 @@ import {
   MessageFeedback,
 } from './messageTypes';
 import { buildCorrectionPipeline } from '../agents/providerRouter';
+import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
 import {
   CoordinationStrategyId,
   createInitialSnapshot,
@@ -292,6 +293,136 @@ const ensureResponseModalities = (
   return inferred.length ? inferred : ['text'];
 };
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+interface MentionParseResult {
+  targetedAgents: AgentDefinition[];
+  promptsByAgent: Record<string, string>;
+  unmatchedMentions: Array<{ alias: string; candidates: AgentDefinition[] }>;
+  hasMentions: boolean;
+}
+
+const parseAgentMentions = (
+  input: string,
+  allAgents: AgentDefinition[],
+  activeAgents: AgentDefinition[],
+): MentionParseResult => {
+  if (!input.trim()) {
+    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+  }
+
+  const aliasToAgents = new Map<string, AgentDefinition[]>();
+  allAgents.forEach(agent => {
+    if (!agent.aliases?.length) {
+      return;
+    }
+
+    const normalizedAliases = new Set(
+      agent.aliases
+        .map(alias => alias.trim().toLowerCase())
+        .filter(alias => alias.length > 0),
+    );
+
+    normalizedAliases.forEach(alias => {
+      const existing = aliasToAgents.get(alias);
+      if (existing) {
+        existing.push(agent);
+      } else {
+        aliasToAgents.set(alias, [agent]);
+      }
+    });
+  });
+
+  if (!aliasToAgents.size) {
+    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+  }
+
+  const aliasPattern = Array.from(aliasToAgents.keys())
+    .map(escapeRegExp)
+    .join('|');
+
+  if (!aliasPattern) {
+    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+  }
+
+  const mentionRegex = new RegExp(`(^|[\\s,;])(${aliasPattern})\\s*:`, 'gi');
+  const mentions: Array<{
+    index: number;
+    contentStart: number;
+    original: string;
+    normalized: string;
+    agent?: AgentDefinition;
+  }> = [];
+  const unmatchedMap = new Map<string, { alias: string; candidates: AgentDefinition[] }>();
+  const activeIds = new Set(activeAgents.map(agent => agent.id));
+
+  let match: RegExpExecArray | null;
+  while ((match = mentionRegex.exec(input)) !== null) {
+    const originalAlias = match[2];
+    const normalizedAlias = originalAlias.toLowerCase();
+    const candidates = aliasToAgents.get(normalizedAlias) ?? [];
+    const activeCandidate = candidates.find(candidate => activeIds.has(candidate.id));
+    const contentStart = match.index + match[0].length;
+
+    if (!activeCandidate) {
+      if (!unmatchedMap.has(normalizedAlias)) {
+        unmatchedMap.set(normalizedAlias, { alias: originalAlias, candidates });
+      }
+    }
+
+    mentions.push({
+      index: match.index,
+      contentStart,
+      original: originalAlias,
+      normalized: normalizedAlias,
+      agent: activeCandidate,
+    });
+  }
+
+  if (!mentions.length) {
+    return { targetedAgents: [], promptsByAgent: {}, unmatchedMentions: [], hasMentions: false };
+  }
+
+  const promptsByAgent: Record<string, string> = {};
+  const targetedAgents: AgentDefinition[] = [];
+  const seenAgents = new Set<string>();
+  const firstMention = mentions[0];
+  const globalPrefix = input.slice(0, firstMention.index).trim();
+
+  for (let i = 0; i < mentions.length; i += 1) {
+    const mention = mentions[i];
+    const nextIndex = i + 1 < mentions.length ? mentions[i + 1].index : input.length;
+
+    if (!mention.agent) {
+      continue;
+    }
+
+    const slice = input.slice(mention.contentStart, nextIndex).trim();
+
+    if (!seenAgents.has(mention.agent.id)) {
+      targetedAgents.push(mention.agent);
+      seenAgents.add(mention.agent.id);
+    }
+
+    if (promptsByAgent[mention.agent.id]) {
+      const existing = promptsByAgent[mention.agent.id];
+      const appended = [existing, slice].filter(Boolean).join('\n').trim();
+      promptsByAgent[mention.agent.id] = appended || existing;
+    } else {
+      const segments = [globalPrefix, slice].filter(Boolean);
+      const combined = segments.join('\n').trim();
+      promptsByAgent[mention.agent.id] = combined || globalPrefix || slice;
+    }
+  }
+
+  return {
+    targetedAgents,
+    promptsByAgent,
+    unmatchedMentions: Array.from(unmatchedMap.values()),
+    hasMentions: true,
+  };
+};
+
 const mockAgentReply = (agent: AgentDefinition, prompt?: string, context?: MultiAgentContext): string => {
   const safePrompt = prompt?.replace(/\s+/g, ' ').trim() ?? '';
   const truncatedPrompt = safePrompt.length > 120 ? `${safePrompt.slice(0, 117)}…` : safePrompt;
@@ -314,16 +445,17 @@ const mockAgentReply = (agent: AgentDefinition, prompt?: string, context?: Multi
   }
 
   if (agent.kind === 'local') {
-    return `El modelo local ${agent.name} sugiere una variante optimizada con «${truncatedPrompt || 'los parámetros indicados'}».${roleHint}${objectiveHint}${instructions}`;
+    const versionLabel = getAgentVersionLabel(agent);
+    return `Jarvis (${versionLabel}) sugiere una variante optimizada con «${truncatedPrompt || 'los parámetros indicados'}».${roleHint}${objectiveHint}${instructions}`;
   }
 
-  return `Respuesta generada por ${agent.name}.${roleHint}${objectiveHint}${instructions}`;
+  return `Respuesta generada por ${getAgentDisplayName(agent)}.${roleHint}${objectiveHint}${instructions}`;
 };
 
 const MessageContext = createContext<MessageContextValue | undefined>(undefined);
 
 export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, children }) => {
-  const { activeAgents, agentMap } = useAgents();
+  const { agents, activeAgents, agentMap } = useAgents();
   const loadPersistedQualityState = useCallback((): PersistedQualityState => {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
       return { feedback: {}, corrections: [] };
@@ -466,17 +598,76 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       return;
     }
 
+    const mentionPlan = parseAgentMentions(trimmed, agents, activeAgents);
+    const participants =
+      mentionPlan.targetedAgents.length > 0
+        ? mentionPlan.targetedAgents
+        : mentionPlan.hasMentions
+        ? []
+        : activeAgents;
+
+    const formatCandidateLabel = (candidate: AgentDefinition): string => {
+      const displayName = getAgentDisplayName(candidate);
+      const versionLabel = getAgentVersionLabel(candidate);
+      if (candidate.kind === 'local') {
+        return `${displayName} (${versionLabel})`;
+      }
+      return `${displayName} (${candidate.model})`;
+    };
+
+    const warningMessages: ChatMessage[] = mentionPlan.unmatchedMentions.map(entry => {
+      const candidates = entry.candidates.map(formatCandidateLabel);
+      const text = entry.candidates.length
+        ? `No hay agentes activos para «${entry.alias}». Opciones registradas: ${candidates.join(', ')}.`
+        : `«${entry.alias}» no coincide con ningún agente conocido.`;
+      return {
+        id: buildMessageId('system'),
+        author: 'system',
+        content: text,
+        timestamp,
+        visibility: 'public',
+      };
+    });
+
+    if (participants.length === 0) {
+      const note =
+        mentionPlan.hasMentions && warningMessages.length
+          ? warningMessages.map(message => message.content).join(' ')
+          : `Sin agentes activos para responder «${trimmed.slice(0, 80)}${trimmed.length > 80 ? '…' : ''}».`;
+
+      setMessages(prev => [...prev, userMessage, ...warningMessages]);
+      const traceEntry: OrchestrationTraceEntry = {
+        id: `no-targets-${timestamp}`,
+        timestamp,
+        actor: 'system',
+        description: 'No se pudo orquestar la petición.',
+        details: note,
+        strategyId: coordinationStrategy,
+      };
+      appendTraces(traceEntry);
+      const snapshotWithWarnings = warningMessages.reduce(
+        (acc, message) => registerSystemNote(acc, message.content, timestamp),
+        registerSystemNote(sharedSnapshot, note, timestamp),
+      );
+      setSharedSnapshot(limitSnapshotHistory(snapshotWithWarnings));
+      setDraftState('');
+      setComposerAttachments([]);
+      setComposerTranscriptions([]);
+      return;
+    }
+
     const strategy = getCoordinationStrategy(coordinationStrategy);
-    const rolesMap = activeAgents.reduce<Record<string, { role?: string; objective?: string }>>((acc, agent) => {
+    const rolesMap = participants.reduce<Record<string, { role?: string; objective?: string }>>((acc, agent) => {
       acc[agent.id] = { role: agent.role, objective: agent.objective };
       return acc;
     }, {});
 
     const plan = strategy.buildPlan({
       userPrompt: trimmed,
-      agents: activeAgents,
+      agents: participants,
       snapshot: sharedSnapshot,
       roles: rolesMap,
+      agentPrompts: mentionPlan.promptsByAgent,
     });
 
     const bridgeMessages: ChatMessage[] = plan.sharedBridgeMessages.map(message => ({
@@ -492,7 +683,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       id: buildMessageId(`${step.agent.id}-${index}`),
       author: 'agent',
       agentId: step.agent.id,
-      content: `${step.agent.name} está preparando una respuesta…`,
+      content: `${getAgentDisplayName(step.agent)} está preparando una respuesta…`,
       timestamp,
       status: 'pending',
       sourcePrompt: step.prompt,
@@ -500,24 +691,36 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       orchestrationContext: step.context,
     }));
 
-    setMessages(prev => [...prev, userMessage, ...bridgeMessages, ...agentReplies]);
+    setMessages(prev => [...prev, userMessage, ...warningMessages, ...bridgeMessages, ...agentReplies]);
+    const warningTraces: OrchestrationTraceEntry[] = warningMessages.map(message => ({
+      id: `${message.id}-trace`,
+      timestamp: message.timestamp,
+      actor: 'system',
+      description: message.content,
+      strategyId: coordinationStrategy,
+    }));
     const planTraces: OrchestrationTraceEntry[] = [
+      ...warningTraces,
       ...plan.sharedBridgeMessages.map(message => buildTraceFromBridge(message, coordinationStrategy)),
       ...plan.steps.map(step => ({
         id: `${step.agent.id}-assignment-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
         timestamp,
         actor: 'system',
         agentId: step.agent.id,
-        description: `Turno asignado a ${step.agent.name}`,
+        description: `Turno asignado a ${getAgentDisplayName(step.agent)}`,
         details: step.context.instructions?.join('\n') ?? undefined,
         strategyId: coordinationStrategy,
       })),
     ];
     appendTraces(planTraces);
 
-    const snapshotWithNotes = plan.sharedBridgeMessages.reduce(
+    const snapshotWithWarnings = warningMessages.reduce(
       (acc, message) => registerSystemNote(acc, message.content, message.timestamp),
       plan.nextSnapshot,
+    );
+    const snapshotWithNotes = plan.sharedBridgeMessages.reduce(
+      (acc, message) => registerSystemNote(acc, message.content, message.timestamp),
+      snapshotWithWarnings,
     );
     setSharedSnapshot(limitSnapshotHistory(snapshotWithNotes));
     setDraftState('');
@@ -525,6 +728,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     setComposerTranscriptions([]);
   }, [
     activeAgents,
+    agents,
     appendTraces,
     composerAttachments,
     composerTranscriptions,
@@ -662,6 +866,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
           return;
         }
 
+        const displayName = getAgentDisplayName(agent);
+        const agentLabel = agent.kind === 'local' ? `${displayName} (${getAgentVersionLabel(agent)})` : displayName;
+
         scheduledResponsesRef.current.add(message.id);
 
         let cancelled = false;
@@ -687,7 +894,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
               const hasContent = plain.trim().length > 0;
               const finalContent: ChatMessage['content'] = hasContent
                 ? normalizedContent
-                : `${agent.name} no devolvió contenido.`;
+                : `${agentLabel} no devolvió contenido.`;
               const completionTimestamp = new Date().toISOString();
 
               setMessages(prev =>
@@ -712,7 +919,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                 timestamp: completionTimestamp,
                 actor: 'agent',
                 agentId: agent.id,
-                description: `Conclusión de ${agent.name}`,
+                description: `Conclusión de ${agentLabel}`,
                 details: plain,
                 strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
               });
@@ -733,7 +940,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
             const normalizedContent = content?.trim().length
               ? content
-              : `${agent.name} no devolvió contenido.`;
+              : `${agentLabel} no devolvió contenido.`;
             const completionTimestamp = new Date().toISOString();
 
             setMessages(prev =>
@@ -758,7 +965,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
               timestamp: completionTimestamp,
               actor: 'agent',
               agentId: agent.id,
-              description: `Conclusión simulada de ${agent.name}`,
+              description: `Conclusión simulada de ${agentLabel}`,
               details: normalizedContent,
               strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
             });
@@ -769,7 +976,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
             const fallbackMessage =
               agent.kind === 'cloud'
-                ? `${agent.name} no pudo generar una respuesta (${error instanceof Error ? error.message : 'error inesperado'}).`
+                ? `${agentLabel} no pudo generar una respuesta (${error instanceof Error ? error.message : 'error inesperado'}).`
                 : mockAgentReply(agent, message.sourcePrompt, message.orchestrationContext);
             const completionTimestamp = new Date().toISOString();
 
@@ -795,7 +1002,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
               timestamp: completionTimestamp,
               actor: 'system',
               agentId: agent.id,
-              description: `Se usó respuesta alternativa para ${agent.name}`,
+              description: `Se usó respuesta alternativa para ${agentLabel}`,
               details: fallbackMessage,
               strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
             });

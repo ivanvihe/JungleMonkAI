@@ -1,6 +1,7 @@
 import React from 'react';
 import { AgentDefinition } from '../../core/agents/agentRegistry';
 import { AgentPresenceEntry, AgentPresenceStatus } from '../../core/agents/presence';
+import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
 import './AgentPresenceList.css';
 
 interface AgentPresenceListProps {
@@ -33,7 +34,8 @@ const getStatusClass = (status: AgentPresenceStatus): string => {
 };
 
 const buildAvatarLabel = (agent: AgentDefinition): string => {
-  const [first] = agent.name.trim();
+  const name = getAgentDisplayName(agent);
+  const [first] = name.trim();
   if (first) {
     return first.toUpperCase();
   }
@@ -63,6 +65,8 @@ export const AgentPresenceList: React.FC<AgentPresenceListProps> = ({
       const statusClass = getStatusClass(entry.status);
       const latencyInfo =
         entry.latencyMs !== undefined ? `${entry.latencyMs} ms` : agent.kind === 'local' ? '∼ local' : '—';
+      const displayName = getAgentDisplayName(agent);
+      const variantLabel = agent.kind === 'local' ? getAgentVersionLabel(agent) : undefined;
 
       return (
         <li key={agent.id} className={`agent-presence-item ${statusClass}`}>
@@ -74,7 +78,10 @@ export const AgentPresenceList: React.FC<AgentPresenceListProps> = ({
             {buildAvatarLabel(agent)}
           </div>
           <div className="agent-presence-info">
-            <div className="agent-presence-name">{agent.name}</div>
+            <div className="agent-presence-name">
+              <span>{displayName}</span>
+              {variantLabel && <span className="agent-presence-variant">{variantLabel}</span>}
+            </div>
             <div className="agent-presence-meta">
               <span className="agent-presence-provider">{agent.provider}</span>
               <span className="agent-presence-latency">{latencyInfo}</span>

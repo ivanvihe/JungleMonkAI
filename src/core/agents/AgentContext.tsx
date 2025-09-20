@@ -39,36 +39,66 @@ export const AgentProvider: React.FC<AgentProviderProps> = ({ apiKeys, children 
 
   const toggleAgent = useCallback(
     (agentId: string) => {
-      setAgents(prev =>
-        prev.map(agent => {
+      setAgents(prev => {
+        const target = prev.find(agent => agent.id === agentId);
+        if (!target) {
+          return prev;
+        }
+
+        if (target.kind === 'local') {
+          const willBeActive = !target.active;
+          return prev.map(agent => {
+            if (agent.kind !== 'local') {
+              return agent;
+            }
+
+            if (agent.id === agentId) {
+              return {
+                ...agent,
+                active: willBeActive,
+                status: willBeActive ? 'Disponible' : 'Inactivo',
+              };
+            }
+
+            if (willBeActive && (agent.active || agent.status !== 'Inactivo')) {
+              return {
+                ...agent,
+                active: false,
+                status: 'Inactivo',
+              };
+            }
+
+            return agent.active || agent.status !== 'Inactivo'
+              ? {
+                  ...agent,
+                  active: false,
+                  status: agent.status === 'Cargando' ? agent.status : 'Inactivo',
+                }
+              : agent;
+          });
+        }
+
+        return prev.map(agent => {
           if (agent.id !== agentId) {
             return agent;
           }
 
           const willBeActive = !agent.active;
-          if (agent.kind === 'cloud') {
-            const providerKey = agent.provider.toLowerCase();
-            let nextStatus = agent.status;
-            if (willBeActive && isSupportedProvider(providerKey)) {
-              nextStatus = apiKeys[providerKey] ? 'Disponible' : 'Sin clave';
-            } else if (!willBeActive) {
-              nextStatus = 'Inactivo';
-            }
-
-            return {
-              ...agent,
-              active: willBeActive,
-              status: nextStatus,
-            };
+          const providerKey = agent.provider.toLowerCase();
+          let nextStatus = agent.status;
+          if (willBeActive && isSupportedProvider(providerKey)) {
+            nextStatus = apiKeys[providerKey] ? 'Disponible' : 'Sin clave';
+          } else if (!willBeActive) {
+            nextStatus = 'Inactivo';
           }
 
           return {
             ...agent,
             active: willBeActive,
-            status: willBeActive ? 'Disponible' : agent.status,
+            status: nextStatus,
           };
-        }),
-      );
+        });
+      });
     },
     [apiKeys],
   );

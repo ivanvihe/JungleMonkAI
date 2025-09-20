@@ -112,7 +112,7 @@ export const criticReviewerStrategy: CoordinationStrategy = {
   id: 'critic-reviewer',
   label: 'Productor + crítico',
   description: 'Un agente genera propuestas y otro(s) las audita antes de publicarlas.',
-  buildPlan: ({ userPrompt, agents, snapshot, roles }): OrchestrationPlan => {
+  buildPlan: ({ userPrompt, agents, snapshot, roles, agentPrompts }): OrchestrationPlan => {
     const timestamp = new Date().toISOString();
     const { producers, reviewers } = splitRoles(agents, roles);
     const sharedMessages: InternalBridgeMessage[] = [
@@ -125,16 +125,34 @@ export const criticReviewerStrategy: CoordinationStrategy = {
     ];
 
     const steps = [
-      ...producers.map(agent => ({
-        agent,
-        prompt: userPrompt,
-        context: buildContext(agent, roles[agent.id], snapshot, userPrompt, buildProducerInstructions(agent, roles[agent.id], snapshot, userPrompt)),
-      })),
-      ...reviewers.map(agent => ({
-        agent,
-        prompt: userPrompt,
-        context: buildContext(agent, roles[agent.id], snapshot, userPrompt, buildReviewerInstructions(agent, roles[agent.id], snapshot, userPrompt)),
-      })),
+      ...producers.map(agent => {
+        const promptForAgent = agentPrompts?.[agent.id] ?? userPrompt;
+        return {
+          agent,
+          prompt: promptForAgent,
+          context: buildContext(
+            agent,
+            roles[agent.id],
+            snapshot,
+            promptForAgent,
+            buildProducerInstructions(agent, roles[agent.id], snapshot, promptForAgent),
+          ),
+        };
+      }),
+      ...reviewers.map(agent => {
+        const promptForAgent = agentPrompts?.[agent.id] ?? userPrompt;
+        return {
+          agent,
+          prompt: promptForAgent,
+          context: buildContext(
+            agent,
+            roles[agent.id],
+            snapshot,
+            promptForAgent,
+            buildReviewerInstructions(agent, roles[agent.id], snapshot, promptForAgent),
+          ),
+        };
+      }),
     ];
 
     return {

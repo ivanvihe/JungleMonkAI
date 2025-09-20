@@ -18,6 +18,8 @@ export interface AgentDefinition {
   apiKey?: string;
   role?: string;
   objective?: string;
+  aliases?: string[];
+  channel?: string;
 }
 
 export const INITIAL_AGENTS: AgentDefinition[] = [
@@ -31,6 +33,8 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     accent: '#8E8DFF',
     active: true,
     status: 'Disponible',
+    aliases: ['gpt', 'openai'],
+    channel: 'gpt',
   },
   {
     id: 'anthropic-claude-35-sonnet',
@@ -42,6 +46,8 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     accent: '#FFB347',
     active: true,
     status: 'Disponible',
+    aliases: ['claude', 'anthropic'],
+    channel: 'claude',
   },
   {
     id: 'groq-llama3-70b',
@@ -53,6 +59,8 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     accent: '#7FDBFF',
     active: true,
     status: 'Disponible',
+    aliases: ['groq', 'llama'],
+    channel: 'groq',
   },
   {
     id: 'local-phi3',
@@ -64,6 +72,8 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     accent: '#4DD0E1',
     active: false,
     status: 'Inactivo',
+    aliases: ['jarvis', 'local'],
+    channel: 'jarvis',
   },
   {
     id: 'local-mistral',
@@ -75,6 +85,8 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     accent: '#FF8A65',
     active: false,
     status: 'Cargando',
+    aliases: ['jarvis', 'local'],
+    channel: 'jarvis',
   },
   {
     id: 'openai-quality-review',
@@ -86,6 +98,7 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     accent: '#FF4F81',
     active: false,
     status: 'Disponible',
+    aliases: ['reviewer', 'quality'],
   },
 ];
 

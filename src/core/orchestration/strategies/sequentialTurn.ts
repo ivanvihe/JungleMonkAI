@@ -61,7 +61,7 @@ export const sequentialTurnStrategy: CoordinationStrategy = {
   id: 'sequential-turn',
   label: 'Turno secuencial',
   description: 'Cada agente responde en orden compartiendo el contexto acumulado.',
-  buildPlan: ({ userPrompt, agents, snapshot, roles }): OrchestrationPlan => {
+  buildPlan: ({ userPrompt, agents, snapshot, roles, agentPrompts }): OrchestrationPlan => {
     const timestamp = new Date().toISOString();
     const sharedBridge: InternalBridgeMessage = {
       id: `bridge-system-${timestamp}`,
@@ -72,8 +72,8 @@ export const sequentialTurnStrategy: CoordinationStrategy = {
 
     const steps = agents.map(agent => ({
       agent,
-      prompt: userPrompt,
-      context: buildContext(agent, roles[agent.id], snapshot, userPrompt),
+      prompt: agentPrompts?.[agent.id] ?? userPrompt,
+      context: buildContext(agent, roles[agent.id], snapshot, agentPrompts?.[agent.id] ?? userPrompt),
     }));
 
     return {

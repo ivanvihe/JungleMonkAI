@@ -1940,6 +1940,18 @@
   gap: 12px;
 }
 
+.metric-caption {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.04);
+  white-space: nowrap;
+}
+
 .metric-chip {
   display: flex;
   flex-direction: column;
@@ -2057,18 +2069,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 24px 32px;
-  gap: 24px;
+  padding: 20px 32px;
+  gap: 20px;
   overflow: hidden;
-}
-
-.chat-feed-header {
-  padding: 6px 10px;
-  margin-bottom: 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-  border-radius: 8px;
-  background: rgba(10, 10, 10, 0.45);
 }
 
 .chat-feed {

@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ApiKeySettings, GlobalSettings } from '../../types/globalSettings';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { ApiKeySettings, GlobalSettings, ProjectProfile } from '../../types/globalSettings';
 import { providerSecretExists, storeProviderSecret } from '../../utils/secrets';
 import { ModelGallery } from '../models/ModelGallery';
 import { OverlayModal } from '../common/OverlayModal';
+import { ProjectDraft, useProjects } from '../../core/projects/ProjectContext';
 import './GlobalSettingsDialog.css';
 
 interface GlobalSettingsDialogProps {
@@ -14,13 +15,23 @@ interface GlobalSettingsDialogProps {
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
 }
 
-type SettingsTab = 'providers' | 'models' | 'preferences';
+type SettingsTab = 'providers' | 'models' | 'projects' | 'preferences';
 
 const PROVIDER_FIELDS: Array<{ id: keyof ApiKeySettings; label: string; placeholder: string }> = [
   { id: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
   { id: 'anthropic', label: 'Anthropic', placeholder: 'anthropic-...' },
   { id: 'groq', label: 'Groq', placeholder: 'groq-...' },
 ];
+
+const createDraftFromProject = (project?: ProjectProfile | null): ProjectDraft => ({
+  id: project?.id,
+  name: project?.name ?? '',
+  repositoryPath: project?.repositoryPath ?? '',
+  defaultBranch: project?.defaultBranch ?? '',
+  instructions: project?.instructions ?? '',
+  preferredProvider: project?.preferredProvider ?? '',
+  preferredModel: project?.preferredModel ?? '',
+});
 
 export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   isOpen,
@@ -36,6 +47,10 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const [githubInput, setGithubInput] = useState('');
   const [gitlabInput, setGitlabInput] = useState('');
   const [secretError, setSecretError] = useState<string | null>(null);
+  const { projects, activeProject, selectProject, upsertProject, removeProject } = useProjects();
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => activeProject?.id ?? 'new');
+  const [projectForm, setProjectForm] = useState<ProjectDraft>(() => createDraftFromProject(activeProject));
+  const [projectError, setProjectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -84,7 +99,111 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
       return;
     }
     setActiveTab('providers');
+    setProjectError(null);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (!projects.length) {
+      setSelectedProjectId('new');
+      setProjectForm(createDraftFromProject());
+      setProjectError(null);
+      return;
+    }
+
+    if (!activeProject) {
+      if (!projects.some(project => project.id === selectedProjectId)) {
+        const [first] = projects;
+        if (first) {
+          setSelectedProjectId(first.id);
+          setProjectForm(createDraftFromProject(first));
+          setProjectError(null);
+        }
+      }
+      return;
+    }
+
+    if (selectedProjectId === 'new' || selectedProjectId === activeProject.id) {
+      setSelectedProjectId(activeProject.id);
+      setProjectForm(createDraftFromProject(activeProject));
+      setProjectError(null);
+      return;
+    }
+
+    if (!projects.some(project => project.id === selectedProjectId)) {
+      setSelectedProjectId(activeProject.id);
+      setProjectForm(createDraftFromProject(activeProject));
+      setProjectError(null);
+    }
+  }, [isOpen, activeProject, projects, selectedProjectId]);
+
+  const handleProjectSelectChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const value = event.target.value;
+      setProjectError(null);
+      if (value === 'new') {
+        setSelectedProjectId('new');
+        setProjectForm(createDraftFromProject());
+        return;
+      }
+
+      setSelectedProjectId(value);
+      const match = projects.find(project => project.id === value) ?? null;
+      setProjectForm(createDraftFromProject(match));
+    },
+    [projects],
+  );
+
+  const updateFormField = useCallback(
+    (field: keyof ProjectDraft) =>
+      (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { value } = event.target;
+        setProjectForm(prev => ({ ...prev, [field]: value }));
+        setProjectError(null);
+      },
+    [],
+  );
+
+  const handleSaveProject = useCallback(() => {
+    if (!projectForm.name?.trim() || !projectForm.repositoryPath?.trim()) {
+      setProjectError('Indica al menos nombre y ruta del repositorio.');
+      return;
+    }
+
+    try {
+      const saved = upsertProject(projectForm, { activate: selectedProjectId === 'new' });
+      setSelectedProjectId(saved.id);
+      setProjectForm(createDraftFromProject(saved));
+      setProjectError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar el proyecto.';
+      setProjectError(message);
+    }
+  }, [projectForm, selectedProjectId, upsertProject]);
+
+  const handleActivateProject = useCallback(() => {
+    if (selectedProjectId === 'new') {
+      return;
+    }
+    selectProject(selectedProjectId);
+    setProjectError(null);
+  }, [selectProject, selectedProjectId]);
+
+  const handleDeleteProject = useCallback(() => {
+    if (selectedProjectId === 'new') {
+      setProjectForm(createDraftFromProject());
+      setProjectError(null);
+      return;
+    }
+
+    removeProject(selectedProjectId);
+    setSelectedProjectId('new');
+    setProjectForm(createDraftFromProject());
+    setProjectError(null);
+  }, [removeProject, selectedProjectId]);
 
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
 
@@ -131,6 +250,13 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
             onClick={() => setActiveTab('models')}
           >
             💾 Modelos locales
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'projects' ? 'is-active' : ''}
+            onClick={() => setActiveTab('projects')}
+          >
+            🗂 Proyectos
           </button>
           <button
             type="button"
@@ -213,6 +339,106 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
               <h3>Modelos locales</h3>
               <p>Descarga y activa modelos compatibles con la orquestación local.</p>
               <ModelGallery />
+            </div>
+          )}
+
+          {activeTab === 'projects' && (
+            <div className="settings-section">
+              <h3>Perfiles de proyecto</h3>
+              <p>Gestiona repositorios, ramas y preferencias por proyecto.</p>
+
+              <div className="project-manager">
+                <label htmlFor="project-selector">Proyecto</label>
+                <select
+                  id="project-selector"
+                  value={selectedProjectId}
+                  onChange={handleProjectSelectChange}
+                >
+                  <option value="new">Nuevo proyecto…</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="project-name">Nombre</label>
+                <input
+                  id="project-name"
+                  type="text"
+                  value={projectForm.name ?? ''}
+                  onChange={updateFormField('name')}
+                  placeholder="Nombre descriptivo"
+                />
+
+                <label htmlFor="project-path">Repositorio</label>
+                <input
+                  id="project-path"
+                  type="text"
+                  value={projectForm.repositoryPath ?? ''}
+                  onChange={updateFormField('repositoryPath')}
+                  placeholder="/ruta/al/repositorio"
+                />
+
+                <label htmlFor="project-branch">Rama por defecto</label>
+                <input
+                  id="project-branch"
+                  type="text"
+                  value={projectForm.defaultBranch ?? ''}
+                  onChange={updateFormField('defaultBranch')}
+                  placeholder="main"
+                />
+
+                <label htmlFor="project-provider">Proveedor preferido</label>
+                <input
+                  id="project-provider"
+                  type="text"
+                  value={projectForm.preferredProvider ?? ''}
+                  onChange={updateFormField('preferredProvider')}
+                  placeholder="openai"
+                />
+
+                <label htmlFor="project-model">Modelo preferido</label>
+                <input
+                  id="project-model"
+                  type="text"
+                  value={projectForm.preferredModel ?? ''}
+                  onChange={updateFormField('preferredModel')}
+                  placeholder="gpt-4"
+                />
+
+                <label htmlFor="project-instructions">Instrucciones fijas</label>
+                <textarea
+                  id="project-instructions"
+                  value={projectForm.instructions ?? ''}
+                  onChange={updateFormField('instructions')}
+                  placeholder="Notas clave para este repositorio"
+                  rows={3}
+                />
+
+                {projectError && <p className="project-error">{projectError}</p>}
+
+                <div className="project-actions">
+                  <button type="button" onClick={handleSaveProject}>
+                    Guardar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleActivateProject}
+                    disabled={selectedProjectId === 'new' || activeProject?.id === selectedProjectId}
+                  >
+                    Activar
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={handleDeleteProject}
+                    disabled={selectedProjectId === 'new'}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

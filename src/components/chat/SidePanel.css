@@ -2,8 +2,8 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 16px;
-  gap: 16px;
+  padding: 20px;
+  gap: 20px;
   background: rgba(10, 10, 10, 0.92);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   overflow-y: auto;
@@ -23,285 +23,188 @@
 .sidebar-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 12px;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 18px;
   background: rgba(18, 18, 18, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
-}
-
-.project-manager {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-.project-manager label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.project-manager input,
-.project-manager select,
-.project-manager textarea {
-  width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.3);
-  color: #fff;
-  padding: 8px 10px;
-  font-size: 13px;
-}
-
-.project-manager select {
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.project-manager textarea {
-  resize: vertical;
-  min-height: 72px;
-}
-
-.project-manager .project-error {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #ff8a80;
-}
-
-.project-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.project-actions button {
-  border: none;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-}
-
-.project-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.project-actions button.danger {
-  background: rgba(255, 82, 82, 0.35);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
 }
 
 .sidebar-section header h2 {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.5px;
 }
 
 .sidebar-section header p {
-  margin-top: 2px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
 }
 
-.provider-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px;
+.model-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.provider-card {
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
+.model-panel__summary {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  transition: border 0.2s ease, background 0.2s ease;
+  padding: 16px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(142, 141, 255, 0.22), rgba(77, 208, 225, 0.18));
+  border: 1px solid rgba(142, 141, 255, 0.35);
 }
 
-.provider-card header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
-
-.provider-name {
-  font-weight: 600;
-}
-
-.provider-status {
+.model-panel__summary-label {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.provider-card.status-online {
-  border-color: rgba(102, 255, 102, 0.4);
-  background: rgba(102, 255, 102, 0.12);
-}
-
-.provider-card.status-loading {
-  border-color: rgba(255, 217, 102, 0.3);
-}
-
-.provider-card.status-error {
-  border-color: rgba(255, 102, 102, 0.45);
-  background: rgba(255, 102, 102, 0.16);
-}
-
-.provider-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
 }
 
-.local-model-card {
-  margin-top: 6px;
-  padding: 12px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, rgba(77, 208, 225, 0.15), rgba(142, 141, 255, 0.12));
-  border: 1px solid rgba(142, 141, 255, 0.35);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.local-model-card h3 {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 2px;
-}
-
-.local-model-card p {
-  font-size: 12px;
+.model-panel__summary-sub {
+  font-size: 13px;
   color: rgba(255, 255, 255, 0.75);
 }
 
-.local-model-card button {
-  border: none;
-  border-radius: 999px;
-  padding: 6px 12px;
-  background: rgba(142, 141, 255, 0.45);
-  color: #fff;
-  cursor: pointer;
-  font-size: 12px;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+.model-panel__counts {
+  display: flex;
+  gap: 12px;
 }
 
-.sidebar-stats {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px;
-}
-
-.sidebar-stats li {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+.model-panel__counts > div {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.stat-label {
+.model-panel__count-label {
   font-size: 11px;
-  letter-spacing: 0.5px;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.55);
 }
 
-.stat-value {
-  font-size: 18px;
+.model-panel__count-value {
+  font-size: 20px;
   font-weight: 600;
 }
 
-.suggestion-list {
+.model-panel__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.suggestion-list li button {
-  width: 100%;
-  text-align: left;
+.model-panel__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 10px 12px;
-  color: #fff;
-  cursor: pointer;
+}
+
+.model-panel__item.is-active {
+  border-color: rgba(142, 141, 255, 0.6);
+  background: linear-gradient(135deg, rgba(142, 141, 255, 0.25), rgba(255, 183, 77, 0.18));
+}
+
+.model-panel__item-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  transition: border 0.2s ease, transform 0.2s ease;
+  gap: 2px;
 }
 
-.suggestion-list li button:hover:not(:disabled) {
-  border-color: rgba(255, 183, 77, 0.6);
-  transform: translateY(-1px);
-}
-
-.suggestion-list li button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.suggestion-list strong {
-  font-size: 13px;
+.model-panel__name {
   font-weight: 600;
+  font-size: 14px;
 }
 
-.suggestion-list span {
+.model-panel__provider {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.65);
 }
 
-.command-list {
+.model-panel__status {
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.model-panel__status.status-ready {
+  color: rgba(129, 212, 250, 0.95);
+}
+
+.model-panel__status.status-downloading {
+  color: rgba(255, 183, 77, 0.9);
+}
+
+.model-panel__status.status-not_installed {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.model-panel__loading,
+.model-panel__error,
+.model-panel__empty {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.model-panel__error {
+  color: #ff8a80;
+}
+
+.model-panel__actions {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 12px;
+  justify-content: flex-end;
 }
 
-.command-list button {
-  text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.model-panel__actions button {
+  border: none;
   border-radius: 999px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 8px 16px;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
-  font-size: 12px;
-  letter-spacing: 0.4px;
   cursor: pointer;
-  transition: border 0.2s ease, transform 0.2s ease;
 }
 
-.command-list button:hover {
-  border-color: rgba(255, 183, 77, 0.55);
-  transform: translateY(-1px);
+.model-panel__actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
-.command-empty {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+.model-panel__actions .primary {
+  background: linear-gradient(135deg, rgba(142, 141, 255, 0.65), rgba(255, 183, 77, 0.65));
+  color: #0a0a0a;
+  font-weight: 600;
+}
+
+@media (max-width: 1200px) {
+  .sidebar {
+    padding: 16px;
+  }
+
+  .sidebar-section {
+    padding: 16px;
+  }
 }

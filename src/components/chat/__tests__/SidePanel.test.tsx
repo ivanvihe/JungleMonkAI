@@ -4,28 +4,17 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { SidePanel } from '../SidePanel';
 import { ChatTopBar } from '../ChatTopBar';
+import { GlobalSettingsDialog } from '../../settings/GlobalSettingsDialog';
 import { ProjectProvider, useProjects } from '../../../core/projects/ProjectContext';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
 import type { AgentPresenceSummary } from '../../../core/agents/presence';
 import type { AgentDefinition } from '../../../core/agents/agentRegistry';
+import type { LocalModel } from '../../../hooks/useLocalModels';
 
-vi.mock('../../../core/agents/AgentContext', () => ({
-  useAgents: () => ({ agents: [], activeAgents: [], agentMap: new Map() }),
-}));
-
-vi.mock('../../../core/messages/MessageContext', () => ({
-  useMessages: () => ({
-    messages: [],
-    quickCommands: [],
-    appendToDraft: vi.fn(),
-    pendingResponses: 0,
-    agentResponses: [],
-    formatTimestamp: (value: string) => value,
-  }),
-}));
+const mockUseLocalModels = vi.fn();
 
 vi.mock('../../../hooks/useLocalModels', () => ({
-  useLocalModels: () => ({ models: [] }),
+  useLocalModels: () => mockUseLocalModels(),
 }));
 
 const ProjectProbe: React.FC = () => {
@@ -76,26 +65,102 @@ const presenceSummary: AgentPresenceSummary = {
 
 const emptyAgents: AgentDefinition[] = [];
 
-describe('Project-aware UI', () => {
+const buildModel = (overrides: Partial<LocalModel>): LocalModel => ({
+  id: 'model',
+  name: 'Modelo base',
+  description: '',
+  provider: 'Proveedor',
+  tags: [],
+  size: 0,
+  checksum: '',
+  status: 'ready',
+  active: false,
+  progress: 1,
+  ...overrides,
+});
+
+describe('Gestión de proyectos y modelos', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseLocalModels.mockReturnValue({
+      models: [],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn(),
+      activate: vi.fn(),
+    });
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it('permite crear un proyecto desde el panel lateral y activarlo automáticamente', () => {
-    renderWithProjects({
-      children: (
-        <SidePanel
-          apiKeys={{ openai: '', anthropic: '', groq: '' }}
-          presenceMap={new Map()}
-          onRefreshAgentPresence={vi.fn()}
-          onOpenGlobalSettings={vi.fn()}
-        />
-      ),
+  it('muestra el resumen de modelos locales y permite abrir los ajustes', () => {
+    const refreshSpy = vi.fn().mockResolvedValue(undefined);
+    mockUseLocalModels.mockReturnValue({
+      models: [
+        buildModel({ id: 'm1', name: 'Llama 3', provider: 'Meta', status: 'ready', active: true }),
+        buildModel({ id: 'm2', name: 'Phi 4', provider: 'Microsoft', status: 'downloading', progress: 0.42 }),
+      ],
+      isLoading: false,
+      error: null,
+      refresh: refreshSpy,
+      download: vi.fn(),
+      activate: vi.fn(),
     });
+
+    const onOpenGlobalSettings = vi.fn();
+
+    render(<SidePanel onOpenGlobalSettings={onOpenGlobalSettings} />);
+
+    expect(screen.getAllByText('Llama 3')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Meta')[0]).toBeInTheDocument();
+    expect(screen.getByText('Phi 4')).toBeInTheDocument();
+    expect(screen.getByText('42%')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gestionar descargas' }));
+    expect(onOpenGlobalSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('permite crear un proyecto desde los ajustes globales', () => {
+    const TestHarness: React.FC = () => {
+      const [settings, setSettings] = React.useState(() => ({
+        ...DEFAULT_GLOBAL_SETTINGS,
+        projectProfiles: [],
+        activeProjectId: null,
+      }));
+
+      return (
+        <ProjectProvider settings={settings} onSettingsChange={setSettings}>
+          <GlobalSettingsDialog
+            isOpen
+            onClose={vi.fn()}
+            settings={settings}
+            apiKeys={settings.apiKeys}
+            onApiKeyChange={vi.fn()}
+            onSettingsChange={setSettings}
+          />
+          <ProjectProbe />
+        </ProjectProvider>
+      );
+    };
+
+    mockUseLocalModels.mockReturnValue({
+      models: [],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn(),
+      activate: vi.fn(),
+    });
+
+    render(<TestHarness />);
+
+    fireEvent.click(screen.getByRole('button', { name: '🗂 Proyectos' }));
 
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Monorepo' } });
     fireEvent.change(screen.getByLabelText('Repositorio'), {

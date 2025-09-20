@@ -225,7 +225,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
           </div>
           <div className="composer-toolbar">
             <div className="composer-hints">
-              <span>Usa @ para mencionar modelos concretos</span>
+              <span>Inicia la línea con «nombre:» o «nombre,» para dirigirla a un proveedor</span>
               {lastUserMessage && (
                 <span className="composer-last">Último mensaje a las {formatTimestamp(lastUserMessage.timestamp)}</span>
               )}
@@ -243,7 +243,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
                 onClick={sendMessage}
                 disabled={!draft.trim() && composerAttachments.length === 0}
               >
-                Enviar a {activeAgents.length || 'ningún'} agente{activeAgents.length === 1 ? '' : 's'}
+                Enviar
               </button>
             </div>
           </div>

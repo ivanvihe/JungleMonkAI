@@ -33,6 +33,12 @@ Al iniciar la versión de escritorio se detectan instalaciones previas en el dir
 - Cada ficha muestra el proveedor de origen y las etiquetas principales para ayudarte a elegir el modelo adecuado antes de descargarlo o activarlo.
 - Para descargar modelos alojados en Hugging Face es necesario aceptar previamente la licencia de cada repositorio y exponer un token de acceso mediante las variables de entorno `HF_TOKEN` o `HUGGINGFACE_TOKEN` antes de iniciar la aplicación (por ejemplo, `export HF_TOKEN=hf_xxx && npm run dev`).
 
+## Tokens y credenciales seguras
+
+- Puedes arrancar la aplicación con tokens predefinidos a través de variables de entorno estándar (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GH_TOKEN`, `GITLAB_TOKEN`, etc.). Estas credenciales solo se leen al iniciar el proceso (`npm run dev`, `npm run tauri dev`, etc.), por lo que debes reiniciar la aplicación si cambias los valores exportados.
+- Desde **Ajustes globales → Proveedores** puedes almacenar los tokens de GitHub y GitLab en el almacén seguro integrado. Al abrir el diálogo se recupera el valor guardado (si existe) y se muestra el campo precargado para que puedas actualizarlo. Guardar un token nuevo sustituye el valor cifrado y la interfaz mantiene el marcador `__secure__` en la configuración; si dejas el campo vacío y pulsas **Eliminar**, el secreto se borra tanto del almacén como del estado de la UI.
+- Cuando existen credenciales guardadas desde la UI, el flujo de inicio no requiere variables de entorno para esos proveedores. Puedes combinar ambos métodos según convenga (por ejemplo, definir claves de LLM por entorno y gestionar los tokens de git directamente desde la interfaz).
+
 ## Pruebas
 
 Ejecuta toda la batería de tests con:

@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiKeySettings, GlobalSettings } from '../../types/globalSettings';
-import { providerSecretExists, storeProviderSecret } from '../../utils/secrets';
+import {
+  providerSecretExists,
+  revealProviderSecret,
+  storeProviderSecret,
+} from '../../utils/secrets';
 import { OverlayModal } from '../common/OverlayModal';
 import './GlobalSettingsDialog.css';
 
@@ -37,60 +41,128 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const [gitlabInput, setGitlabInput] = useState('');
   const [secretError, setSecretError] = useState<string | null>(null);
   const previousGithubOwnerRef = useRef<string>(settings.githubDefaultOwner ?? '');
+  const onApiKeyChangeRef = useRef(onApiKeyChange);
+
+  useEffect(() => {
+    onApiKeyChangeRef.current = onApiKeyChange;
+  }, [onApiKeyChange]);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
+    let cancelled = false;
+
     const checkSecrets = async () => {
       try {
-        const storedGithub = await providerSecretExists('github');
-        setGithubStored(storedGithub);
+        const revealed = await revealProviderSecret('github');
+        if (cancelled) {
+          return;
+        }
+
+        if (revealed && revealed.trim()) {
+          setGithubStored(true);
+          setGithubInput(revealed);
+          onApiKeyChangeRef.current('github', '__secure__');
+        } else {
+          try {
+            const storedGithub = await providerSecretExists('github');
+            if (cancelled) {
+              return;
+            }
+            setGithubStored(storedGithub);
+            setGithubInput('');
+            onApiKeyChangeRef.current('github', storedGithub ? '__secure__' : '');
+          } catch {
+            if (cancelled) {
+              return;
+            }
+            setGithubStored(false);
+            setGithubInput('');
+            onApiKeyChangeRef.current('github', '');
+          }
+        }
       } catch {
-        setGithubStored(false);
+        if (!cancelled) {
+          setGithubStored(false);
+          setGithubInput('');
+          onApiKeyChangeRef.current('github', '');
+        }
       }
 
       try {
         const storedGitlab = await providerSecretExists('gitlab');
-        setGitlabStored(storedGitlab);
+        if (!cancelled) {
+          setGitlabStored(storedGitlab);
+        }
       } catch {
-        setGitlabStored(false);
+        if (!cancelled) {
+          setGitlabStored(false);
+        }
       }
 
       try {
         const storedHuggingFace = await providerSecretExists('huggingface');
-        setHuggingFaceStored(storedHuggingFace);
+        if (!cancelled) {
+          setHuggingFaceStored(storedHuggingFace);
+        }
       } catch {
-        setHuggingFaceStored(false);
+        if (!cancelled) {
+          setHuggingFaceStored(false);
+        }
       }
     };
 
     void checkSecrets();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) {
-      return;
+    if (isOpen) {
+      setActiveTab('providers');
+      setSecretError(null);
+      setGitlabInput('');
+    } else {
+      setGithubInput('');
+      setGitlabInput('');
+      setSecretError(null);
     }
-    setActiveTab('providers');
-    setSecretError(null);
-    setGithubInput('');
-    setGitlabInput('');
   }, [isOpen]);
 
   const handleSecretSave = async (provider: 'github' | 'gitlab', value: string) => {
+    const trimmed = value.trim();
     try {
       setSecretError(null);
-      await storeProviderSecret(provider, value.trim());
-      if (provider === 'github') {
-        setGithubStored(Boolean(value.trim()));
-        setGithubInput('');
-      } else {
-        setGitlabStored(Boolean(value.trim()));
-        setGitlabInput('');
+      await storeProviderSecret(provider, trimmed);
+      try {
+        const stored = await providerSecretExists(provider);
+        if (provider === 'github') {
+          setGithubStored(stored);
+          setGithubInput('');
+          onApiKeyChange('github', stored ? '__secure__' : '');
+        } else {
+          setGitlabStored(stored);
+          setGitlabInput('');
+          onApiKeyChange('gitlab', stored ? '__secure__' : '');
+        }
+      } catch (verificationError) {
+        console.error('Error verifying stored secret', verificationError);
+        if (provider === 'github') {
+          const fallbackStored = Boolean(trimmed);
+          setGithubStored(fallbackStored);
+          setGithubInput('');
+          onApiKeyChange('github', fallbackStored ? '__secure__' : '');
+        } else {
+          const fallbackStored = Boolean(trimmed);
+          setGitlabStored(fallbackStored);
+          setGitlabInput('');
+          onApiKeyChange('gitlab', fallbackStored ? '__secure__' : '');
+        }
       }
-      onApiKeyChange(provider, value.trim() ? '__secure__' : '');
     } catch (error) {
       console.error('Error storing secret', error);
       setSecretError('No se pudo guardar el token seguro.');

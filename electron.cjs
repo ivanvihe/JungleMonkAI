@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { PluginManager } = require('./plugin-manager.cjs');
+const { logConsoleMessage } = require('./console-message-handler.cjs');
 
 const PROVIDER_CONFIG = {
   groq: {
@@ -224,11 +225,19 @@ function createWindow() {
 
   // Log console errors from the page
   /**
-   * @param {Electron.Event<Electron.WebContentsConsoleMessageEventParams>} event
+   * Maneja los mensajes de consola emitidos por el renderer.
+   * @param {Electron.Event} event
+   * @param {number} level
+   * @param {string} message
+   * @param {number} line
+   * @param {string} sourceId
    */
-  mainWindow.webContents.on('console-message', (event) => {
-    const { level, lineNumber, message, sourceId } = event.params;
-    console.log(`Console [${level}] ${sourceId}:${lineNumber} -`, message);
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    if (!event) {
+      return;
+    }
+
+    logConsoleMessage(console, level, message, line, sourceId);
   });
 
   // Si el usuario sale del modo fullscreen manualmente, cerrar las ventanas

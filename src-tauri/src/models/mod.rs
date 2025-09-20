@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, RwLock};
@@ -12,11 +13,15 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::OnceCell;
 
+const APP_USER_AGENT: &str = "JungleMonkAI/1.0";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelAsset {
     pub id: String,
     pub name: String,
     pub description: String,
+    pub provider: String,
+    pub tags: Vec<String>,
     pub download_url: String,
     pub checksum: String,
     pub size: u64,
@@ -28,6 +33,8 @@ pub struct ModelSummary {
     pub id: String,
     pub name: String,
     pub description: String,
+    pub provider: String,
+    pub tags: Vec<String>,
     pub size: u64,
     pub checksum: String,
     pub status: String,
@@ -150,8 +157,13 @@ struct ModelSource {
     id: &'static str,
     name: &'static str,
     description: &'static str,
-    repo: &'static str,
+    provider: &'static str,
+    tags: &'static [&'static str],
+    repo: Option<&'static str>,
     file_name: &'static str,
+    download_url: Option<&'static str>,
+    checksum: Option<&'static str>,
+    size: Option<u64>,
 }
 
 static MODEL_SOURCES: &[ModelSource] = &[
@@ -160,15 +172,64 @@ static MODEL_SOURCES: &[ModelSource] = &[
         name: "Phi-3 Mini 4K Instruct Q4",
         description:
             "Modelo orientado a asistentes locales basado en Phi-3 Mini con cuantización Q4.",
-        repo: "microsoft/Phi-3-mini-4k-instruct-gguf",
+        provider: "Hugging Face",
+        tags: &["asistente", "cuantizado", "phi3"],
+        repo: Some("microsoft/Phi-3-mini-4k-instruct-gguf"),
         file_name: "Phi-3-mini-4k-instruct-q4.gguf",
+        download_url: None,
+        checksum: None,
+        size: None,
     },
     ModelSource {
         id: "local-mistral",
         name: "Mistral 7B Instruct v0.2 Q4_K_M",
         description: "Modelo generalista cuantizado Q4_K_M para tareas de conversación y análisis.",
-        repo: "mistralai/Mistral-7B-Instruct-v0.2-GGUF",
+        provider: "Hugging Face",
+        tags: &["instruct", "mistral", "cuantizado"],
+        repo: Some("mistralai/Mistral-7B-Instruct-v0.2-GGUF"),
         file_name: "Mistral-7B-Instruct-v0.2.Q4_K_M.gguf",
+        download_url: None,
+        checksum: None,
+        size: None,
+    },
+    ModelSource {
+        id: "local-wizardcoder",
+        name: "WizardCoder 15B 1.0 Q4_K_M",
+        description:
+            "Modelo especializado en generación de código basado en WizardCoder con cuantización Q4_K_M.",
+        provider: "Hugging Face",
+        tags: &["código", "wizardcoder", "cuantizado"],
+        repo: Some("TheBloke/WizardCoder-15B-1.0-GGUF"),
+        file_name: "WizardCoder-15B-1.0.Q4_K_M.gguf",
+        download_url: None,
+        checksum: None,
+        size: None,
+    },
+    ModelSource {
+        id: "local-deepseek-coder",
+        name: "DeepSeek Coder 6.7B Instruct Q4_K_M",
+        description:
+            "Modelo Instruct orientado a desarrollo de software con equilibrio entre tamaño y calidad.",
+        provider: "Hugging Face",
+        tags: &["código", "deepseek", "instruct"],
+        repo: Some("deepseek-ai/deepseek-coder-6.7b-instruct-GGUF"),
+        file_name: "deepseek-coder-6.7b-instruct.Q4_K_M.gguf",
+        download_url: None,
+        checksum: None,
+        size: None,
+    },
+    ModelSource {
+        id: "local-mistral-small",
+        name: "Mistral 7B Instruct v0.2 Q5_K_M",
+        description:
+            "Cuantización Q5_K_M para obtener mayor calidad en respuestas conversacionales manteniendo tamaño manejable.",
+        provider: "Hugging Face",
+        tags: &["instruct", "mistral", "cuantizado"],
+        repo: Some("mistralai/Mistral-7B-Instruct-v0.2-GGUF"),
+        file_name: "Mistral-7B-Instruct-v0.2.Q5_K_M.gguf",
+        download_url: None,
+        checksum: None,
+        size: None,
     },
 ];
 
@@ -187,57 +248,96 @@ struct HuggingFaceSibling {
     sha256: Option<String>,
 }
 
+fn huggingface_token() -> Option<String> {
+    env::var("HF_TOKEN")
+        .or_else(|_| env::var("HUGGINGFACE_TOKEN"))
+        .ok()
+}
+
 async fn fetch_model_asset(
     client: &reqwest::Client,
     source: &ModelSource,
 ) -> anyhow::Result<ModelAsset> {
-    let api_url = format!("https://huggingface.co/api/models/{}", source.repo);
-    let response = client
-        .get(api_url)
-        .header(reqwest::header::USER_AGENT, "JungleMonkAI/1.0")
-        .send()
-        .await?;
+    let (size, checksum) = if let Some(repo) = source.repo {
+        let api_url = format!("https://huggingface.co/api/models/{}", repo);
+        let mut request = client
+            .get(api_url)
+            .header(reqwest::header::USER_AGENT, APP_USER_AGENT);
+        if let Some(token) = huggingface_token() {
+            request = request.bearer_auth(token);
+        }
 
-    let response = response.error_for_status()?;
-    let payload: HuggingFaceResponse = response.json().await?;
+        let response = request.send().await?;
+        let response = response.error_for_status()?;
+        let payload: HuggingFaceResponse = response.json().await?;
 
-    let sibling = payload
-        .siblings
-        .into_iter()
-        .find(|item| item.file_name == source.file_name)
-        .ok_or_else(|| {
+        let sibling = payload
+            .siblings
+            .into_iter()
+            .find(|item| item.file_name == source.file_name)
+            .ok_or_else(|| anyhow!("No se encontró el archivo {} en {}", source.file_name, repo))?;
+
+        let size = sibling.size.or(source.size).ok_or_else(|| {
             anyhow!(
-                "No se encontró el archivo {} en {}",
+                "No se pudo obtener el tamaño del archivo {} en {}",
                 source.file_name,
-                source.repo
+                repo
             )
         })?;
 
-    let size = sibling.size.ok_or_else(|| {
-        anyhow!(
-            "No se pudo obtener el tamaño del archivo {} en {}",
-            source.file_name,
-            source.repo
-        )
-    })?;
+        let checksum = sibling
+            .sha256
+            .or_else(|| source.checksum.map(|value| value.to_string()))
+            .ok_or_else(|| {
+                anyhow!(
+                    "No se pudo obtener el checksum SHA-256 del archivo {} en {}",
+                    source.file_name,
+                    repo
+                )
+            })?;
 
-    let checksum = sibling.sha256.ok_or_else(|| {
-        anyhow!(
-            "No se pudo obtener el checksum SHA-256 del archivo {} en {}",
-            source.file_name,
-            source.repo
-        )
-    })?;
+        (size, checksum)
+    } else {
+        let size = source.size.ok_or_else(|| {
+            anyhow!(
+                "No se pudo obtener el tamaño del archivo {} (fuente {})",
+                source.file_name,
+                source.id
+            )
+        })?;
+        let checksum = source
+            .checksum
+            .map(|value| value.to_string())
+            .ok_or_else(|| {
+                anyhow!(
+                    "No se pudo obtener el checksum del archivo {} (fuente {})",
+                    source.file_name,
+                    source.id
+                )
+            })?;
+        (size, checksum)
+    };
 
-    let download_url = format!(
-        "https://huggingface.co/{}/resolve/main/{}?download=1",
-        source.repo, source.file_name
-    );
+    let download_url = if let Some(url) = source.download_url {
+        url.to_string()
+    } else if let Some(repo) = source.repo {
+        format!(
+            "https://huggingface.co/{}/resolve/main/{}?download=1",
+            repo, source.file_name
+        )
+    } else {
+        return Err(anyhow!(
+            "No se pudo construir la URL de descarga para el modelo {}",
+            source.id
+        ));
+    };
 
     Ok(ModelAsset {
         id: source.id.to_string(),
         name: source.name.to_string(),
         description: source.description.to_string(),
+        provider: source.provider.to_string(),
+        tags: source.tags.iter().map(|tag| tag.to_string()).collect(),
         download_url,
         checksum,
         size,
@@ -287,6 +387,8 @@ pub async fn list_models(state: State<'_, ModelRegistry>) -> Result<Vec<ModelSum
                 id: asset.id.clone(),
                 name: asset.name.clone(),
                 description: asset.description.clone(),
+                provider: asset.provider.clone(),
+                tags: asset.tags.clone(),
                 size: asset.size,
                 checksum: asset.checksum.clone(),
                 status,
@@ -328,11 +430,15 @@ pub async fn download_model(
         .map_err(|err| err.to_string())?;
 
     let client = reqwest::Client::new();
-    let response = client
+    let mut request = client
         .get(&download_url)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
+        .header(reqwest::header::USER_AGENT, APP_USER_AGENT);
+    if download_url.contains("huggingface.co") {
+        if let Some(token) = huggingface_token() {
+            request = request.bearer_auth(token);
+        }
+    }
+    let response = request.send().await.map_err(|err| err.to_string())?;
 
     if !response.status().is_success() {
         return Err(format!(

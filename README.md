@@ -27,6 +27,12 @@ Al iniciar la versión de escritorio se detectan instalaciones previas en el dir
 - Puedes seguir utilizando **Añadir al compositor** para insertar fragmentos específicos sin reemplazar el borrador actual.
 - El dashboard de calidad incorpora una sección **Mensajes compartidos** con el histórico de hand-offs más recientes.
 
+## Catálogo de modelos locales
+
+- La galería integrada lista los modelos cuantizados más habituales para asistentes de código y conversación, incluyendo Phi-3 Mini, Mistral Instruct (Q4/Q5), WizardCoder 15B y DeepSeek Coder 6.7B.
+- Cada ficha muestra el proveedor de origen y las etiquetas principales para ayudarte a elegir el modelo adecuado antes de descargarlo o activarlo.
+- Para descargar modelos alojados en Hugging Face es necesario aceptar previamente la licencia de cada repositorio y exponer un token de acceso mediante las variables de entorno `HF_TOKEN` o `HUGGINGFACE_TOKEN` antes de iniciar la aplicación (por ejemplo, `export HF_TOKEN=hf_xxx && npm run dev`).
+
 ## Pruebas
 
 Ejecuta toda la batería de tests con:

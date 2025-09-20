@@ -52,6 +52,17 @@ export const ModelGallery: React.FC = () => {
                 {model.active && <span className="model-card__pill">Activo</span>}
               </header>
 
+              <div className="model-card__source">
+                <span className="model-card__provider">{model.provider}</span>
+                {!!model.tags.length && (
+                  <ul className="model-card__tags">
+                    {model.tags.map(tag => (
+                      <li key={tag}>{tag}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
               <p className="model-card__description">{model.description}</p>
 
               <dl className="model-card__meta">

@@ -1,15 +1,24 @@
 import React, { useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
+import { AgentPresenceEntry } from '../../core/agents/presence';
 import { useMessages } from '../../core/messages/MessageContext';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { ModelGallery } from '../models/ModelGallery';
+import { AgentPresenceList } from '../agents/AgentPresenceList';
 
 interface SidePanelProps {
   apiKeys: ApiKeySettings;
   onApiKeyChange: (provider: string, value: string) => void;
+  presenceMap: Map<string, AgentPresenceEntry>;
+  onRefreshAgentPresence: (agentId?: string) => void | Promise<void>;
 }
 
-export const SidePanel: React.FC<SidePanelProps> = ({ apiKeys, onApiKeyChange }) => {
+export const SidePanel: React.FC<SidePanelProps> = ({
+  apiKeys,
+  onApiKeyChange,
+  presenceMap,
+  onRefreshAgentPresence,
+}) => {
   const { agents, agentMap, toggleAgent } = useAgents();
   const { quickCommands, appendToDraft, agentResponses, formatTimestamp } = useMessages();
 
@@ -66,21 +75,15 @@ export const SidePanel: React.FC<SidePanelProps> = ({ apiKeys, onApiKeyChange })
             <h2>Modelos activos</h2>
             <p>Activa y desactiva agentes al instante.</p>
           </header>
-          <div className="agent-grid">
-            {agents.map(agent => (
-              <button
-                key={agent.id}
-                type="button"
-                className={`agent-chip ${agent.active ? 'is-active' : ''}`}
-                style={{ '--agent-accent': agent.accent } as React.CSSProperties}
-                onClick={() => toggleAgent(agent.id)}
-              >
-                <span className="agent-chip-name">{agent.name}</span>
-                <span className="agent-chip-provider">{agent.provider}</span>
-                <span className="agent-chip-status">{agent.status}</span>
-              </button>
-            ))}
-          </div>
+          <AgentPresenceList
+            agents={agents}
+            presence={presenceMap}
+            onToggleAgent={toggleAgent}
+            onOpenConsole={agentId =>
+              console.log(`Abrir consola interactiva para el agente ${agentId}`)
+            }
+            onRefreshAgent={agentId => onRefreshAgentPresence(agentId)}
+          />
         </section>
 
         <section className="panel-section">

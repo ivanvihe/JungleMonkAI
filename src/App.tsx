@@ -7,9 +7,11 @@ import { ChatStatusBar } from './components/chat/ChatStatusBar';
 import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { SidePanel } from './components/chat/SidePanel';
 import { AgentProvider, useAgents } from './core/agents/AgentContext';
+import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
 import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
 import { DEFAULT_GLOBAL_SETTINGS, loadGlobalSettings, saveGlobalSettings } from './utils/globalSettings';
+import { ChatActorFilter } from './types/chat';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -19,14 +21,35 @@ interface AppContentProps {
 const AppContent: React.FC<AppContentProps> = ({ apiKeys, onApiKeyChange }) => {
   const { agents, activeAgents } = useAgents();
   const { messages, pendingResponses } = useMessages();
+  const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
+  const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
 
   return (
     <div className="app-container">
-      <ChatTopBar activeAgents={activeAgents.length} totalAgents={agents.length} pendingResponses={pendingResponses} />
+      <ChatTopBar
+        agents={agents}
+        presenceSummary={presenceSummary}
+        activeAgents={activeAgents.length}
+        totalAgents={agents.length}
+        pendingResponses={pendingResponses}
+        activeFilter={actorFilter}
+        onFilterChange={setActorFilter}
+        onRefreshPresence={() => void refresh()}
+      />
 
       <div className="workspace">
         <div className="main-panel">
-          <ChatWorkspace sidePanel={<SidePanel apiKeys={apiKeys} onApiKeyChange={onApiKeyChange} />} />
+          <ChatWorkspace
+            actorFilter={actorFilter}
+            sidePanel={
+              <SidePanel
+                apiKeys={apiKeys}
+                onApiKeyChange={onApiKeyChange}
+                presenceMap={presenceMap}
+                onRefreshAgentPresence={refresh}
+              />
+            }
+          />
         </div>
       </div>
 

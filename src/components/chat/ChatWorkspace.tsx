@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
 import { AttachmentPicker } from './composer/AttachmentPicker';
@@ -6,12 +6,15 @@ import { AudioRecorder } from './composer/AudioRecorder';
 import { MessageAttachment } from './messages/MessageAttachment';
 import { AudioPlayer } from './messages/AudioPlayer';
 import { ChatAttachment, ChatContentPart, ChatTranscription } from '../../core/messages/messageTypes';
+import { ChatActorFilter } from '../../types/chat';
+import { AgentKind } from '../../core/agents/agentRegistry';
 
 interface ChatWorkspaceProps {
   sidePanel: React.ReactNode;
+  actorFilter: ChatActorFilter;
 }
 
-export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel }) => {
+export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel, actorFilter }) => {
   const { activeAgents, agentMap } = useAgents();
   const {
     messages,
@@ -114,6 +117,38 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel }) => {
     [],
   );
 
+  const filteredMessages = useMemo(() => {
+    if (actorFilter === 'all') {
+      return messages;
+    }
+
+    if (actorFilter === 'user') {
+      return messages.filter(message => message.author === 'user');
+    }
+
+    if (actorFilter === 'system') {
+      return messages.filter(message => message.author === 'system');
+    }
+
+    if (actorFilter.startsWith('agent:')) {
+      const targetId = actorFilter.slice('agent:'.length);
+      return messages.filter(message => message.agentId === targetId);
+    }
+
+    if (actorFilter.startsWith('kind:')) {
+      const kind = actorFilter.slice('kind:'.length) as AgentKind;
+      return messages.filter(message => {
+        if (!message.agentId) {
+          return false;
+        }
+        const agent = agentMap.get(message.agentId);
+        return agent?.kind === kind;
+      });
+    }
+
+    return messages;
+  }, [actorFilter, agentMap, messages]);
+
   return (
     <>
       <div className="layer-grid-container chat-layer-grid">
@@ -146,63 +181,68 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ sidePanel }) => {
           <div className="visual-wrapper chat-visual-wrapper">
             <div className="chat-stage">
               <div className="message-feed">
-                {messages.map(message => {
-                  const isUser = message.author === 'user';
-                  const isSystem = message.author === 'system';
-                  const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
-                  const chipColor = agent?.accent || 'var(--accent-color)';
+                {filteredMessages.length === 0 ? (
+                  <div className="message-feed-empty">
+                    No hay mensajes para el filtro seleccionado.
+                  </div>
+                ) : (
+                  filteredMessages.map(message => {
+                    const isUser = message.author === 'user';
+                    const isSystem = message.author === 'system';
+                    const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
+                    const chipColor = agent?.accent || 'var(--accent-color)';
 
-                  return (
-                    <div
-                      key={message.id}
-                      className={`message-card ${isUser ? 'message-user' : ''} ${isSystem ? 'message-system' : ''}`}
-                    >
-                      <div className="message-card-header">
-                        <div className="message-card-author" style={{ borderColor: chipColor }}>
-                          {isUser && 'Tú'}
-                          {isSystem && 'Control Hub'}
-                          {!isUser && !isSystem && agent?.name}
+                    return (
+                      <div
+                        key={message.id}
+                        className={`message-card ${isUser ? 'message-user' : ''} ${isSystem ? 'message-system' : ''}`}
+                      >
+                        <div className="message-card-header">
+                          <div className="message-card-author" style={{ borderColor: chipColor }}>
+                            {isUser && 'Tú'}
+                            {isSystem && 'Control Hub'}
+                            {!isUser && !isSystem && agent?.name}
+                          </div>
+                          <div className="message-card-meta">
+                            {!isUser && !isSystem && (
+                              <span className="message-card-tag" style={{ color: chipColor }}>
+                                {agent?.provider}
+                              </span>
+                            )}
+                            <span className="message-card-time">{formatTimestamp(message.timestamp)}</span>
+                            {message.status === 'pending' && <span className="message-card-status">orquestando…</span>}
+                          </div>
                         </div>
-                        <div className="message-card-meta">
-                          {!isUser && !isSystem && (
-                            <span className="message-card-tag" style={{ color: chipColor }}>
-                              {agent?.provider}
-                            </span>
-                          )}
-                          <span className="message-card-time">{formatTimestamp(message.timestamp)}</span>
-                          {message.status === 'pending' && <span className="message-card-status">orquestando…</span>}
+                        <div className="message-card-body">
+                          {Array.isArray(message.content)
+                            ? message.content.map((part, index) =>
+                                renderContentPart(part, index, message.transcriptions),
+                              )
+                            : renderContentPart(message.content, 0, message.transcriptions)}
+                          {message.attachments?.length ? (
+                            <div className="message-card-attachments">
+                              {message.attachments.map(attachment => (
+                                <MessageAttachment
+                                  key={attachment.id}
+                                  attachment={attachment}
+                                  transcriptions={message.transcriptions}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                      </div>
-                      <div className="message-card-body">
-                        {Array.isArray(message.content)
-                          ? message.content.map((part, index) =>
-                              renderContentPart(part, index, message.transcriptions),
-                            )
-                          : renderContentPart(message.content, 0, message.transcriptions)}
-                        {message.attachments?.length ? (
-                          <div className="message-card-attachments">
-                            {message.attachments.map(attachment => (
-                              <MessageAttachment
-                                key={attachment.id}
-                                attachment={attachment}
-                                transcriptions={message.transcriptions}
-                              />
+                        {message.modalities?.length ? (
+                          <div className="message-card-modalities">
+                            {message.modalities.map(modality => (
+                              <span key={modality} className="modality-chip">
+                                {modality}
+                              </span>
                             ))}
                           </div>
                         ) : null}
                       </div>
-                      {message.modalities?.length ? (
-                        <div className="message-card-modalities">
-                          {message.modalities.map(modality => (
-                            <span key={modality} className="modality-chip">
-                              {modality}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
 
               <div className="chat-suggestions">

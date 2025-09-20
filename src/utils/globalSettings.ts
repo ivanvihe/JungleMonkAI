@@ -4,6 +4,7 @@ import {
   BUILTIN_PROVIDERS,
   CommandPreset,
   DefaultRoutingRules,
+  DataLocationSettings,
   GlobalSettings,
   McpProfile,
   McpProfileEndpoint,
@@ -22,7 +23,8 @@ import type {
 } from '../types/agents';
 
 const STORAGE_KEY = 'global-settings';
-export const CURRENT_SCHEMA_VERSION = 6;
+const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
+export const CURRENT_SCHEMA_VERSION = 7;
 
 const ajv = new Ajv({ allErrors: true, removeAdditional: 'failing' });
 
@@ -167,6 +169,20 @@ const workspacePreferencesSchema: JSONSchemaType<WorkspacePreferences> = {
   additionalProperties: false,
 };
 
+const dataLocationSchema: JSONSchemaType<DataLocationSettings> = {
+  type: 'object',
+  properties: {
+    useCustomPath: { type: 'boolean' },
+    customPath: { type: 'string', nullable: true },
+    lastKnownBasePath: { type: 'string', nullable: true },
+    defaultPath: { type: 'string', nullable: true },
+    lastMigrationFrom: { type: 'string', nullable: true },
+    lastMigrationAt: { type: 'string', nullable: true },
+  },
+  required: ['useCustomPath'],
+  additionalProperties: false,
+};
+
 const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
   type: 'object',
   properties: {
@@ -235,6 +251,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
       items: mcpProfileSchema,
     },
     workspacePreferences: workspacePreferencesSchema,
+    dataLocation: dataLocationSchema,
   },
   required: [
     'version',
@@ -246,6 +263,7 @@ const globalSettingsSchema: JSONSchemaType<GlobalSettings> = {
     'pluginSettings',
     'mcpProfiles',
     'workspacePreferences',
+    'dataLocation',
   ],
   additionalProperties: false,
 };
@@ -690,6 +708,41 @@ const normalizeWorkspacePreferences = (
   sidePanel: normalizeSidePanelPreferences(input?.sidePanel),
 });
 
+const normalizeDataLocation = (
+  input: Partial<DataLocationSettings> | undefined,
+): DataLocationSettings => {
+  const customPath = typeof input?.customPath === 'string' && input.customPath.trim()
+    ? input.customPath.trim()
+    : undefined;
+  const lastKnownBasePath =
+    typeof input?.lastKnownBasePath === 'string' && input.lastKnownBasePath.trim()
+      ? input.lastKnownBasePath.trim()
+      : undefined;
+  const defaultPath =
+    typeof input?.defaultPath === 'string' && input.defaultPath.trim()
+      ? input.defaultPath.trim()
+      : undefined;
+  const lastMigrationFrom =
+    typeof input?.lastMigrationFrom === 'string' && input.lastMigrationFrom.trim()
+      ? input.lastMigrationFrom.trim()
+      : undefined;
+  const lastMigrationAt =
+    typeof input?.lastMigrationAt === 'string' && input.lastMigrationAt.trim()
+      ? input.lastMigrationAt.trim()
+      : undefined;
+
+  const useCustomPath = Boolean(input?.useCustomPath && customPath);
+
+  return {
+    useCustomPath,
+    customPath: useCustomPath ? customPath : undefined,
+    lastKnownBasePath,
+    defaultPath,
+    lastMigrationFrom,
+    lastMigrationAt,
+  };
+};
+
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   version: CURRENT_SCHEMA_VERSION,
   apiKeys: normalizeApiKeys({}),
@@ -706,6 +759,14 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
       collapsed: false,
       activeSectionId: null,
     },
+  },
+  dataLocation: {
+    useCustomPath: false,
+    customPath: undefined,
+    lastKnownBasePath: undefined,
+    defaultPath: undefined,
+    lastMigrationFrom: undefined,
+    lastMigrationAt: undefined,
   },
 };
 
@@ -733,6 +794,7 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     workspacePreferences: normalizeWorkspacePreferences(
       raw?.workspacePreferences as WorkspacePreferences,
     ),
+    dataLocation: normalizeDataLocation(raw?.dataLocation as DataLocationSettings),
   };
 };
 
@@ -808,8 +870,10 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       ),
       approvedManifests: normalizeApprovedManifests(settings.approvedManifests),
       workspacePreferences: normalizeWorkspacePreferences(settings.workspacePreferences),
+      dataLocation: normalizeDataLocation(settings.dataLocation),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    void persistGlobalSettingsToUserDir(payload);
   } catch (error) {
     console.warn('Unable to persist global settings', error);
   }
@@ -817,6 +881,49 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
 
 export const getSupportedProviders = (): SupportedProvider[] =>
   getAllSupportedProviders() as SupportedProvider[];
+
+const persistGlobalSettingsToUserDir = async (settings: GlobalSettings): Promise<void> => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    const module = await import('../core/storage/userDataFiles');
+    if (!module.isTauriEnvironment()) {
+      return;
+    }
+
+    await module.ensureUserDataDirectory();
+    await module.writeUserDataJson(USER_DATA_GLOBAL_SETTINGS_FILE, settings);
+  } catch (error) {
+    console.warn('Unable to persist global settings in user directory', error);
+  }
+};
+
+export const loadGlobalSettingsFromUserData = async (): Promise<GlobalSettings | null> => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const module = await import('../core/storage/userDataFiles');
+    if (!module.isTauriEnvironment()) {
+      return null;
+    }
+
+    const persisted = await module.readUserDataJson<PersistedSettings>(
+      USER_DATA_GLOBAL_SETTINGS_FILE,
+    );
+    if (!persisted) {
+      return null;
+    }
+
+    return migrateSettings(persisted);
+  } catch (error) {
+    console.warn('Unable to load global settings from user directory', error);
+    return null;
+  }
+};
 
 export type { PersistedSettings as PersistedGlobalSettings };
 

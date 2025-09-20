@@ -11,7 +11,12 @@ pub struct LayerConfig {
 
 impl Default for LayerConfig {
     fn default() -> Self {
-        Self { opacity: 1.0, fade_ms: 200, thumbnail: String::new(), midi_channel: 0 }
+        Self {
+            opacity: 1.0,
+            fade_ms: 200,
+            thumbnail: String::new(),
+            midi_channel: 0,
+        }
     }
 }
 
@@ -24,10 +29,31 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         let mut layers = HashMap::new();
-        layers.insert("A".into(), LayerConfig { midi_channel: 14, ..Default::default() });
-        layers.insert("B".into(), LayerConfig { midi_channel: 15, ..Default::default() });
-        layers.insert("C".into(), LayerConfig { midi_channel: 16, ..Default::default() });
-        Self { layers, midi_port: None }
+        layers.insert(
+            "A".into(),
+            LayerConfig {
+                midi_channel: 14,
+                ..Default::default()
+            },
+        );
+        layers.insert(
+            "B".into(),
+            LayerConfig {
+                midi_channel: 15,
+                ..Default::default()
+            },
+        );
+        layers.insert(
+            "C".into(),
+            LayerConfig {
+                midi_channel: 16,
+                ..Default::default()
+            },
+        );
+        Self {
+            layers,
+            midi_port: None,
+        }
     }
 }
 
@@ -62,7 +88,10 @@ mod tests {
 
     #[test]
     fn concurrent_read_write() {
-        let state = Arc::new(ConfigState { path: PathBuf::new(), inner: RwLock::new(Config::default()) });
+        let state = Arc::new(ConfigState {
+            path: PathBuf::new(),
+            inner: RwLock::new(Config::default()),
+        });
 
         let writer_state = state.clone();
         let writer = thread::spawn(move || {

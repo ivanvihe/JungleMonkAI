@@ -27,6 +27,7 @@ describe('globalSettings schema validation', () => {
     expect(migrated.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(migrated.apiKeys.openai).toBe('sk-legacy-token');
     expect(migrated.mcpProfiles).toEqual([]);
+    expect(migrated.dataLocation.useCustomPath).toBe(false);
   });
 
   it('valida configuraciones con perfiles MCP', () => {
@@ -45,6 +46,13 @@ describe('globalSettings schema validation', () => {
           ],
         },
       ],
+      dataLocation: {
+        ...DEFAULT_GLOBAL_SETTINGS.dataLocation,
+        useCustomPath: true,
+        customPath: '/tmp/jungle',
+        lastKnownBasePath: '/tmp/jungle',
+        defaultPath: '/Users/me/Library/Application Support/JungleMonkAI',
+      },
     };
 
     expect(validateGlobalSettingsPayload(candidate)).toBe(true);

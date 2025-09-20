@@ -12,6 +12,12 @@ import { useProviderDiagnostics } from '../../hooks/useProviderDiagnostics';
 import '../GlobalSettingsModal.css';
 import './GlobalSettingsPanel.css';
 import { usePluginHost } from '../../core/plugins/PluginHostProvider';
+import {
+  getUserDataPaths,
+  openUserDataDirectoryDialog,
+  setUserDataBaseDir,
+  UserDataPathDescriptor,
+} from '../../core/storage/userDataPathsClient';
 
 type ProviderTestState = {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -84,6 +90,22 @@ const cloneSettings = (value: GlobalSettings): GlobalSettings => ({
       url: endpoint.url,
     })),
   })),
+  workspacePreferences: {
+    sidePanel: {
+      position: value.workspacePreferences.sidePanel.position,
+      width: value.workspacePreferences.sidePanel.width,
+      collapsed: value.workspacePreferences.sidePanel.collapsed,
+      activeSectionId: value.workspacePreferences.sidePanel.activeSectionId,
+    },
+  },
+  dataLocation: {
+    useCustomPath: value.dataLocation.useCustomPath,
+    customPath: value.dataLocation.customPath,
+    lastKnownBasePath: value.dataLocation.lastKnownBasePath,
+    defaultPath: value.dataLocation.defaultPath,
+    lastMigrationFrom: value.dataLocation.lastMigrationFrom,
+    lastMigrationAt: value.dataLocation.lastMigrationAt,
+  },
 });
 
 const getPresetId = () => {
@@ -151,12 +173,60 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
   const builtinProviders = useMemo(() => supportedProviders, [supportedProviders]);
   const [draft, setDraft] = useState<GlobalSettings>(() => cloneSettings(settings));
   const [activeTab, setActiveTab] = useState<
-    'providers' | 'presets' | 'routing' | 'plugins' | 'mcp'
+    'providers' | 'presets' | 'routing' | 'plugins' | 'mcp' | 'storage'
   >('providers');
   const [touchedProviders, setTouchedProviders] = useState<Record<string, boolean>>({});
   const [testStates, setTestStates] = useState<Record<string, ProviderTestState>>({});
   const [newProviderId, setNewProviderId] = useState('');
   const { plugins: discoveredPlugins, refresh: refreshPlugins } = usePluginHost();
+  const [userDataPaths, setUserDataPaths] = useState<UserDataPathDescriptor | null>(null);
+  const [isLoadingPaths, setIsLoadingPaths] = useState(false);
+  const [isApplyingDataPath, setIsApplyingDataPath] = useState(false);
+  const [pathError, setPathError] = useState<string | null>(null);
+  const [pathFeedback, setPathFeedback] = useState<string | null>(null);
+  const isDesktopApp = typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
+
+  const formatMigrationTimestamp = useCallback((value?: number) => {
+    if (!value) {
+      return null;
+    }
+
+    try {
+      return new Date(value * 1000).toLocaleString();
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const syncDataLocationWithDescriptor = useCallback(
+    (descriptor: UserDataPathDescriptor) => {
+      const migrationIso = descriptor.lastMigratedAt
+        ? (() => {
+            try {
+              return new Date(descriptor.lastMigratedAt * 1000).toISOString();
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined;
+
+      setDraft(prev => ({
+        ...prev,
+        dataLocation: {
+          ...prev.dataLocation,
+          useCustomPath: !descriptor.isUsingDefault,
+          customPath: descriptor.isUsingDefault ? undefined : descriptor.baseDir,
+          lastKnownBasePath: descriptor.baseDir,
+          defaultPath: descriptor.defaultBaseDir,
+          lastMigrationFrom: descriptor.lastMigratedFrom ?? prev.dataLocation.lastMigrationFrom,
+          lastMigrationAt: migrationIso ?? prev.dataLocation.lastMigrationAt,
+        },
+      }));
+    },
+    [setDraft],
+  );
+
+  const lastMigrationLabel = formatMigrationTimestamp(userDataPaths?.lastMigratedAt);
 
   const pluginEntries = useMemo(
     () => {
@@ -389,8 +459,51 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
       setTouchedProviders({});
       setTestStates({});
       setNewProviderId('');
+      setPathError(null);
+      setPathFeedback(null);
+      let cancelled = false;
+      setIsLoadingPaths(true);
+      setUserDataPaths(null);
+
+      const loadPaths = async () => {
+        try {
+          const descriptor = await getUserDataPaths();
+          if (cancelled) {
+            return;
+          }
+          setUserDataPaths(descriptor);
+          syncDataLocationWithDescriptor(descriptor);
+          if (descriptor.legacyMigrationPerformed) {
+            const formatted = formatMigrationTimestamp(descriptor.lastMigratedAt);
+            setPathFeedback(
+              `Se migraron datos desde ${
+                descriptor.lastMigratedFrom ?? 'la instalación anterior'
+              }${formatted ? ` el ${formatted}` : ''}.`,
+            );
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setPathError(
+              error instanceof Error
+                ? error.message
+                : 'No se pudo cargar la ubicación de datos del usuario.',
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setIsLoadingPaths(false);
+          }
+        }
+      };
+
+      void loadPaths();
+
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [isOpen, settings]);
+    return () => undefined;
+  }, [formatMigrationTimestamp, isOpen, settings, syncDataLocationWithDescriptor]);
 
   const providerOrder = useMemo(() => {
     const seen = new Set<string>();
@@ -522,6 +635,66 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
       return rest;
     });
   }, [builtinProviders]);
+
+  const handleBrowseDataPath = useCallback(async () => {
+    setPathError(null);
+    setPathFeedback(null);
+
+    try {
+      const descriptor = userDataPaths ?? (await getUserDataPaths());
+      const defaultSelection = descriptor.baseDir || descriptor.defaultBaseDir;
+      const selection = await openUserDataDirectoryDialog(defaultSelection);
+      if (!selection) {
+        return;
+      }
+
+      setIsApplyingDataPath(true);
+      const updated = await setUserDataBaseDir(selection);
+      setUserDataPaths(updated);
+      syncDataLocationWithDescriptor(updated);
+      const formatted = formatMigrationTimestamp(updated.lastMigratedAt);
+      setPathFeedback(
+        `Datos migrados a ${updated.baseDir}${formatted ? ` (${formatted})` : ''}.`,
+      );
+    } catch (error) {
+      setPathError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo actualizar la ubicación de datos.',
+      );
+    } finally {
+      setIsApplyingDataPath(false);
+    }
+  }, [
+    formatMigrationTimestamp,
+    syncDataLocationWithDescriptor,
+    userDataPaths,
+  ]);
+
+  const handleResetDataPath = useCallback(async () => {
+    if (!userDataPaths || userDataPaths.isUsingDefault) {
+      return;
+    }
+
+    setPathError(null);
+    setPathFeedback(null);
+
+    try {
+      setIsApplyingDataPath(true);
+      const updated = await setUserDataBaseDir(userDataPaths.defaultBaseDir);
+      setUserDataPaths(updated);
+      syncDataLocationWithDescriptor(updated);
+      setPathFeedback('Se restauró la ruta de datos predeterminada.');
+    } catch (error) {
+      setPathError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo restaurar la ubicación de datos.',
+      );
+    } finally {
+      setIsApplyingDataPath(false);
+    }
+  }, [syncDataLocationWithDescriptor, userDataPaths]);
 
   const handlePresetChange = useCallback(
     (id: string, patch: Partial<CommandPreset>) => {
@@ -691,6 +864,7 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
               { id: 'presets', label: 'Comandos', icon: '🧩' },
               { id: 'routing', label: 'Preferencias', icon: '🧭' },
               { id: 'plugins', label: 'Plugins', icon: '🔌' },
+              { id: 'storage', label: 'Ubicación de datos', icon: '🗄️' },
               { id: 'mcp', label: 'Perfiles MCP', icon: '🧠' },
             ].map((tab) => (
               <button
@@ -1093,6 +1267,74 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
                       </div>
                     );
                   })
+                )}
+              </div>
+            )}
+
+            {activeTab === 'storage' && (
+              <div className="settings-section">
+                <h3>Ubicación de datos</h3>
+                <p className="setting-hint">
+                  Define dónde se guardan las configuraciones, modelos locales y registros de
+                  JungleMonkAI en tu dispositivo.
+                </p>
+
+                {pathError && <div className="setting-error">{pathError}</div>}
+                {pathFeedback && <p className="setting-hint">{pathFeedback}</p>}
+
+                <div className="setting-group">
+                  <label className="setting-label">
+                    <span>Carpeta actual</span>
+                    <code className="setting-code">
+                      {isLoadingPaths ? 'Cargando…' : userDataPaths?.baseDir ?? 'No disponible'}
+                    </code>
+                  </label>
+                  <label className="setting-label">
+                    <span>Ruta predeterminada</span>
+                    <code className="setting-code">
+                      {isLoadingPaths
+                        ? 'Cargando…'
+                        : userDataPaths?.defaultBaseDir ?? 'No disponible'}
+                    </code>
+                  </label>
+                </div>
+
+                {userDataPaths?.lastMigratedFrom && (
+                  <p className="setting-hint">
+                    Última migración desde{' '}
+                    <code className="setting-code">{userDataPaths.lastMigratedFrom}</code>
+                    {lastMigrationLabel ? ` (${lastMigrationLabel})` : ''}.
+                  </p>
+                )}
+
+                <div className="setting-actions">
+                  <button
+                    type="button"
+                    className="setting-button"
+                    onClick={handleBrowseDataPath}
+                    disabled={isLoadingPaths || isApplyingDataPath || !isDesktopApp}
+                  >
+                    Elegir carpeta…
+                  </button>
+                  <button
+                    type="button"
+                    className="setting-button subtle"
+                    onClick={handleResetDataPath}
+                    disabled={
+                      isLoadingPaths ||
+                      isApplyingDataPath ||
+                      !userDataPaths ||
+                      userDataPaths.isUsingDefault
+                    }
+                  >
+                    Usar ruta predeterminada
+                  </button>
+                </div>
+
+                {!isDesktopApp && (
+                  <p className="setting-hint">
+                    La selección manual de carpeta está disponible en la versión de escritorio.
+                  </p>
                 )}
               </div>
             )}

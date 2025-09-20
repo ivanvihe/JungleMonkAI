@@ -6,7 +6,6 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 use tokio::sync::watch;
 
-
 #[derive(Serialize, Clone)]
 pub struct AudioData {
     pub fft: Vec<f32>,
@@ -23,7 +22,6 @@ pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         if let Err(e) = run(app.clone(), rx).await {
             eprintln!("audio error: {e:?}");
-
         }
     });
     Ok(())

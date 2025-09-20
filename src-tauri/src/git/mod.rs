@@ -167,9 +167,7 @@ pub fn commit_changes(payload: CommitRequest) -> Result<String, String> {
 
     if let Some(files) = files {
         for file in files {
-            index
-                .add_path(Path::new(&file))
-                .map_err(map_git_err)?;
+            index.add_path(Path::new(&file)).map_err(map_git_err)?;
         }
     } else {
         index
@@ -194,7 +192,9 @@ pub fn commit_changes(payload: CommitRequest) -> Result<String, String> {
     let signature = if let (Some(name), Some(email)) = (author_name, author_email) {
         git2::Signature::now(&name, &email).map_err(map_git_err)?
     } else {
-        repo.signature().or_else(|_| repo.default_signature()).map_err(map_git_err)?
+        repo.signature()
+            .or_else(|_| repo.default_signature())
+            .map_err(map_git_err)?
     };
 
     let parent_commit = repo
@@ -209,7 +209,14 @@ pub fn commit_changes(payload: CommitRequest) -> Result<String, String> {
 
     let commit_id = match parent_commit {
         Some(parent) => repo
-            .commit(Some("HEAD"), &signature, &signature, &message, &tree, &[&parent])
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                &message,
+                &tree,
+                &[&parent],
+            )
             .map_err(map_git_err)?,
         None => repo
             .commit(Some("HEAD"), &signature, &signature, &message, &tree, &[])
@@ -228,7 +235,11 @@ pub fn push_changes(payload: PushRequest, manager: State<'_, SecretManager>) -> 
 
     let branch = payload
         .branch
-        .or_else(|| repo.head().ok().and_then(|head| head.shorthand().map(|s| s.to_string())))
+        .or_else(|| {
+            repo.head()
+                .ok()
+                .and_then(|head| head.shorthand().map(|s| s.to_string()))
+        })
         .ok_or_else(|| "No se pudo determinar la rama a pushear".to_string())?;
 
     let token = match (&payload.token, &payload.provider) {
@@ -285,7 +296,10 @@ pub fn get_file_diff(repo_path: String, pathspec: String) -> Result<String, Stri
     diff_opts.pathspec(Path::new(&pathspec));
     diff_opts.include_untracked(true);
 
-    let head_tree = repo.head().ok().and_then(|reference| reference.peel_to_tree().ok());
+    let head_tree = repo
+        .head()
+        .ok()
+        .and_then(|reference| reference.peel_to_tree().ok());
 
     let diff = if let Some(tree) = head_tree {
         repo.diff_tree_to_workdir_with_index(Some(&tree), Some(&mut diff_opts))
@@ -305,11 +319,17 @@ pub fn get_file_diff(repo_path: String, pathspec: String) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub fn store_secret(provider: String, token: String, manager: State<'_, SecretManager>) -> Result<(), String> {
+pub fn store_secret(
+    provider: String,
+    token: String,
+    manager: State<'_, SecretManager>,
+) -> Result<(), String> {
     if token.trim().is_empty() {
         manager.delete(&provider).map_err(|e| e.to_string())
     } else {
-        manager.store(&provider, token.trim()).map_err(|e| e.to_string())
+        manager
+            .store(&provider, token.trim())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -319,7 +339,10 @@ pub fn has_secret(provider: String, manager: State<'_, SecretManager>) -> Result
 }
 
 #[tauri::command]
-pub fn reveal_secret(provider: String, manager: State<'_, SecretManager>) -> Result<Option<String>, String> {
+pub fn reveal_secret(
+    provider: String,
+    manager: State<'_, SecretManager>,
+) -> Result<Option<String>, String> {
     manager.read(&provider).map_err(|e| e.to_string())
 }
 
@@ -368,11 +391,13 @@ fn collect_status_entries(repo: &Repository) -> Result<Vec<RepoEntry>, String> {
             if parent.as_os_str().is_empty() {
                 break;
             }
-            directories.entry(parent.to_path_buf()).or_insert_with(|| RepoEntry {
-                path: parent.to_string_lossy().into_owned(),
-                kind: RepoEntryKind::Directory,
-                status: None,
-            });
+            directories
+                .entry(parent.to_path_buf())
+                .or_insert_with(|| RepoEntry {
+                    path: parent.to_string_lossy().into_owned(),
+                    kind: RepoEntryKind::Directory,
+                    status: None,
+                });
             current = parent.to_path_buf();
         }
     }
@@ -459,7 +484,10 @@ fn map_walkdir_err(err: walkdir::Error) -> String {
     err.to_string()
 }
 
-async fn create_github_pr(payload: &PullRequestPayload, token: &str) -> Result<PullRequestResponse, String> {
+async fn create_github_pr(
+    payload: &PullRequestPayload,
+    token: &str,
+) -> Result<PullRequestResponse, String> {
     let client = reqwest::Client::new();
     let url = format!(
         "https://api.github.com/repos/{owner}/{repo}/pulls",
@@ -513,7 +541,10 @@ async fn create_github_pr(payload: &PullRequestPayload, token: &str) -> Result<P
     })
 }
 
-async fn create_gitlab_mr(payload: &PullRequestPayload, token: &str) -> Result<PullRequestResponse, String> {
+async fn create_gitlab_mr(
+    payload: &PullRequestPayload,
+    token: &str,
+) -> Result<PullRequestResponse, String> {
     let client = reqwest::Client::new();
     let project = format!("{}/{}", payload.owner, payload.repository);
     let encoded = urlencoding::encode(&project);
@@ -550,7 +581,9 @@ async fn create_gitlab_mr(payload: &PullRequestPayload, token: &str) -> Result<P
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("Error al crear el Merge Request en GitLab ({status}): {text}"));
+        return Err(format!(
+            "Error al crear el Merge Request en GitLab ({status}): {text}"
+        ));
     }
 
     let json: serde_json::Value = response.json().await.map_err(|err| err.to_string())?;
@@ -566,4 +599,3 @@ async fn create_gitlab_mr(payload: &PullRequestPayload, token: &str) -> Result<P
         provider: "gitlab".into(),
     })
 }
-*** End

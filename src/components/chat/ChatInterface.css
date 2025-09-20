@@ -735,9 +735,17 @@
 
 .chat-suggestions {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.suggestion-chip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
 }
 
 .chat-composer-panel {
@@ -774,23 +782,62 @@
   font-size: 12px;
   letter-spacing: 0.7px;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.55);
+  padding-top: 4px;
 }
 
 .suggestion-chip {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: #fff;
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border-radius: 999px;
+  padding: 6px 12px;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  border: 1px solid transparent;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.suggestion-chip--dynamic {
+  background: rgba(142, 141, 255, 0.16);
+  border-color: rgba(142, 141, 255, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.suggestion-chip--command {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .suggestion-chip:hover {
-  background: rgba(255, 183, 77, 0.16);
+  transform: translateY(-1px);
   border-color: rgba(255, 183, 77, 0.5);
+  background: rgba(255, 183, 77, 0.16);
+}
+
+.suggestion-chip-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.suggestion-chip-text {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-chip-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
 .chat-composer {
@@ -2074,7 +2121,14 @@
 
 .chat-suggestions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
+}
+
+.suggestion-chip-row {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
   row-gap: 4px;
@@ -2085,21 +2139,57 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.55);
+  padding-top: 2px;
 }
 
 .suggestion-chip {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border-radius: 999px;
   padding: 4px 10px;
   background: rgba(255, 255, 255, 0.05);
   color: #fff;
   cursor: pointer;
   font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.suggestion-chip--dynamic {
+  background: rgba(142, 141, 255, 0.18);
+  border-color: rgba(142, 141, 255, 0.35);
+}
+
+.suggestion-chip--command {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .suggestion-chip:hover {
   background: rgba(255, 183, 77, 0.16);
   border-color: rgba(255, 183, 77, 0.35);
+}
+
+.suggestion-chip-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.suggestion-chip-text {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-chip-badge {
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
 .composer-transcriptions {

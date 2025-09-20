@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
+import { useConversationSuggestions } from '../../core/messages/useConversationSuggestions';
 import { AttachmentPicker } from './composer/AttachmentPicker';
 import { AudioRecorder } from './composer/AudioRecorder';
 import { ChatAttachment, ChatTranscription } from '../../core/messages/messageTypes';
@@ -33,8 +34,89 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
     shareMessageWithAgent,
     loadMessageIntoDraft,
   } = useMessages();
+  const { dynamicSuggestions, recentCommands } = useConversationSuggestions();
 
-  const publicMessages = useMemo(() => messages.filter(message => message.visibility !== 'internal'), [messages]);
+  const publicMessages = useMemo(
+    () => messages.filter(message => message.visibility !== 'internal'),
+    [messages],
+  );
+
+  interface SuggestionChip {
+    id: string;
+    type: 'dynamic' | 'command';
+    label: string;
+    text: string;
+    icon: string;
+    badge: string;
+    title?: string;
+  }
+
+  const formatChipLabel = useCallback((value: string, maxLength = 70) => {
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+  }, []);
+
+  const suggestionChips = useMemo(() => {
+    const chips: SuggestionChip[] = [];
+
+    dynamicSuggestions.forEach(suggestion => {
+      chips.push({
+        id: suggestion.id,
+        type: 'dynamic',
+        label: suggestion.label,
+        text: suggestion.text,
+        icon: suggestion.icon ?? '💡',
+        badge: suggestion.badge ?? 'Contexto',
+        title: suggestion.title,
+      });
+    });
+
+    recentCommands.forEach((command, index) => {
+      chips.push({
+        id: `recent-command-${index}`,
+        type: 'command',
+        label: formatChipLabel(command),
+        text: command,
+        icon: '🕘',
+        badge: 'Reciente',
+        title: command,
+      });
+    });
+
+    quickCommands.forEach((command, index) => {
+      chips.push({
+        id: `quick-command-${index}`,
+        type: 'command',
+        label: formatChipLabel(command),
+        text: command,
+        icon: '⚡',
+        badge: 'Atajo',
+        title: command,
+      });
+    });
+
+    const seen = new Set<string>();
+    return chips.filter(chip => {
+      const normalized = chip.text.trim().toLowerCase();
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return true;
+    }).slice(0, 8);
+  }, [dynamicSuggestions, formatChipLabel, quickCommands, recentCommands]);
+
+  const handleApplySuggestion = useCallback(
+    (text: string) => {
+      if (!text.trim()) {
+        return;
+      }
+      appendToDraft(text);
+    },
+    [appendToDraft],
+  );
 
   const handleAddAttachments = useCallback(
     (items: ChatAttachment[]) => {
@@ -150,16 +232,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({ actorFilter }) => 
           <div className="composer-header">
             <div className="chat-suggestions">
               <span className="suggestions-label">Sugerencias</span>
-              {quickCommands.slice(0, 3).map(command => (
-                <button
-                  key={command}
-                  type="button"
-                  className="suggestion-chip"
-                  onClick={() => appendToDraft(command)}
-                >
-                  {command}
-                </button>
-              ))}
+              <div className="suggestion-chip-row">
+                {suggestionChips.map(chip => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`suggestion-chip suggestion-chip--${chip.type}`}
+                    onClick={() => handleApplySuggestion(chip.text)}
+                    title={chip.title ?? chip.label}
+                    aria-label={`Insertar sugerencia: ${chip.label}`}
+                  >
+                    <span aria-hidden="true" className="suggestion-chip-icon">
+                      {chip.icon}
+                    </span>
+                    <span className="suggestion-chip-text">{chip.label}</span>
+                    <span className="suggestion-chip-badge">{chip.badge}</span>
+                  </button>
+                ))}
+              </div>
             </div>
             {composerTranscriptions.length > 0 && (
               <div className="composer-transcriptions">

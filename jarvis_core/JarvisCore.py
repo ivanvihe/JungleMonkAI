@@ -28,11 +28,13 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Deque, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, DirectoryPath, Field, PositiveInt, ValidationError, validator
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 import uvicorn
+
+from jarvis_core.models import ModelRegistry, ModelRegistryError
 
 
 APP_NAME = "jarvis-core"
@@ -54,6 +56,20 @@ class AppConfig(BaseModel):
     def validate_host(cls, value: str) -> str:  # noqa: D417
         if not value:
             raise ValueError("Host cannot be empty")
+        return value
+
+
+class DownloadModelRequest(BaseModel):
+    repo_id: str
+    filename: str
+    hf_token: Optional[str] = None
+    checksum: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+
+    @validator("repo_id", "filename")
+    def validate_not_empty(cls, value: str) -> str:  # noqa: D417
+        if not value:
+            raise ValueError("This field cannot be empty")
         return value
 
 
@@ -207,6 +223,9 @@ def resolve_config(cli_args: Optional[list[str]] = None) -> AppConfig:
 
 def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
     app = FastAPI(title="Jarvis Core", version="0.1.0")
+    registry = ModelRegistry(Path(config.models_dir))
+
+    app.state.model_registry = registry
 
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):  # type: ignore[override]
@@ -232,6 +251,51 @@ def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
     @app.get("/logs")
     async def get_logs() -> JSONResponse:
         return JSONResponse(list(log_handler.records))
+
+    @app.get("/models")
+    async def list_models() -> list[Dict[str, Any]]:
+        return await registry.list_models()
+
+    @app.post("/models/{model_id}/download", status_code=202)
+    async def download_model(model_id: str, payload: DownloadModelRequest) -> Dict[str, Any]:
+        try:
+            return await registry.start_download(
+                model_id,
+                payload.repo_id,
+                payload.filename,
+                hf_token=payload.hf_token,
+                checksum=payload.checksum,
+                tags=payload.tags,
+            )
+        except ModelRegistryError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+
+    @app.post("/models/{model_id}/activate")
+    async def activate_model(model_id: str) -> Dict[str, Any]:
+        try:
+            metadata = await registry.activate_model(model_id)
+        except ModelRegistryError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        return metadata
+
+    @app.delete("/models/{model_id}", status_code=204)
+    async def delete_model(model_id: str) -> Response:
+        try:
+            await registry.remove_model(model_id)
+        except ModelRegistryError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        return Response(status_code=204)
+
+    @app.get("/models/{model_id}/progress")
+    async def model_progress(model_id: str) -> Dict[str, Any]:
+        try:
+            return await registry.get_progress(model_id)
+        except ModelRegistryError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+
+    @app.on_event("shutdown")
+    async def shutdown_registry() -> None:
+        await registry.shutdown()
 
     return app
 

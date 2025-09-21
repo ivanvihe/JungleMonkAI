@@ -308,7 +308,7 @@ export const RepoStudio: React.FC = () => {
   }, [repoPath, loadRepositoryStatus]);
 
   useEffect(() => {
-    if (!pendingRequest) {
+    if (!pendingRequest || pendingRequest.status === 'analyzing') {
       return;
     }
 
@@ -360,6 +360,25 @@ export const RepoStudio: React.FC = () => {
 
       if (cancelled) {
         return;
+      }
+
+      if (pendingRequest.status === 'fallback') {
+        syncMessages.push({
+          message: 'El orquestador devolvió un análisis parcial; se completará el flujo con el plan disponible.',
+        });
+      } else if (pendingRequest.status === 'error') {
+        syncMessages.push({
+          message: 'No se pudo completar el análisis remoto. Se utilizará el plan generado localmente.',
+        });
+      }
+
+      if (pendingRequest.analysisErrors.length) {
+        pendingRequest.analysisErrors.forEach(errorMessage => {
+          const detail = errorMessage.trim();
+          if (detail) {
+            syncMessages.push({ message: `⚠️ ${detail}` });
+          }
+        });
       }
 
       syncMessages.push({

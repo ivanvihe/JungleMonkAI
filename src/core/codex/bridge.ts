@@ -1,5 +1,17 @@
 import { CodexEngine } from './CodexEngine';
-import type { CodexPlan, CodexRequest, CodexRequestContext } from './types';
+import type {
+  CodexAnalysisResult,
+  CodexCommitSuggestion,
+  CodexOrchestratorTrace,
+  CodexPlan,
+  CodexPlanWithAnalysis,
+  CodexProviderMetadata,
+  CodexPullRequestSummary,
+  CodexRepositorySnapshot,
+  CodexRequest,
+  CodexRequestContext,
+  CodexSuggestedPatch,
+} from './types';
 import type { ChatContentPart, ChatMessage } from '../messages/messageTypes';
 
 export interface CodexBridgeOptions {
@@ -21,6 +33,16 @@ export interface RepoWorkflowSubmission {
   prTitle: string;
   prBody: string;
   tags: string[];
+  analysisStatus: 'success' | 'fallback' | 'error';
+  analysis?: CodexAnalysisResult;
+  enrichedPlan?: CodexPlanWithAnalysis;
+  suggestedPatches: CodexSuggestedPatch[];
+  suggestedCommits: CodexCommitSuggestion[];
+  suggestedPullRequest?: CodexPullRequestSummary;
+  providerMetadata?: CodexProviderMetadata;
+  providerTraces: CodexOrchestratorTrace[];
+  analysisErrors: string[];
+  repositorySnapshot?: CodexRepositorySnapshot;
 }
 
 const contentPartToText = (part: ChatContentPart | string): string => {
@@ -157,9 +179,21 @@ export const buildRepoWorkflowSubmission = (
     engine?: CodexEngine;
     options?: CodexBridgeOptions;
     defaultRepositoryPath?: string;
+    analysis?: CodexAnalysisResult | null;
+    traces?: CodexOrchestratorTrace[];
+    additionalErrors?: string[];
   },
 ): RepoWorkflowSubmission => {
-  const { message, canonicalCode, engine, options, defaultRepositoryPath } = params;
+  const {
+    message,
+    canonicalCode,
+    engine,
+    options,
+    defaultRepositoryPath,
+    analysis,
+    traces,
+    additionalErrors,
+  } = params;
   const { prompt, canonical } = normalizePrompt(message, canonicalCode);
   const sanitizedBranch = options?.branch?.trim() || undefined;
   const sanitizedActor = options?.actor?.trim() || undefined;
@@ -175,22 +209,77 @@ export const buildRepoWorkflowSubmission = (
 
   const request = buildCodexRequest(prompt, effectiveOptions, actor);
   const codexEngine = engine ?? new CodexEngine({ defaultDryRun: true });
-  const plan = codexEngine.createPlan(request);
+  const fallbackPlan = codexEngine.createPlan(request);
+  const enrichedPlan = analysis?.artifacts.plan;
+  const plan = enrichedPlan ?? fallbackPlan;
 
   const tags = deriveTags(message);
   const originalResponse = messageContentToText(message.content);
+  const suggestedCommits = analysis?.artifacts.commits ?? [];
+  const suggestedPatches = analysis?.artifacts.patches ?? [];
+  const suggestedPullRequest = analysis?.artifacts.pullRequest;
+  const providerMetadata = analysis?.artifacts.providerMetadata;
+  const providerTraces = traces ?? [];
+  const repositorySnapshot = analysis?.repository;
+  const analysisErrors = [...(analysis?.errors ?? []), ...(additionalErrors ?? [])];
+  const analysisStatus = analysis ? analysis.status : 'fallback';
+  const commitSuggestion = suggestedCommits.find(entry => entry.message?.trim());
+  const commitMessage = commitSuggestion?.message?.trim() || `chore: ${plan.intent}`;
+  const prTitle = suggestedPullRequest?.title?.trim() || plan.intent;
+
+  const summarizePullRequest = (): string | null => {
+    if (!suggestedPullRequest) {
+      return null;
+    }
+
+    const sections: string[] = [];
+    if (suggestedPullRequest.summary?.trim()) {
+      sections.push(suggestedPullRequest.summary.trim());
+    }
+
+    if (suggestedPullRequest.highlights?.length) {
+      const highlights = suggestedPullRequest.highlights
+        .map(entry => entry.trim())
+        .filter(Boolean);
+      if (highlights.length) {
+        sections.push(['## Puntos destacados', ...highlights.map(item => `- ${item}`)].join('\n'));
+      }
+    }
+
+    if (suggestedPullRequest.body?.trim()) {
+      sections.push(suggestedPullRequest.body.trim());
+    }
+
+    if (!sections.length) {
+      return null;
+    }
+
+    return sections.join('\n\n');
+  };
+
   const submission: RepoWorkflowSubmission = {
     request,
     plan,
     analysisPrompt: prompt,
     canonicalCode: canonical,
     originalResponse,
-    commitMessage: `chore: ${plan.intent}`,
-    prTitle: plan.intent,
+    commitMessage,
+    prTitle,
     prBody: '',
     tags,
+    analysisStatus,
+    analysis: analysis ?? undefined,
+    enrichedPlan,
+    suggestedPatches,
+    suggestedCommits,
+    suggestedPullRequest,
+    providerMetadata,
+    providerTraces,
+    analysisErrors,
+    repositorySnapshot,
   };
 
-  submission.prBody = buildPrBody(submission);
+  const orchestratorBody = summarizePullRequest();
+  submission.prBody = orchestratorBody || buildPrBody(submission);
   return submission;
 };

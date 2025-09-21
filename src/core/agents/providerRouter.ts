@@ -15,6 +15,7 @@ import type {
   JarvisChatResult,
   JarvisCoreClient,
 } from '../../services/jarvisCoreClient';
+import { JarvisCoreError } from '../../services/jarvisCoreClient';
 
 export const AGENT_SYSTEM_PROMPT =
   'Actúas como parte de un colectivo de agentes creativos. Responde de forma concisa, en español cuando sea posible, y especifica los supuestos importantes que utilices al contestar.';
@@ -176,6 +177,50 @@ const buildJarvisActionLabel = (action: ChatSuggestedAction): string => {
     return `Ejecutar ${command}`;
   }
   return action.label ?? 'Acción sugerida';
+};
+
+const appendErrorDetails = (message: string, detail: string | undefined): string => {
+  const normalized = detail?.trim();
+  if (!normalized) {
+    return message;
+  }
+  const joiner = /[.!?]$/.test(message) ? ' Detalles: ' : '. Detalles: ';
+  return `${message}${joiner}${normalized}`;
+};
+
+const buildJarvisCoreErrorMessage = (error: unknown): string | undefined => {
+  if (!(error instanceof JarvisCoreError)) {
+    return undefined;
+  }
+
+  const detail = error.message?.trim();
+  const enrich = (base: string): string => appendErrorDetails(base, detail);
+
+  switch (error.status) {
+    case 401:
+    case 403:
+      return enrich(
+        `Jarvis Core rechazó la solicitud (${error.status}). Revisa el token configurado en los ajustes de Jarvis Core y vuelve a intentarlo.`,
+      );
+    case 404:
+      return enrich(
+        'Jarvis Core no encontró un modelo activo (404). Activa un modelo local desde la sección de modelos y vuelve a intentarlo.',
+      );
+    case 409:
+      return enrich(
+        'Jarvis Core está finalizando otra operación (409). Espera a que termine la descarga o activación del modelo antes de reintentar.',
+      );
+    case 503:
+      return enrich(
+        'Jarvis Core no tiene recursos disponibles (503). Comprueba que el servicio esté en ejecución o reinícialo.',
+      );
+    case 500:
+      return enrich(
+        'Jarvis Core devolvió un error interno (500). Revisa los logs del servicio para obtener más información.',
+      );
+    default:
+      return enrich(`Jarvis Core devolvió un error (${error.status || 'desconocido'}).`);
+  }
 };
 
 const normalizeJarvisActions = (payload: unknown): ChatSuggestedAction[] => {
@@ -390,9 +435,11 @@ export const fetchAgentReply = async ({
       return finalize(message, actions.length ? actions : undefined);
     } catch (error) {
       const fallbackContent = fallback(agent, prompt, context);
+      const enrichedMessage = buildJarvisCoreErrorMessage(error);
       const rawMessage =
         error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-      return emitFallbackResponse(fallbackContent, rawMessage);
+      const fallbackErrorMessage = enrichedMessage ?? (rawMessage || 'Jarvis Core no respondió.');
+      return emitFallbackResponse(fallbackContent, fallbackErrorMessage);
     }
   }
 
@@ -441,9 +488,12 @@ export const fetchAgentReply = async ({
       };
     } catch (error) {
       const fallbackContent = fallback(agent, prompt, context);
+      const enrichedMessage = buildJarvisCoreErrorMessage(error);
       const rawMessage =
         error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-      return emitFallbackResponse(fallbackContent, rawMessage);
+      const fallbackErrorMessage =
+        enrichedMessage ?? (rawMessage || 'No se pudo completar la solicitud al proveedor.');
+      return emitFallbackResponse(fallbackContent, fallbackErrorMessage);
     }
   };
 

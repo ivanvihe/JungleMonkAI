@@ -54,9 +54,9 @@ export const INITIAL_AGENTS: AgentDefinition[] = [
     channel: 'claude',
   },
   {
-    id: 'groq-llama3-70b',
-    model: 'llama-3.1-70b-versatile',
-    name: 'LLaMA 3.1 70B',
+    id: 'groq-llama3-90b',
+    model: 'llama-3.2-90b-text',
+    name: 'LLaMA 3.2 90B',
     provider: 'Groq',
     description: 'Respuesta ultrarrápida para tareas analíticas y técnicas.',
     kind: 'cloud',

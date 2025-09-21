@@ -72,12 +72,16 @@ const maskApiKey = (apiKey: string): string => {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 };
 
-const GROQ_RECOMMENDED_MODEL = 'llama-3.1-70b-versatile';
+const GROQ_RECOMMENDED_MODEL = 'llama-3.2-90b-text';
 
 const GROQ_MODEL_ALIASES: Record<string, string> = {
+  'llama-3.2-90b': GROQ_RECOMMENDED_MODEL,
+  'llama3-90b': GROQ_RECOMMENDED_MODEL,
+  'llama3-90b-text': GROQ_RECOMMENDED_MODEL,
   'llama3-70b-8192': GROQ_RECOMMENDED_MODEL,
   'llama-3-70b-8192': GROQ_RECOMMENDED_MODEL,
   'llama3-70b': GROQ_RECOMMENDED_MODEL,
+  'llama-3.1-70b-versatile': GROQ_RECOMMENDED_MODEL,
   'mixtral-8x7b-32768': 'mixtral-8x7b-32768',
 };
 
@@ -489,11 +493,19 @@ export const callGroqChat = async ({
 
       if (shouldRetryWithRecommended) {
         console.warn(
-          `Groq indicó que el modelo "${activeModel}" está obsoleto. Reintentando con "${GROQ_RECOMMENDED_MODEL}".`,
+          `Groq indicó que el modelo "${activeModel}" está obsoleto. Reintentando con "${GROQ_RECOMMENDED_MODEL}". ` +
+            'Actualiza tus presets o prueba "mixtral-8x7b-32768" si necesitas una alternativa compatible.',
         );
         activeModel = GROQ_RECOMMENDED_MODEL;
         attemptedFallback = true;
         continue;
+      }
+
+      if (/deprecat/i.test(message)) {
+        throw new Error(
+          `Groq marcó el modelo "${activeModel}" como obsoleto. Cambia al modelo recomendado "${GROQ_RECOMMENDED_MODEL}" ` +
+            'o utiliza "mixtral-8x7b-32768" como alternativa temporal.',
+        );
       }
 
       throw error instanceof Error ? error : new Error(message || 'Groq rechazó la solicitud.');

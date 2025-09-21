@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Flex, Grid, Layout } from 'antd';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
@@ -36,6 +37,8 @@ interface AppContentProps {
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
 }
 
+const { Header, Content, Sider } = Layout;
+
 const AppContent: React.FC<AppContentProps> = ({
   apiKeys,
   settings,
@@ -52,6 +55,7 @@ const AppContent: React.FC<AppContentProps> = ({
   const [isMcpOpen, setMcpOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
   const [isModelManagerOpen, setModelManagerOpen] = useState(false);
+  const screens = Grid.useBreakpoint();
 
   const handleModelStorageDirChange = useCallback(
     (nextPath: string | null) => {
@@ -67,73 +71,105 @@ const AppContent: React.FC<AppContentProps> = ({
   );
 
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
+  const showDesktopSidebar = Boolean(screens.lg);
+  const siderWidth = Math.max(settings.workspacePreferences.sidePanel.width, 280);
 
   return (
-    <div className="app-container">
-      <ChatTopBar
-        agents={agents}
-        presenceSummary={presenceSummary}
-        activeAgents={activeAgents.length}
-        totalAgents={agents.length}
-        pendingResponses={pendingResponses}
-        activeFilter={actorFilter}
-        onFilterChange={setActorFilter}
-        onRefreshPresence={() => void refresh()}
-        onOpenStats={() => setStatsOpen(true)}
-        onOpenGlobalSettings={() => setSettingsOpen(true)}
-        onOpenPlugins={() => setPluginsOpen(true)}
-        onOpenMcp={() => setMcpOpen(true)}
-        onOpenModelManager={() => setModelManagerOpen(true)}
-        activeView={activeView}
-        onChangeView={setActiveView}
-      />
+    <Layout className={`app-container sidebar-${sidePanelPosition} ${showDesktopSidebar ? '' : 'is-mobile'}`}>
+      <Header className="app-header" role="banner">
+        <ChatTopBar
+          agents={agents}
+          presenceSummary={presenceSummary}
+          activeAgents={activeAgents.length}
+          totalAgents={agents.length}
+          pendingResponses={pendingResponses}
+          activeFilter={actorFilter}
+          onFilterChange={setActorFilter}
+          onRefreshPresence={() => void refresh()}
+          onOpenStats={() => setStatsOpen(true)}
+          onOpenGlobalSettings={() => setSettingsOpen(true)}
+          onOpenPlugins={() => setPluginsOpen(true)}
+          onOpenMcp={() => setMcpOpen(true)}
+          onOpenModelManager={() => setModelManagerOpen(true)}
+          activeView={activeView}
+          onChangeView={setActiveView}
+        />
+      </Header>
 
-      {activeView === 'chat' && (
-        <div className={`app-body sidebar-${sidePanelPosition}`}>
-          {sidePanelPosition === 'left' && (
-            <aside className="app-sidebar">
-              <SidePanel
-                onOpenGlobalSettings={() => setSettingsOpen(true)}
-                onOpenModelManager={() => setModelManagerOpen(true)}
-              />
-            </aside>
-          )}
+      <Content className="app-content" role="main">
+        {activeView === 'chat' && (
+          <>
+            <Layout
+              className={`app-body sidebar-${sidePanelPosition}`}
+              hasSider={showDesktopSidebar}
+            >
+              {sidePanelPosition === 'left' && showDesktopSidebar && (
+                <Sider
+                  width={siderWidth}
+                  className="app-sidebar"
+                  role="complementary"
+                  aria-label="Agent configuration"
+                >
+                  <SidePanel
+                    onOpenGlobalSettings={() => setSettingsOpen(true)}
+                    onOpenModelManager={() => setModelManagerOpen(true)}
+                  />
+                </Sider>
+              )}
 
-          <main className="chat-main">
-            <ChatWorkspace
-              actorFilter={actorFilter}
-              settings={settings}
-              onSettingsChange={onSettingsChange}
-              presenceMap={presenceMap}
-            />
-          </main>
+              <Content className="chat-main-container">
+                <Flex vertical className="chat-main" gap="large">
+                  <ChatWorkspace
+                    actorFilter={actorFilter}
+                    settings={settings}
+                    onSettingsChange={onSettingsChange}
+                    presenceMap={presenceMap}
+                  />
+                </Flex>
+              </Content>
 
-          {sidePanelPosition === 'right' && (
-            <aside className="app-sidebar">
-              <SidePanel
-                onOpenGlobalSettings={() => setSettingsOpen(true)}
-                onOpenModelManager={() => setModelManagerOpen(true)}
-              />
-            </aside>
-          )}
-        </div>
-      )}
+              {sidePanelPosition === 'right' && showDesktopSidebar && (
+                <Sider
+                  width={siderWidth}
+                  className="app-sidebar"
+                  role="complementary"
+                  aria-label="Agent configuration"
+                >
+                  <SidePanel
+                    onOpenGlobalSettings={() => setSettingsOpen(true)}
+                    onOpenModelManager={() => setModelManagerOpen(true)}
+                  />
+                </Sider>
+              )}
+            </Layout>
 
-      {activeView === 'repo' && (
-        <div className="app-body">
-          <div className="repo-main">
-            <RepoStudio />
+            {!showDesktopSidebar && (
+              <div className="app-sidebar-mobile" role="complementary" aria-label="Agent configuration">
+                <SidePanel
+                  onOpenGlobalSettings={() => setSettingsOpen(true)}
+                  onOpenModelManager={() => setModelManagerOpen(true)}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {activeView === 'repo' && (
+          <div className="app-body">
+            <Flex vertical className="repo-main" gap="large">
+              <RepoStudio />
+            </Flex>
           </div>
-        </div>
-      )}
+        )}
 
-      {activeView === 'canvas' && (
-        <div className="app-body">
-          <div className="canvas-main">
-            <CodeCanvas />
+        {activeView === 'canvas' && (
+          <div className="app-body">
+            <Flex vertical className="canvas-main" gap="large">
+              <CodeCanvas />
+            </Flex>
           </div>
-        </div>
-      )}
+        )}
+      </Content>
 
       <GlobalSettingsDialog
         isOpen={isSettingsOpen}
@@ -170,7 +206,7 @@ const AppContent: React.FC<AppContentProps> = ({
       </OverlayModal>
 
       <ConversationStatsModal isOpen={isStatsOpen} onClose={() => setStatsOpen(false)} />
-    </div>
+    </Layout>
   );
 };
 

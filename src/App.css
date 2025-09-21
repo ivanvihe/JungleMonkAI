@@ -1,23 +1,95 @@
-/* Global variables and resets */
-
-:root {
-  --accent-color: #FFB74D;
+.app-container {
+  min-height: 100vh;
+  background: var(--color-bg-base);
+  color: var(--color-text-base);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  padding: var(--space-sm) var(--space-lg);
+  background: linear-gradient(180deg, rgba(17, 25, 39, 0.95) 0%, rgba(17, 25, 39, 0.7) 100%);
+  border-bottom: 1px solid var(--color-border-subtle);
+  backdrop-filter: blur(18px);
 }
 
-html, body, #root {
-  width: 100%;
-  height: 100%;
-  background: #000;
+.app-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  min-height: 0;
 }
 
-body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  color: #fff;
-  overflow: hidden;
+.chat-main-container {
+  background: var(--color-bg-elevated);
+  padding: var(--space-lg);
+  min-height: 0;
+}
+
+.chat-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.app-sidebar {
+  background: var(--color-bg-elevated);
+  padding: var(--space-lg);
+  border-inline-end: 1px solid var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.sidebar-right .app-sidebar {
+  border-inline-end: none;
+  border-inline-start: 1px solid var(--color-border-subtle);
+}
+
+.app-sidebar-mobile {
+  background: var(--color-bg-elevated);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-subtle);
+  box-shadow: var(--shadow-soft);
+}
+
+.repo-main,
+.canvas-main {
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-soft);
+  min-height: 0;
+}
+
+@media (max-width: 1024px) {
+  .app-content {
+    padding: var(--space-md);
+  }
+
+  .app-header {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .chat-main-container {
+    padding: var(--space-md);
+  }
+
+  .app-sidebar {
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 768px) {
+  .app-sidebar {
+    border: none;
+  }
+
+  .app-sidebar-mobile {
+    padding: var(--space-sm);
+  }
 }

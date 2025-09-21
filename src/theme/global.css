@@ -1,0 +1,82 @@
+:root {
+  color-scheme: dark;
+  --color-primary: #6E6BFF;
+  --color-primary-hover: #7F7CFF;
+  --color-primary-active: #5753D9;
+  --color-success: #6DD3A4;
+  --color-warning: #FFB74D;
+  --color-danger: #FF6B6B;
+  --color-info: #3DB5FF;
+  --color-bg-base: #0B1017;
+  --color-bg-elevated: #111927;
+  --color-bg-spotlight: #1B2535;
+  --color-text-base: #F5F7FA;
+  --color-text-muted: #A0AEC0;
+  --color-border-subtle: rgba(255, 255, 255, 0.12);
+  --font-family-base: 'Inter', 'Segoe UI', sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-size-base: 14px;
+  --line-height-base: 1.6;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+  --shadow-soft: 0 12px 32px rgba(5, 12, 23, 0.35);
+  --shadow-medium: 0 18px 45px rgba(5, 12, 23, 0.45);
+  --shadow-strong: 0 28px 64px rgba(5, 12, 23, 0.6);
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-base);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body[data-scroll-lock='true'] {
+  overflow: hidden;
+}
+
+a {
+  color: var(--color-info);
+}
+
+a:hover {
+  color: var(--color-primary);
+}
+
+.jungle-app-shell {
+  min-height: 100vh;
+  background: var(--color-bg-base);
+}
+
+.jungle-modal-root .ant-modal-content {
+  background: var(--color-bg-elevated);
+}
+
+@media (max-width: 768px) {
+  body {
+    font-size: 13px;
+  }
+}

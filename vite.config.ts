@@ -14,9 +14,12 @@ export default defineConfig({
         main: './index.html',
       },
       output: {
-        manualChunks: {
-          react: ['react', 'react-dom'],
-          three: ['three']
+        // Allow Rollup to decide how to split React dependencies while keeping
+        // Three.js in its own chunk to avoid inflating the main bundle.
+        manualChunks(id) {
+          if (id.includes('node_modules/three')) {
+            return 'three';
+          }
         }
       }
     }

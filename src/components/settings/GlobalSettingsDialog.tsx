@@ -54,6 +54,10 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const [githubInput, setGithubInput] = useState('');
   const [gitlabInput, setGitlabInput] = useState('');
   const [secretError, setSecretError] = useState<string | null>(null);
+  const [jarvisFieldTouched, setJarvisFieldTouched] = useState<{ host: boolean; port: boolean }>({
+    host: false,
+    port: false,
+  });
   const previousGithubOwnerRef = useRef<string>(settings.githubDefaultOwner ?? '');
   const onApiKeyChangeRef = useRef(onApiKeyChange);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -145,6 +149,12 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
       setGitlabInput('');
       setSecretError(null);
       setActiveSectionId(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setJarvisFieldTouched({ host: false, port: false });
     }
   }, [isOpen]);
 
@@ -343,6 +353,74 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
     [onSettingsChange],
   );
 
+  const jarvisValidation = useMemo(() => {
+    const trimmedHost = settings.jarvisCore.host?.trim() ?? '';
+    const hostError = trimmedHost ? null : 'El host o IP es obligatorio.';
+
+    const portValue = settings.jarvisCore.port;
+    const portIsInteger = Number.isInteger(portValue);
+    const portInRange = portIsInteger && portValue >= 1 && portValue <= 65535;
+    const portError = portInRange ? null : 'El puerto debe estar entre 1 y 65535.';
+
+    return {
+      errors: {
+        host: hostError,
+        port: portError,
+      },
+    };
+  }, [settings.jarvisCore.host, settings.jarvisCore.port]);
+
+  const handleJarvisCoreChange = useCallback(
+    (patch: Partial<GlobalSettings['jarvisCore']>) => {
+      onSettingsChange(prev => ({
+        ...prev,
+        jarvisCore: {
+          ...prev.jarvisCore,
+          ...patch,
+        },
+      }));
+    },
+    [onSettingsChange],
+  );
+
+  const handleJarvisHostChange = useCallback(
+    (value: string) => {
+      setJarvisFieldTouched(prev => ({ ...prev, host: true }));
+      handleJarvisCoreChange({ host: value });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisPortChange = useCallback(
+    (value: string) => {
+      setJarvisFieldTouched(prev => ({ ...prev, port: true }));
+      const parsed = Number.parseInt(value, 10);
+      handleJarvisCoreChange({ port: Number.isFinite(parsed) ? parsed : 0 });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisUseHttpsChange = useCallback(
+    (checked: boolean) => {
+      handleJarvisCoreChange({ useHttps: checked });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisAutoStartChange = useCallback(
+    (checked: boolean) => {
+      handleJarvisCoreChange({ autoStart: checked });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisApiKeyChange = useCallback(
+    (value: string) => {
+      handleJarvisCoreChange({ apiKey: value });
+    },
+    [handleJarvisCoreChange],
+  );
+
   useEffect(() => {
     const currentDefault = settings.githubDefaultOwner ?? '';
     const previousDefault = previousGithubOwnerRef.current;
@@ -405,6 +483,11 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
     });
     return map;
   }, [runtimePlugins]);
+
+  const jarvisHostError = jarvisValidation.errors.host;
+  const jarvisPortError = jarvisValidation.errors.port;
+  const showJarvisHostError = jarvisFieldTouched.host && Boolean(jarvisHostError);
+  const showJarvisPortError = jarvisFieldTouched.port && Boolean(jarvisPortError);
 
   const sections: SettingsSectionDescriptor[] = [
     {
@@ -486,6 +569,75 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
             <p className="settings-hint">
               La administración de perfiles de proyecto ahora se realiza directamente desde Repo Studio.
             </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'jarvis',
+      label: 'Jarvis Core',
+      icon: '🤖',
+      render: () => (
+        <div className="settings-section">
+          <h3>Conexión con Jarvis Core</h3>
+          <p>Configura el host, el puerto y la autenticación de Jarvis Core.</p>
+
+          <div className="provider-form">
+            <label>
+              <span>Host o IP</span>
+              <input
+                type="text"
+                value={settings.jarvisCore.host}
+                onChange={event => handleJarvisHostChange(event.target.value)}
+                placeholder="127.0.0.1"
+              />
+            </label>
+            {showJarvisHostError && jarvisHostError && (
+              <p className="settings-error">{jarvisHostError}</p>
+            )}
+
+            <label>
+              <span>Puerto</span>
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={settings.jarvisCore.port || ''}
+                onChange={event => handleJarvisPortChange(event.target.value)}
+              />
+            </label>
+            {showJarvisPortError && jarvisPortError && (
+              <p className="settings-error">{jarvisPortError}</p>
+            )}
+
+            <div className="jarvis-core-toggles">
+              <label className="jarvis-core-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings.jarvisCore.useHttps)}
+                  onChange={event => handleJarvisUseHttpsChange(event.target.checked)}
+                />
+                <span>Usar HTTPS</span>
+              </label>
+              <label className="jarvis-core-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.jarvisCore.autoStart}
+                  onChange={event => handleJarvisAutoStartChange(event.target.checked)}
+                />
+                <span>Iniciar Jarvis Core automáticamente</span>
+              </label>
+            </div>
+
+            <label>
+              <span>Token o API key (opcional)</span>
+              <input
+                type="password"
+                value={settings.jarvisCore.apiKey ?? ''}
+                placeholder="Bearer token o secreto opcional"
+                onChange={event => handleJarvisApiKeyChange(event.target.value)}
+              />
+            </label>
           </div>
         </div>
       ),

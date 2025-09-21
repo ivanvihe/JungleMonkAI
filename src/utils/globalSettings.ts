@@ -30,7 +30,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
@@ -60,6 +60,7 @@ const MAX_HUGGINGFACE_RESULTS = 200;
 const DEFAULT_HUGGINGFACE_RESULTS = 30;
 const DEFAULT_JARVIS_HOST = '127.0.0.1';
 const DEFAULT_JARVIS_PORT = 8000;
+const DEFAULT_JARVIS_USE_HTTPS = false;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
@@ -221,6 +222,15 @@ const isModelPreferences = (value: unknown): value is ModelPreferences =>
   (value.storageDir === null || typeof value.storageDir === 'string') &&
   isHuggingFacePreferences(value.huggingFace);
 
+const isJarvisCoreSettings = (value: unknown): value is JarvisCoreSettings =>
+  isRecord(value) &&
+  typeof value.host === 'string' &&
+  typeof value.port === 'number' &&
+  Number.isFinite(value.port) &&
+  typeof value.autoStart === 'boolean' &&
+  (value.useHttps === undefined || typeof value.useHttps === 'boolean') &&
+  (value.apiKey === undefined || typeof value.apiKey === 'string');
+
 const isGitProvider = (value: unknown): value is GitHostingProvider =>
   value === 'github' || value === 'gitlab';
 
@@ -255,6 +265,7 @@ const isGlobalSettings = (payload: unknown): payload is GlobalSettings =>
   isWorkspacePreferences(payload.workspacePreferences) &&
   isDataLocationSettings(payload.dataLocation) &&
   isModelPreferences(payload.modelPreferences) &&
+  isJarvisCoreSettings(payload.jarvisCore) &&
   Array.isArray(payload.projectProfiles) &&
   payload.projectProfiles.every(isProjectProfile) &&
   (payload.activeProjectId === null || typeof payload.activeProjectId === 'string') &&
@@ -861,21 +872,97 @@ const DEFAULT_MODEL_PREFERENCES: ModelPreferences = normalizeModelPreferences(un
 const normalizeJarvisCoreSettings = (
   input: Partial<JarvisCoreSettings> | undefined,
 ): JarvisCoreSettings => {
-  const host =
-    typeof input?.host === 'string' && input.host.trim()
-      ? input.host.trim()
-      : DEFAULT_JARVIS_HOST;
+  const rawHost = typeof input?.host === 'string' ? input.host.trim() : '';
 
-  const rawPort =
+  const parsedPort =
     typeof input?.port === 'number' && Number.isFinite(input.port)
       ? Math.trunc(input.port)
       : Number.parseInt(String(input?.port ?? ''), 10);
 
-  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : DEFAULT_JARVIS_PORT;
+  let portCandidate = Number.isFinite(parsedPort) ? parsedPort : Number.NaN;
+  let detectedHttps = DEFAULT_JARVIS_USE_HTTPS;
+  const defaultProtocol = DEFAULT_JARVIS_USE_HTTPS ? 'https' : 'http';
+  const preferredProtocol =
+    typeof input?.useHttps === 'boolean'
+      ? input.useHttps
+        ? 'https'
+        : 'http'
+      : defaultProtocol;
+
+  const parseHost = (value: string): URL | null => {
+    if (!value) {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const needsIpv6Wrapping =
+      trimmed.includes(':') &&
+      !trimmed.includes('://') &&
+      !trimmed.includes('[') &&
+      trimmed.split(':').length > 2;
+
+    const candidate = trimmed.includes('://')
+      ? trimmed
+      : `${preferredProtocol}://${needsIpv6Wrapping ? `[${trimmed}]` : trimmed}`;
+
+    try {
+      return new URL(candidate);
+    } catch {
+      return null;
+    }
+  };
+
+  const parsed = parseHost(rawHost);
+
+  let host: string;
+
+  if (parsed) {
+    const hostname = parsed.hostname || DEFAULT_JARVIS_HOST;
+    host = hostname.includes(':') ? `[${hostname}]` : hostname;
+    if (Number.isNaN(portCandidate) && parsed.port) {
+      const inferred = Number.parseInt(parsed.port, 10);
+      if (Number.isFinite(inferred)) {
+        portCandidate = inferred;
+      }
+    }
+    if (parsed.protocol === 'https:') {
+      detectedHttps = true;
+    } else if (parsed.protocol === 'http:') {
+      detectedHttps = false;
+    }
+  } else {
+    const strippedScheme = rawHost.replace(/^https?:\/\//i, '');
+    const withoutPath = strippedScheme.split(/[/?#]/)[0] ?? '';
+    const cleaned = withoutPath.replace(/^\[|\]$/g, '');
+
+    if (Number.isNaN(portCandidate) && cleaned.includes(':') && cleaned.split(':').length === 2) {
+      const [, possiblePort] = cleaned.split(':');
+      const inferred = Number.parseInt(possiblePort ?? '', 10);
+      if (Number.isFinite(inferred)) {
+        portCandidate = inferred;
+      }
+    }
+
+    const hostnameOnly = cleaned.includes(':') && cleaned.split(':').length > 2 ? cleaned : cleaned.split(':')[0];
+    const candidate = hostnameOnly.trim() || DEFAULT_JARVIS_HOST;
+    host = candidate.includes(':') ? `[${candidate}]` : candidate;
+  }
+
+  const port =
+    Number.isFinite(portCandidate) && portCandidate > 0 && portCandidate <= 65535
+      ? portCandidate
+      : DEFAULT_JARVIS_PORT;
 
   const autoStart = typeof input?.autoStart === 'boolean' ? input.autoStart : true;
+  const useHttps = typeof input?.useHttps === 'boolean' ? input.useHttps : detectedHttps;
+  const apiKey =
+    typeof input?.apiKey === 'string' && input.apiKey.trim() ? input.apiKey.trim() : undefined;
 
-  return { host, port, autoStart };
+  return { host, port, autoStart, useHttps, apiKey };
 };
 
 const DEFAULT_JARVIS_CORE_SETTINGS: JarvisCoreSettings = normalizeJarvisCoreSettings(undefined);

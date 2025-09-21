@@ -3,7 +3,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlobalSettingsDialog } from '../GlobalSettingsDialog';
-import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
+import {
+  CURRENT_SCHEMA_VERSION,
+  DEFAULT_GLOBAL_SETTINGS,
+  migratePersistedGlobalSettings,
+} from '../../../utils/globalSettings';
 import type { ApiKeySettings, GlobalSettings } from '../../../types/globalSettings';
 import {
   providerSecretExists,
@@ -271,5 +275,69 @@ describe('GlobalSettingsDialog – tokens seguros', () => {
       const parsed = JSON.parse(snapshot) as Record<string, { credentials: Record<string, string> }>;
       expect(parsed['ableton-mixer'].credentials.token).toBe('ableton-secret');
     });
+  });
+});
+
+describe('GlobalSettingsDialog – Jarvis Core', () => {
+  it('permite editar la configuración de Jarvis Core y valida campos', async () => {
+    renderDialog();
+
+    const jarvisTab = await screen.findByRole('tab', { name: /Jarvis Core/i });
+    fireEvent.click(jarvisTab);
+
+    const hostInput = await screen.findByLabelText('Host o IP');
+    expect(hostInput).toHaveValue('127.0.0.1');
+
+    fireEvent.change(hostInput, { target: { value: '' } });
+    expect(await screen.findByText('El host o IP es obligatorio.')).toBeInTheDocument();
+
+    fireEvent.change(hostInput, { target: { value: 'jarvis.local' } });
+    await waitFor(() =>
+      expect(screen.queryByText('El host o IP es obligatorio.')).not.toBeInTheDocument(),
+    );
+
+    const portInput = screen.getByLabelText('Puerto');
+    expect(portInput).toHaveValue(8000);
+    fireEvent.change(portInput, { target: { value: '70000' } });
+    expect(await screen.findByText('El puerto debe estar entre 1 y 65535.')).toBeInTheDocument();
+
+    fireEvent.change(portInput, { target: { value: '443' } });
+    await waitFor(() =>
+      expect(screen.queryByText('El puerto debe estar entre 1 y 65535.')).not.toBeInTheDocument(),
+    );
+
+    const httpsToggle = screen.getByLabelText('Usar HTTPS');
+    expect(httpsToggle).not.toBeChecked();
+    fireEvent.click(httpsToggle);
+    expect(httpsToggle).toBeChecked();
+
+    const autoStartToggle = screen.getByLabelText('Iniciar Jarvis Core automáticamente');
+    expect(autoStartToggle).toBeChecked();
+    fireEvent.click(autoStartToggle);
+    expect(autoStartToggle).not.toBeChecked();
+
+    const tokenInput = screen.getByLabelText('Token o API key (opcional)');
+    fireEvent.change(tokenInput, { target: { value: 'secret-token' } });
+    expect(tokenInput).toHaveValue('secret-token');
+  });
+
+  it('migra configuraciones heredadas de Jarvis Core', () => {
+    const legacy = JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS));
+    legacy.jarvisCore = {
+      host: 'https://legacy.example.com:9443',
+      port: 9443,
+      autoStart: false,
+    } as GlobalSettings['jarvisCore'];
+    const migrated = migratePersistedGlobalSettings({
+      ...(legacy as GlobalSettings),
+      version: CURRENT_SCHEMA_VERSION - 1,
+    });
+
+    expect(migrated.version).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.jarvisCore.host).toBe('legacy.example.com');
+    expect(migrated.jarvisCore.port).toBe(9443);
+    expect(migrated.jarvisCore.useHttps).toBe(true);
+    expect(migrated.jarvisCore.autoStart).toBe(false);
+    expect(migrated.jarvisCore.apiKey).toBeUndefined();
   });
 });

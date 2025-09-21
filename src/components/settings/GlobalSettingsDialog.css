@@ -170,6 +170,19 @@
   color: #fff;
 }
 
+.jarvis-core-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jarvis-core-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
 .plugin-settings-empty,
 .mcp-settings-empty {
   font-size: 13px;

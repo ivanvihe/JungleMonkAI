@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import type { GlobalSettings } from '../../types/globalSettings';
+import type { GlobalSettings, JarvisCoreSettings } from '../../types/globalSettings';
 import {
   createJarvisCoreClient,
   type DownloadModelPayload,
@@ -15,6 +15,7 @@ import {
   type JarvisChatRequest,
   type JarvisChatResult,
   type JarvisCoreClient,
+  type JarvisHealthResponse,
   type JarvisDownloadProgress,
   type JarvisModelInfo,
 } from '../../services/jarvisCoreClient';
@@ -60,6 +61,11 @@ export interface JarvisCoreContextValue {
   activeModel: string | null;
   downloads: Record<string, JarvisDownloadProgress>;
   models: JarvisModelInfo[];
+  runtimeStatus: JarvisRuntimeStatus;
+  uptimeMs: number | null;
+  config: JarvisCoreSettings;
+  baseUrl: string;
+  lastHealthMessage: string | null;
   ensureOnline: () => Promise<void>;
   refreshModels: () => Promise<JarvisModelInfo[]>;
   downloadModel: (modelId: string, payload: DownloadModelPayload) => Promise<JarvisModelInfo>;
@@ -71,6 +77,46 @@ export interface JarvisCoreContextValue {
 const JarvisCoreContext = createContext<JarvisCoreContextValue | undefined>(undefined);
 
 const STREAM_ENDPOINT = '/models/stream';
+
+export type JarvisRuntimeStatus = 'offline' | 'starting' | 'ready' | 'error';
+
+const NORMALIZED_READY_STATES = new Set(['ok', 'ready', 'online', 'healthy']);
+
+const normalizeRuntimeStatus = (status?: string | null): JarvisRuntimeStatus => {
+  if (typeof status === 'string') {
+    const normalized = status.trim().toLowerCase();
+    if (NORMALIZED_READY_STATES.has(normalized)) {
+      return 'ready';
+    }
+    if (normalized.includes('start') || normalized.includes('boot')) {
+      return 'starting';
+    }
+    if (normalized.includes('error') || normalized.includes('fail')) {
+      return 'error';
+    }
+  }
+  return 'offline';
+};
+
+const extractUptimeMs = (payload: JarvisHealthResponse | null | undefined): number | null => {
+  if (!payload) {
+    return null;
+  }
+
+  const candidates = [payload.uptimeMs, payload.uptime_ms, payload.uptime_seconds, payload.uptime];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0) {
+      if (candidate > 1000) {
+        return candidate;
+      }
+      if (payload.uptime_seconds === candidate || payload.uptime === candidate) {
+        return Math.round(candidate * 1000);
+      }
+      return Math.round(candidate);
+    }
+  }
+  return null;
+};
 
 const deriveBaseUrl = (host: string, port: number): string => {
   const trimmedHost = host.trim();
@@ -180,6 +226,9 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
   const [downloads, setDownloads] = useState<Record<string, JarvisDownloadProgress>>({});
   const [models, setModels] = useState<JarvisModelInfo[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [runtimeStatus, setRuntimeStatus] = useState<JarvisRuntimeStatus>('offline');
+  const [uptimeMs, setUptimeMs] = useState<number | null>(null);
+  const [lastHealthMessage, setLastHealthMessage] = useState<string | null>(null);
 
   const mountedRef = useRef(false);
   const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -218,23 +267,46 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
     if (!client) {
       if (mountedRef.current) {
         setConnected(false);
+        setRuntimeStatus('offline');
+        setUptimeMs(null);
+        setLastHealthMessage(null);
         setLastError('Jarvis Core no está configurado.');
       }
       return;
     }
 
+    if (mountedRef.current) {
+      setRuntimeStatus(prev => (prev === 'ready' ? prev : 'starting'));
+      setLastError(null);
+      setLastHealthMessage(null);
+    }
+
     try {
-      await client.getHealth();
+      const health = await client.getHealth();
       if (!mountedRef.current) {
         return;
       }
+
+      const normalizedStatus = normalizeRuntimeStatus(health?.status ?? health?.message ?? null);
+      setRuntimeStatus(normalizedStatus === 'offline' ? 'ready' : normalizedStatus);
       setConnected(true);
       setLastError(null);
+      setUptimeMs(extractUptimeMs(health));
+      const detail =
+        typeof health?.detail === 'string'
+          ? health.detail
+          : typeof health?.message === 'string'
+          ? health.message
+          : null;
+      setLastHealthMessage(detail);
     } catch (error) {
       if (!mountedRef.current) {
         return;
       }
       setConnected(false);
+      setRuntimeStatus('error');
+      setUptimeMs(null);
+      setLastHealthMessage(null);
       setLastError(
         error instanceof Error ? error.message : 'No se pudo establecer conexión con Jarvis Core.',
       );
@@ -248,6 +320,8 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
         setDownloads({});
         setActiveModel(null);
         setModels([]);
+        setRuntimeStatus('offline');
+        setUptimeMs(null);
       }
       return [];
     }
@@ -285,6 +359,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       setActiveModel(nextActive);
       setModels(models);
       setLastError(null);
+      setRuntimeStatus(prev => (prev === 'offline' || prev === 'starting' || prev === 'error' ? 'ready' : prev));
       return models;
     } catch (error) {
       if (!mountedRef.current) {
@@ -297,6 +372,8 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
           : 'No se pudo sincronizar el estado del runtime de Jarvis.',
       );
       setModels([]);
+      setRuntimeStatus('error');
+      setUptimeMs(null);
       return [];
     }
   }, [client]);
@@ -459,6 +536,9 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       setConnected(false);
       setDownloads({});
       setActiveModel(null);
+      setRuntimeStatus('offline');
+      setUptimeMs(null);
+      setLastHealthMessage(null);
       return;
     }
 
@@ -497,6 +577,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       const result = await client.downloadModel(modelId, payload);
       if (mountedRef.current) {
         setConnected(true);
+        setRuntimeStatus(prev => (prev === 'offline' ? 'ready' : prev));
         if (result.progress) {
           setDownloads(previous => ({
             ...previous,
@@ -518,6 +599,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       const result = await client.activateModel(modelId);
       if (mountedRef.current) {
         setConnected(true);
+        setRuntimeStatus('ready');
         setActiveModel(result.model_id ?? modelId);
       }
       return result;
@@ -532,6 +614,11 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       activeModel,
       downloads,
       models,
+      runtimeStatus,
+      uptimeMs,
+      config: jarvisConfig,
+      baseUrl,
+      lastHealthMessage,
       ensureOnline,
       refreshModels,
       downloadModel,
@@ -545,6 +632,11 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       activeModel,
       downloads,
       models,
+      runtimeStatus,
+      uptimeMs,
+      jarvisConfig,
+      baseUrl,
+      lastHealthMessage,
       ensureOnline,
       refreshModels,
       downloadModel,

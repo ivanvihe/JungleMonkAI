@@ -9,48 +9,47 @@ interface StatusBarProps {
   audioData: AudioData;
 }
 
-export const StatusBar: React.FC<StatusBarProps> = ({
-  status,
-  fps,
-  currentPreset,
-  audioData
-}) => {
-  const getStatusColor = (status: string): string => {
-    if (status.includes('Error')) return '#ff4444';
-    if (status.includes('Ready')) return '#44ff44';
-    if (status.includes('Loading') || status.includes('Initializing')) return '#ffaa44';
-    return '#ffffff';
+export const StatusBar: React.FC<StatusBarProps> = ({ status, fps, currentPreset, audioData }) => {
+  const resolveToneFromStatus = (value: string): 'critical' | 'warning' | 'positive' | 'neutral' => {
+    const normalized = value.toLowerCase();
+    if (normalized.includes('error') || normalized.includes('fail')) {
+      return 'critical';
+    }
+    if (normalized.includes('ready') || normalized.includes('ok')) {
+      return 'positive';
+    }
+    if (normalized.includes('load') || normalized.includes('init')) {
+      return 'warning';
+    }
+    return 'neutral';
   };
 
-  const getFPSColor = (fps: number): string => {
-    if (fps >= 55) return '#44ff44';
-    if (fps >= 30) return '#ffaa44';
-    return '#ff4444';
+  const resolveToneFromFps = (value: number): 'critical' | 'warning' | 'positive' => {
+    if (value >= 55) {
+      return 'positive';
+    }
+    if (value >= 30) {
+      return 'warning';
+    }
+    return 'critical';
   };
+
+  const statusTone = resolveToneFromStatus(status);
+  const fpsTone = resolveToneFromFps(fps);
 
   return (
     <div className="status-bar">
       <div className="status-section">
         <div className="status-item">
           <span className="status-label">Status:</span>
-          <span 
-            className="status-value" 
-            style={{ color: getStatusColor(status) }}
-          >
-            {status}
-          </span>
+          <span className={`status-value tone-${statusTone}`}>{status}</span>
         </div>
-        
+
         <div className="status-item">
           <span className="status-label">FPS:</span>
-          <span 
-            className="status-value" 
-            style={{ color: getFPSColor(fps) }}
-          >
-            {fps}
-          </span>
+          <span className={`status-value tone-${fpsTone}`}>{fps}</span>
         </div>
-        
+
         <div className="status-item">
           <span className="status-label">Preset:</span>
           <span className="status-value">

@@ -1,0 +1,118 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ConversationStatsModal > muestra el estado de Jarvis Core y permite reintentar la conexión > jarvis-section 1`] = `
+<div
+  aria-label="Estado de Jarvis Core"
+  class="conversation-stats__jarvis"
+  role="region"
+>
+  <div
+    class="conversation-stats__section-header"
+  >
+    <span
+      class="conversation-stats__section-title"
+    >
+      JarvisCore
+    </span>
+    <span
+      class="status-pill status-pill--success"
+      title="ok"
+    >
+      Operativo
+    </span>
+  </div>
+  <div
+    class="conversation-stats__jarvis-grid"
+  >
+    <div
+      class="conversation-stats__jarvis-item"
+    >
+      <span
+        class="conversation-stats__meta-label"
+      >
+        Host
+      </span>
+      <span
+        class="conversation-stats__meta-value"
+      >
+        127.0.0.1
+      </span>
+    </div>
+    <div
+      class="conversation-stats__jarvis-item"
+    >
+      <span
+        class="conversation-stats__meta-label"
+      >
+        Puerto
+      </span>
+      <span
+        class="conversation-stats__meta-value"
+      >
+        8000
+      </span>
+    </div>
+    <div
+      class="conversation-stats__jarvis-item"
+    >
+      <span
+        class="conversation-stats__meta-label"
+      >
+        Modelo activo
+      </span>
+      <span
+        class="conversation-stats__meta-value"
+      >
+        phi-2
+      </span>
+    </div>
+    <div
+      class="conversation-stats__jarvis-item"
+    >
+      <span
+        class="conversation-stats__meta-label"
+      >
+        Actividad
+      </span>
+      <span
+        class="conversation-stats__meta-value"
+      >
+        0m 12s
+      </span>
+    </div>
+  </div>
+  <div
+    class="conversation-stats__downloads"
+  >
+    <span
+      class="conversation-stats__meta-label"
+    >
+      Descargas en curso
+    </span>
+    <ul
+      class="conversation-stats__download-list"
+    >
+      <li
+        class="conversation-stats__download-item"
+      >
+        <span
+          class="conversation-stats__download-name"
+        >
+          phi
+        </span>
+        <span
+          class="conversation-stats__download-progress"
+        >
+          50%
+        </span>
+      </li>
+    </ul>
+  </div>
+  <button
+    class="conversation-stats__jarvis-action"
+    type="button"
+  >
+    Reintentar conexión
+  </button>
+</div>
+`;

@@ -9,9 +9,11 @@ import { ProjectProvider, useProjects } from '../../../core/projects/ProjectCont
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
 import type { AgentPresenceEntry, AgentPresenceSummary } from '../../../core/agents/presence';
 import type { AgentDefinition } from '../../../core/agents/agentRegistry';
+import type { JarvisCoreContextValue } from '../../../core/jarvis/JarvisCoreContext';
 
 const mockUseAgents = vi.fn();
 const mockUseAgentPresence = vi.fn();
+const useJarvisCoreMock = vi.fn<JarvisCoreContextValue, []>();
 
 vi.mock('../../../core/agents/AgentContext', () => ({
   useAgents: () => mockUseAgents(),
@@ -30,6 +32,16 @@ vi.mock('../../../core/plugins/PluginHostProvider', () => ({
     updatePluginSettings: vi.fn(),
   }),
 }));
+
+vi.mock('../../../core/jarvis/JarvisCoreContext', async () => {
+  const actual = await vi.importActual<typeof import('../../../core/jarvis/JarvisCoreContext')>(
+    '../../../core/jarvis/JarvisCoreContext',
+  );
+  return {
+    ...actual,
+    useJarvisCore: () => useJarvisCoreMock(),
+  };
+});
 
 const ProjectProbe: React.FC = () => {
   const { activeProject, projects } = useProjects();
@@ -76,6 +88,27 @@ const presenceSummary: AgentPresenceSummary = {
     local: { total: 0, online: 0, loading: 0, offline: 0, error: 0 },
   },
 };
+
+beforeEach(() => {
+  useJarvisCoreMock.mockReturnValue({
+    connected: false,
+    lastError: null,
+    activeModel: null,
+    downloads: {},
+    models: [],
+    runtimeStatus: 'offline',
+    uptimeMs: null,
+    config: DEFAULT_GLOBAL_SETTINGS.jarvisCore,
+    baseUrl: 'http://127.0.0.1:8000',
+    lastHealthMessage: null,
+    ensureOnline: vi.fn(),
+    refreshModels: vi.fn(),
+    downloadModel: vi.fn(),
+    activateModel: vi.fn(),
+    invokeChat: vi.fn(),
+    launchAction: vi.fn(),
+  });
+});
 
 const buildAgent = (overrides: Partial<AgentDefinition>): AgentDefinition => ({
   id: 'agent-id',

@@ -2074,9 +2074,93 @@
   font-size: 16px;
 }
 
+.icon-button.jarvis-runtime-button {
+  min-width: 40px;
+  width: auto;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.1;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.icon-button.jarvis-runtime-button .jarvis-runtime-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 15px;
+}
+
+.icon-button.jarvis-runtime-button .jarvis-runtime-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  color: inherit;
+}
+
+.jarvis-runtime-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  opacity: 0.85;
+}
+
+.jarvis-runtime-uptime {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.icon-button.jarvis-runtime-button.status-ready {
+  background: rgba(52, 211, 153, 0.14);
+  border-color: rgba(52, 211, 153, 0.6);
+  color: #d1fae5;
+}
+
+.icon-button.jarvis-runtime-button.status-starting {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.6);
+  color: #fff3cd;
+}
+
+.icon-button.jarvis-runtime-button.status-offline,
+.icon-button.jarvis-runtime-button.status-error {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.6);
+  color: #fee2e2;
+}
+
+.icon-button.jarvis-runtime-button.is-busy {
+  cursor: progress;
+  opacity: 0.9;
+}
+
 .icon-button:hover {
   transform: translateY(-1px);
   background: rgba(142, 141, 255, 0.35);
+}
+
+.icon-button.jarvis-runtime-button.status-ready:hover {
+  background: rgba(52, 211, 153, 0.24);
+}
+
+.icon-button.jarvis-runtime-button.status-starting:hover {
+  background: rgba(251, 191, 36, 0.28);
+}
+
+.icon-button.jarvis-runtime-button.status-offline:hover,
+.icon-button.jarvis-runtime-button.status-error:hover {
+  background: rgba(248, 113, 113, 0.28);
 }
 
 .icon-button:disabled {

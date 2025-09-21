@@ -36,6 +36,22 @@
   font-weight: 500;
 }
 
+.status-value.tone-positive {
+  color: #4ade80;
+}
+
+.status-value.tone-warning {
+  color: #facc15;
+}
+
+.status-value.tone-critical {
+  color: #f87171;
+}
+
+.status-value.tone-neutral {
+  color: #e2e8f0;
+}
+
 .audio-levels {
   display: flex;
   gap: 15px;

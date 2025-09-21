@@ -21,7 +21,7 @@ type ClientMock = {
 };
 
 const createClientStub = (): ClientMock => ({
-  getHealth: vi.fn().mockResolvedValue({ status: 'ok' }),
+  getHealth: vi.fn().mockResolvedValue({ status: 'ok', uptime_seconds: 12 }),
   listModels: vi.fn().mockResolvedValue([] as JarvisModelInfo[]),
   downloadModel: vi.fn(),
   activateModel: vi.fn(),
@@ -178,5 +178,20 @@ describe('JarvisCoreContext', () => {
 
     expect(client.listModels).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+
+  it('normaliza el estado del runtime y el tiempo de actividad', async () => {
+    const client = createClientStub();
+    const wrapper = createWrapper(client);
+
+    const { result } = renderHook(() => useJarvisCore(), { wrapper });
+
+    await act(async () => {
+      await result.current.ensureOnline();
+    });
+
+    expect(result.current.runtimeStatus).toBe('ready');
+    expect(result.current.uptimeMs).toBe(12000);
+    expect(result.current.lastHealthMessage).toBeNull();
   });
 });

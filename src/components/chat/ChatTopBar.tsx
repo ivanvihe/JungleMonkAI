@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentDefinition, AgentKind } from '../../core/agents/agentRegistry';
 import { AgentPresenceSummary, AgentPresenceStatus } from '../../core/agents/presence';
 import { ChatActorFilter } from '../../types/chat';
 import { getAgentDisplayName } from '../../utils/agentDisplay';
 import { useProjects } from '../../core/projects/ProjectContext';
+import { useJarvisCore, type JarvisRuntimeStatus } from '../../core/jarvis/JarvisCoreContext';
 
 interface ChatTopBarProps {
   agents: AgentDefinition[];
@@ -68,10 +69,27 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   const hasPending = pendingResponses > 0;
   const overallStatus = resolveStatus(presenceSummary);
   const { projects, activeProjectId, activeProject, selectProject } = useProjects();
+  const {
+    runtimeStatus,
+    ensureOnline,
+    uptimeMs,
+    lastError,
+    lastHealthMessage,
+  } = useJarvisCore();
+  const [isEnsuring, setEnsuring] = useState(false);
   const activeAgentsMessage = useMemo(() => {
     const base = `${activeAgents} agente${activeAgents === 1 ? '' : 's'}`;
     return `${base} coordinando la conversación`;
   }, [activeAgents]);
+
+  const handleEnsureJarvis = useCallback(async () => {
+    setEnsuring(true);
+    try {
+      await ensureOnline();
+    } finally {
+      setEnsuring(false);
+    }
+  }, [ensureOnline]);
 
   const handleProjectChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const nextId = event.target.value || null;
@@ -122,6 +140,60 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
       onFilterChange('all');
     }
   }, [filterValue, activeFilter, onFilterChange]);
+
+  const jarvisStatusLabels: Record<JarvisRuntimeStatus, string> = useMemo(
+    () => ({
+      offline: 'Jarvis Core desconectado',
+      starting: 'Jarvis Core iniciando…',
+      ready: 'Jarvis Core operativo',
+      error: 'Jarvis Core con incidencias',
+    }),
+    [],
+  );
+
+  const jarvisTooltip = useMemo(() => {
+    const base = jarvisStatusLabels[runtimeStatus];
+    const detail = lastError ?? lastHealthMessage;
+    if (!detail) {
+      return base;
+    }
+    return `${base} · ${detail}`;
+  }, [jarvisStatusLabels, runtimeStatus, lastError, lastHealthMessage]);
+
+  const jarvisAriaLabel = useMemo(() => {
+    const base = jarvisStatusLabels[runtimeStatus];
+    if (!uptimeMs || uptimeMs <= 0) {
+      return base;
+    }
+    const totalSeconds = Math.floor(uptimeMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const uptimeDescription =
+      hours > 0
+        ? `${hours} hora${hours === 1 ? '' : 's'} y ${minutes} minuto${minutes === 1 ? '' : 's'}`
+        : `${minutes} minuto${minutes === 1 ? '' : 's'} y ${seconds} segundo${seconds === 1 ? '' : 's'}`;
+    return `${base}. Tiempo en línea: ${uptimeDescription}`;
+  }, [jarvisStatusLabels, runtimeStatus, uptimeMs]);
+
+  const uptimeLabel = useMemo(() => {
+    if (!uptimeMs || uptimeMs <= 0) {
+      return null;
+    }
+    const totalSeconds = Math.floor(uptimeMs / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (days > 0) {
+      return `↑ ${days}d ${hours.toString().padStart(2, '0')}h`;
+    }
+    if (hours > 0) {
+      return `↑ ${hours}h ${minutes.toString().padStart(2, '0')}m`;
+    }
+    return `↑ ${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  }, [uptimeMs]);
 
   return (
     <header className="chat-top-bar">
@@ -188,6 +260,23 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
             aria-label="Ver estadísticas de la conversación"
           >
             📊
+          </button>
+          <button
+            type="button"
+            className={`icon-button jarvis-runtime-button status-${runtimeStatus}${
+              isEnsuring ? ' is-busy' : ''
+            }`}
+            onClick={handleEnsureJarvis}
+            aria-label={jarvisAriaLabel}
+            title={jarvisTooltip}
+          >
+            <span className="jarvis-runtime-icon" aria-hidden>
+              🤖
+            </span>
+            <span className="jarvis-runtime-copy" aria-hidden>
+              <span className="jarvis-runtime-status">{jarvisStatusLabels[runtimeStatus]}</span>
+              {uptimeLabel && <span className="jarvis-runtime-uptime">{uptimeLabel}</span>}
+            </span>
           </button>
           <button
             type="button"

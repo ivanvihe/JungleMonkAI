@@ -67,8 +67,18 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+export interface JarvisHealthResponse {
+  status?: string;
+  uptime?: number | null;
+  uptime_seconds?: number | null;
+  uptime_ms?: number | null;
+  uptimeMs?: number | null;
+  message?: string;
+  detail?: string;
+}
+
 export interface JarvisCoreClient {
-  getHealth: (options?: RequestOptions) => Promise<{ status: string }>;
+  getHealth: (options?: RequestOptions) => Promise<JarvisHealthResponse>;
   listModels: (options?: RequestOptions) => Promise<JarvisModelInfo[]>;
   downloadModel: (
     modelId: string,
@@ -242,7 +252,7 @@ export const createJarvisCoreClient = ({
         method: 'GET',
         signal: options?.signal,
       });
-      return parseJson<{ status: string }>(response);
+      return parseJson<JarvisHealthResponse>(response);
     },
 
     async listModels(options) {

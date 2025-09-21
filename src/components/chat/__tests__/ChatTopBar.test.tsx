@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { ChatTopBar } from '../ChatTopBar';
 import type { AgentDefinition } from '../../../core/agents/agentRegistry';
@@ -96,10 +96,31 @@ describe('ChatTopBar', () => {
 
     renderComponent();
 
-    const jarvisButton = screen.getByRole('button', { name: /Jarvis Core desconectado/i });
+    const [jarvisButton] = screen.getAllByRole('button', { name: /Jarvis Core desconectado/i });
     fireEvent.click(jarvisButton);
 
     expect(ensureOnline).toHaveBeenCalled();
+  });
+
+  it('marca el botón de Jarvis Core como ocupado mientras se reconecta', async () => {
+    let resolveEnsure: (() => void) | null = null;
+    const ensureOnline = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveEnsure = resolve;
+        }),
+    );
+    useJarvisCoreMock.mockReturnValue(defaultJarvisState({ ensureOnline }));
+
+    renderComponent();
+
+    const [jarvisButton] = screen.getAllByRole('button', { name: /Jarvis Core desconectado/i });
+    fireEvent.click(jarvisButton);
+
+    expect(jarvisButton).toHaveClass('is-busy');
+
+    resolveEnsure?.();
+    await waitFor(() => expect(jarvisButton).not.toHaveClass('is-busy'));
   });
 
   const jarvisStates: Array<{ status: JarvisRuntimeStatus; uptimeMs: number | null; snapshot: string }>

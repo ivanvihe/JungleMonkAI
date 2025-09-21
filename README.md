@@ -39,6 +39,8 @@ Al iniciar la versión de escritorio se detectan instalaciones previas en el dir
 - Las builds de escritorio incluyen la carpeta `jarvis_core` como recurso cuando está presente en el repositorio. En desarrollo puedes forzar una ubicación distinta mediante `JARVISCORE_DIR=/ruta/a/JarvisCore npm run dev`.
 - El intérprete de Python se resuelve con la variable `JARVISCORE_PYTHON`. Si no está definida se prueban `python3` y `python`. Asegúrate de instalar las dependencias listadas en `requirements.txt` antes de iniciar el servicio.
 - Cuando **Auto-arranque** está activado, la aplicación invoca los comandos `jarvis_start`, `jarvis_stop` y `jarvis_status` (o sus equivalentes IPC en Electron) para crear, supervisar y apagar el proceso de Jarvis Core. Al cerrar la app se envía un `shutdown` automático para evitar procesos huérfanos.
+- Consulta la guía [Jarvis Core en desarrollo local](docs/jarvis-core.md) para ver los requisitos, opciones de configuración y consejos de seguridad.
+- Para ejecutar Jarvis Core manualmente en paralelo a la interfaz puedes usar `npm run jarvis:dev` en una terminal y `npm run dev` en otra.
 
 ## Tokens y credenciales seguras
 
@@ -52,4 +54,10 @@ Ejecuta toda la batería de tests con:
 
 ```bash
 npm test
+```
+
+Los tests de la API de Jarvis Core se ejecutan con `pytest`:
+
+```bash
+pytest
 ```

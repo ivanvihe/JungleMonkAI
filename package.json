@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "electron": "vite build && electron ./electron.cjs",
     "electron:package": "vite build && electron-builder",
-    "test": "vitest"
+    "test": "vitest",
+    "jarvis:dev": "python jarvis_core/JarvisCore.py --models-dir ./models"
   },
   "dependencies": {
     "@tauri-apps/api": "^1.5.0",

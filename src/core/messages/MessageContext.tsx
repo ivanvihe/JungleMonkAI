@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { gitInvoke, isGitBackendUnavailableError } from '../../utils/runtimeBridge';
 import { ApiKeySettings } from '../../types/globalSettings';
 import { AgentDefinition } from '../agents/agentRegistry';
 import { useAgents } from '../agents/AgentContext';
@@ -835,15 +835,15 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
           });
 
           let activeBranch = activeProject.defaultBranch ?? null;
-          if (isTauriEnvironment()) {
-            try {
-              const context = await invoke<{ branch?: string | null }>('git_get_repository_context', {
-                repoPath: activeProject.repositoryPath,
-              });
-              if (context?.branch) {
-                activeBranch = context.branch;
-              }
-            } catch (error) {
+          try {
+            const context = await gitInvoke<{ branch?: string | null }>('git_get_repository_context', {
+              repoPath: activeProject.repositoryPath,
+            });
+            if (context?.branch) {
+              activeBranch = context.branch;
+            }
+          } catch (error) {
+            if (!isGitBackendUnavailableError(error)) {
               console.warn('No se pudo determinar la rama actual del repositorio:', error);
             }
           }

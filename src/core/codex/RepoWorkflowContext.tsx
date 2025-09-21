@@ -7,14 +7,13 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
 import type { CodexRequest } from './types';
 import type { ChatMessage } from '../messages/messageTypes';
 import { useMessages } from '../messages/MessageContext';
 import { CodexEngine } from './CodexEngine';
 import { buildRepoWorkflowSubmission, type RepoWorkflowSubmission } from './bridge';
 import { useProjects } from '../projects/ProjectContext';
-import { isTauriEnvironment } from '../storage/userDataPathsClient';
+import { canUseDesktopGit, gitInvoke, isGitBackendUnavailableError } from '../../utils/runtimeBridge';
 
 export interface RepoWorkflowRequest {
   id: string;
@@ -103,18 +102,21 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (!repositoryPath) {
       return null;
     }
-    if (!isTauriEnvironment()) {
+    if (!canUseDesktopGit()) {
       return 'Sincronización omitida: entorno no compatible.';
     }
 
     try {
-      const result = await invoke<string>('git_pull_repository', {
+      const result = await gitInvoke<string>('git_pull_repository', {
         repoPath: repositoryPath,
         remote: remote ?? null,
         branch: branch ?? null,
       });
       return result;
     } catch (error) {
+      if (isGitBackendUnavailableError(error)) {
+        return error.message;
+      }
       const message = (error as Error)?.message ?? 'Error desconocido al sincronizar el repositorio.';
       throw new Error(message);
     }

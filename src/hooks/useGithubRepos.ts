@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
-import { isTauriEnvironment } from '../core/storage/userDataPathsClient';
+import { canUseDesktopGit, gitInvoke, isGitBackendUnavailableError } from '../utils/runtimeBridge';
 
 export interface GithubRepoSummary {
   id: number;
@@ -31,7 +30,7 @@ export const useGithubRepos = (initialOwner?: string): UseGithubReposState => {
   const [repos, setRepos] = useState<GithubRepoSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isSupported = useMemo(() => isTauriEnvironment(), []);
+  const isSupported = useMemo(() => canUseDesktopGit(), []);
 
   const refresh = useCallback(
     async (options?: { owner?: string }) => {
@@ -53,13 +52,15 @@ export const useGithubRepos = (initialOwner?: string): UseGithubReposState => {
           provider: 'github',
           owner: trimmedOwner ? trimmedOwner : undefined,
         };
-        const response = await invoke<GithubRepoSummary[]>('git_list_user_repos', {
+        const response = await gitInvoke<GithubRepoSummary[]>('git_list_user_repos', {
           request,
         });
         setRepos(response);
         return response;
       } catch (err) {
-        const message = (err as Error).message ?? 'No se pudo obtener el listado remoto.';
+        const message = isGitBackendUnavailableError(err)
+          ? err.message
+          : (err as Error).message ?? 'No se pudo obtener el listado remoto.';
         setError(message);
         setRepos([]);
         return [];

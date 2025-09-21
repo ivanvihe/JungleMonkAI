@@ -20,8 +20,8 @@ interface ChatTopBarProps {
   onOpenPlugins: () => void;
   onOpenMcp: () => void;
   onOpenModelManager: () => void;
-  activeView: 'chat' | 'repo';
-  onChangeView: (view: 'chat' | 'repo') => void;
+  activeView: 'chat' | 'repo' | 'canvas';
+  onChangeView: (view: 'chat' | 'repo' | 'canvas') => void;
 }
 
 const STATUS_LABELS: Record<AgentPresenceStatus, string> = {
@@ -226,6 +226,16 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
             aria-selected={activeView === 'repo'}
           >
             🗂️
+          </button>
+          <button
+            type="button"
+            className={activeView === 'canvas' ? 'is-active' : ''}
+            onClick={() => onChangeView('canvas')}
+            role="tab"
+            aria-selected={activeView === 'canvas'}
+            aria-label="Abrir canvas de código"
+          >
+            🧪
           </button>
         </div>
       </div>

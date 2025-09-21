@@ -7,6 +7,7 @@ import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { SidePanel } from './components/chat/SidePanel';
 import { ConversationStatsModal } from './components/chat/ConversationStatsModal';
 import { RepoStudio } from './components/repo/RepoStudio';
+import { CodeCanvas } from './components/code/CodeCanvas';
 import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
@@ -45,7 +46,7 @@ const AppContent: React.FC<AppContentProps> = ({
   const { pendingResponses } = useMessages();
   const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
   const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
-  const [activeView, setActiveView] = useState<'chat' | 'repo'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'repo' | 'canvas'>('chat');
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isPluginsOpen, setPluginsOpen] = useState(false);
   const [isMcpOpen, setMcpOpen] = useState(false);
@@ -87,7 +88,7 @@ const AppContent: React.FC<AppContentProps> = ({
         onChangeView={setActiveView}
       />
 
-      {activeView === 'chat' ? (
+      {activeView === 'chat' && (
         <div className={`app-body sidebar-${sidePanelPosition}`}>
           {sidePanelPosition === 'left' && (
             <aside className="app-sidebar">
@@ -116,10 +117,20 @@ const AppContent: React.FC<AppContentProps> = ({
             </aside>
           )}
         </div>
-      ) : (
+      )}
+
+      {activeView === 'repo' && (
         <div className="app-body">
           <div className="repo-main">
             <RepoStudio />
+          </div>
+        </div>
+      )}
+
+      {activeView === 'canvas' && (
+        <div className="app-body">
+          <div className="canvas-main">
+            <CodeCanvas />
           </div>
         </div>
       )}

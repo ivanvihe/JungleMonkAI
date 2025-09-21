@@ -261,6 +261,15 @@
   padding: 32px;
 }
 
+.canvas-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
 @media (max-width: 1440px) {
   .app-sidebar {
     min-width: 240px;

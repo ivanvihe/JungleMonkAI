@@ -14,9 +14,11 @@
     "jarvis:dev": "python jarvis_core/JarvisCore.py --models-dir ./models"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
     "@tauri-apps/api": "^1.5.0",
     "@types/three": "^0.179.0",
     "highlight.js": "^11.9.0",
+    "monaco-editor": "^0.52.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simple-git": "^3.27.0",

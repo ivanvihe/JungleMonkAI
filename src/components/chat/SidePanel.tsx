@@ -1,4 +1,23 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Badge,
+  Button,
+  Drawer,
+  Grid,
+  Layout,
+  List,
+  Space,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
+import {
+  DatabaseOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
 import './SidePanel.css';
 import type { AgentDefinition } from '../../core/agents/agentRegistry';
 import { useAgents } from '../../core/agents/AgentContext';
@@ -8,6 +27,21 @@ import { useAgentPresence } from '../../core/agents/presence';
 interface SidePanelProps {
   onOpenGlobalSettings: () => void;
   onOpenModelManager: () => void;
+  /**
+   * Side of the layout where the panel is rendered.
+   * Used to mirror gestures and placement.
+   */
+  position?: 'left' | 'right';
+  /**
+   * Total width of the expanded panel.
+   * Defaults to 320px to keep parity with the legacy layout.
+   */
+  width?: number;
+  /**
+   * Force the rendering variant. By default the component adapts
+   * to the responsive breakpoint, but consumers can override it.
+   */
+  variant?: 'auto' | 'desktop' | 'mobile';
 }
 
 type ProviderId = 'openai' | 'anthropic' | 'groq' | 'jarvis';
@@ -37,7 +71,27 @@ const PROVIDERS: ProviderConfigEntry[] = [
   { id: 'jarvis', label: 'Jarvis', kind: 'local' },
 ];
 
-const mapPresenceStatus = (presence?: AgentPresenceEntry): Pick<ProviderCardState, 'tone' | 'statusLabel' | 'description'> => {
+const toneToBadgeStatus: Record<ProviderTone, 'success' | 'warning' | 'error'> = {
+  online: 'success',
+  warning: 'warning',
+  error: 'error',
+};
+
+const toneToTagColor: Record<ProviderTone, string> = {
+  online: 'success',
+  warning: 'orange',
+  error: 'volcano',
+};
+
+const toneToDescriptionTone: Record<ProviderTone, 'success' | 'secondary' | 'danger'> = {
+  online: 'success',
+  warning: 'secondary',
+  error: 'danger',
+};
+
+const mapPresenceStatus = (
+  presence?: AgentPresenceEntry,
+): Pick<ProviderCardState, 'tone' | 'statusLabel' | 'description'> => {
   if (!presence) {
     return {
       tone: 'warning',
@@ -231,9 +285,17 @@ const buildJarvisProviderState = (
   };
 };
 
-export const SidePanel: React.FC<SidePanelProps> = ({ onOpenGlobalSettings, onOpenModelManager }) => {
-  const { agents } = useAgents();
+const { Sider } = Layout;
+const { Title, Text } = Typography;
 
+export const SidePanel: React.FC<SidePanelProps> = ({
+  onOpenGlobalSettings,
+  onOpenModelManager,
+  position = 'right',
+  width = 320,
+  variant = 'auto',
+}) => {
+  const { agents } = useAgents();
   const apiKeys = useMemo(() => {
     const keys: Record<string, string> = {};
     agents.forEach(agent => {
@@ -245,6 +307,23 @@ export const SidePanel: React.FC<SidePanelProps> = ({ onOpenGlobalSettings, onOp
   }, [agents]);
 
   const { presenceMap, refresh } = useAgentPresence(agents, apiKeys);
+  const screens = Grid.useBreakpoint();
+  const isMobileBreakpoint = !screens.lg;
+  const isMobile = variant === 'mobile' ? true : variant === 'desktop' ? false : isMobileBreakpoint;
+
+  const [collapsed, setCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const touchDeltaX = useRef(0);
+
+  useEffect(() => {
+    if (isMobile) {
+      setCollapsed(false);
+    } else {
+      setDrawerOpen(false);
+      setCollapsed(!screens.xl);
+    }
+  }, [isMobile, screens.xl]);
 
   const groupedAgents = useMemo(() => {
     const groups: Record<ProviderId, AgentDefinition[]> = {
@@ -283,58 +362,197 @@ export const SidePanel: React.FC<SidePanelProps> = ({ onOpenGlobalSettings, onOp
     [groupedAgents, presenceMap],
   );
 
-  return (
-    <div className="sidebar">
-      <section className="sidebar-section">
-        <header>
-          <h2>Estado de agentes</h2>
-          <p>Monitoriza la disponibilidad de tus proveedores conectados y del runtime local.</p>
-        </header>
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+    touchDeltaX.current = 0;
+  };
 
-        <ul className="provider-status-list">
-          {providerCards.map(entry => (
-            <li
-              key={entry.id}
-              className="provider-card"
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStartX.current === null) {
+      return;
+    }
+
+    const currentX = event.touches[0]?.clientX ?? touchStartX.current;
+    const delta = currentX - touchStartX.current;
+    touchDeltaX.current = delta;
+
+    const openGesture = position === 'left' ? delta > 60 : delta < -60;
+    const closeGesture = position === 'left' ? delta < -60 : delta > 60;
+
+    if (!drawerOpen && openGesture) {
+      setDrawerOpen(true);
+    }
+
+    if (drawerOpen && closeGesture) {
+      setDrawerOpen(false);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchStartX.current = null;
+    touchDeltaX.current = 0;
+  };
+
+  const handleToggleCollapsed = () => {
+    setCollapsed(previous => !previous);
+  };
+
+  const panelContent = (
+    <div className="sidepanel-content" role="region" aria-labelledby="agent-status-heading">
+      <header className="sidepanel-header">
+        <div className="sidepanel-heading">
+          <Title level={4} id="agent-status-heading">
+            Estado de agentes
+          </Title>
+          <Text type="secondary">
+            Monitoriza la disponibilidad de tus proveedores conectados y del runtime local.
+          </Text>
+        </div>
+        <Tooltip title="Gestionar credenciales">
+          <Button
+            aria-label="Abrir ajustes globales"
+            icon={<SettingOutlined />}
+            onClick={onOpenGlobalSettings}
+            type="text"
+            shape="circle"
+          />
+        </Tooltip>
+      </header>
+
+      <List
+        className="sidepanel-provider-list"
+        itemLayout="vertical"
+        dataSource={providerCards}
+        renderItem={entry => (
+          <List.Item key={entry.id} className={`sidepanel-provider-item tone-${entry.tone}`} role="listitem">
+            <article
+              className="sidepanel-provider-card"
               aria-label={`${entry.label}: ${entry.statusLabel} · ${entry.modelLabel}`}
               data-testid={`provider-card-${entry.id}`}
             >
-              <div className="provider-card__header">
-                <div className="provider-card__identity">
-                  <span
-                    className={`provider-led is-${entry.tone}`}
-                    data-testid={`provider-led-${entry.id}`}
-                    aria-hidden="true"
-                  />
-                  <div className="provider-card__identity-text">
-                    <span className="provider-card__name">{entry.label}</span>
-                    <span className="provider-card__model">{entry.modelLabel}</span>
-                  </div>
+              <Space align="start" className="sidepanel-provider-card__header" direction="horizontal">
+                <Badge status={toneToBadgeStatus[entry.tone]} />
+                <div className="sidepanel-provider-card__identity">
+                  <Title level={5} className="sidepanel-provider-card__name">
+                    {entry.label}
+                  </Title>
+                  <Tag color="default" bordered={false} icon={<DatabaseOutlined />}>
+                    {entry.modelLabel}
+                  </Tag>
                 </div>
-                <span className={`provider-card__state is-${entry.tone}`}>{entry.statusLabel}</span>
-              </div>
-              {entry.description && <p className="provider-card__description">{entry.description}</p>}
+                <Tag color={toneToTagColor[entry.tone]} className="sidepanel-provider-card__state">
+                  {entry.statusLabel}
+                </Tag>
+              </Space>
+              {entry.description && (
+                <Text className={`sidepanel-provider-card__description is-${toneToDescriptionTone[entry.tone]}`}>
+                  {entry.description}
+                </Text>
+              )}
               {entry.showManageModels && (
-                <div className="provider-card__actions">
-                  <button type="button" onClick={onOpenModelManager}>
+                <div className="sidepanel-provider-card__actions">
+                  <Button type="link" onClick={onOpenModelManager} size="small">
                     Gestionar modelos
-                  </button>
+                  </Button>
                 </div>
               )}
-            </li>
-          ))}
-        </ul>
+            </article>
+          </List.Item>
+        )}
+      />
 
-        <div className="sidebar-actions">
-          <button type="button" onClick={() => void refresh()}>
-            Actualizar estado
-          </button>
-          <button type="button" className="primary" onClick={onOpenGlobalSettings}>
-            Gestionar credenciales
-          </button>
-        </div>
-      </section>
+      <Space className="sidepanel-actions" wrap>
+        <Button
+          type="default"
+          icon={<ReloadOutlined />}
+          onClick={() => void refresh()}
+          aria-label="Actualizar estado de agentes"
+        >
+          Actualizar estado
+        </Button>
+        <Button type="primary" onClick={onOpenGlobalSettings} icon={<SettingOutlined />}>
+          Gestionar credenciales
+        </Button>
+      </Space>
     </div>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        <Button
+          className={`sidepanel-mobile-trigger sidepanel-mobile-trigger--${position}`}
+          type="primary"
+          shape="circle"
+          icon={<MenuUnfoldOutlined />}
+          aria-label="Abrir panel de agentes"
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerOpen(true)}
+        />
+        <Drawer
+          placement={position}
+          width={Math.max(width, 280)}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          className="sidepanel-drawer"
+          destroyOnClose={false}
+          maskClosable
+          contentWrapperStyle={{ touchAction: 'pan-y' }}
+        >
+          <div
+            className="sidepanel-drawer__content"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            <div className="sidepanel-drawer__header">
+              <Button
+                type="text"
+                icon={<MenuFoldOutlined />}
+                onClick={() => setDrawerOpen(false)}
+                aria-label="Cerrar panel de agentes"
+              />
+              <Title level={4} className="sidepanel-drawer__title">
+                Panel de agentes
+              </Title>
+            </div>
+            {panelContent}
+          </div>
+        </Drawer>
+      </>
+    );
+  }
+
+  return (
+    <Sider
+      width={Math.max(width, 280)}
+      collapsedWidth={72}
+      collapsed={collapsed}
+      onCollapse={setCollapsed}
+      trigger={null}
+      theme="dark"
+      className={`sidepanel-sider sidepanel-sider--${position} ${collapsed ? 'is-collapsed' : 'is-expanded'}`}
+      role="complementary"
+      aria-label="Panel de agentes"
+    >
+      <div className="sidepanel-sider__inner">
+        <div className="sidepanel-sider__toolbar">
+          <Tooltip title={collapsed ? 'Expandir panel' : 'Colapsar panel'}>
+            <Button
+              type="text"
+              shape="circle"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={handleToggleCollapsed}
+              aria-label={collapsed ? 'Expandir panel de agentes' : 'Colapsar panel de agentes'}
+              aria-expanded={!collapsed}
+            />
+          </Tooltip>
+        </div>
+        <div className="sidepanel-sider__scroll" data-collapsed={collapsed}>
+          {panelContent}
+        </div>
+      </div>
+    </Sider>
   );
 };
 

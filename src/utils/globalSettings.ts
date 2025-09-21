@@ -7,6 +7,7 @@ import {
   GitHostingProvider,
   GlobalSettings,
   HuggingFacePreferences,
+  JarvisCoreSettings,
   McpProfile,
   McpProfileEndpoint,
   McpCredentialEntry,
@@ -29,7 +30,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
@@ -57,6 +58,8 @@ const DEFAULT_HUGGINGFACE_API_BASE_URL = 'https://huggingface.co';
 const MIN_HUGGINGFACE_RESULTS = 10;
 const MAX_HUGGINGFACE_RESULTS = 200;
 const DEFAULT_HUGGINGFACE_RESULTS = 30;
+const DEFAULT_JARVIS_HOST = '127.0.0.1';
+const DEFAULT_JARVIS_PORT = 8000;
 
 const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max);
 
@@ -855,6 +858,28 @@ const normalizeModelPreferences = (
 
 const DEFAULT_MODEL_PREFERENCES: ModelPreferences = normalizeModelPreferences(undefined);
 
+const normalizeJarvisCoreSettings = (
+  input: Partial<JarvisCoreSettings> | undefined,
+): JarvisCoreSettings => {
+  const host =
+    typeof input?.host === 'string' && input.host.trim()
+      ? input.host.trim()
+      : DEFAULT_JARVIS_HOST;
+
+  const rawPort =
+    typeof input?.port === 'number' && Number.isFinite(input.port)
+      ? Math.trunc(input.port)
+      : Number.parseInt(String(input?.port ?? ''), 10);
+
+  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : DEFAULT_JARVIS_PORT;
+
+  const autoStart = typeof input?.autoStart === 'boolean' ? input.autoStart : true;
+
+  return { host, port, autoStart };
+};
+
+const DEFAULT_JARVIS_CORE_SETTINGS: JarvisCoreSettings = normalizeJarvisCoreSettings(undefined);
+
 const normalizeProjectProfiles = (input: unknown): ProjectProfile[] => {
   if (!Array.isArray(input)) {
     return [];
@@ -991,6 +1016,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     lastMigrationAt: undefined,
   },
   modelPreferences: DEFAULT_MODEL_PREFERENCES,
+  jarvisCore: DEFAULT_JARVIS_CORE_SETTINGS,
   projectProfiles: [],
   activeProjectId: null,
   githubDefaultOwner: undefined,
@@ -1025,6 +1051,7 @@ const buildNormalizedSettings = (raw: PersistedSettings | undefined): GlobalSett
     ),
     dataLocation: normalizeDataLocation(raw?.dataLocation as DataLocationSettings),
     modelPreferences: normalizeModelPreferences(raw?.modelPreferences as ModelPreferences),
+    jarvisCore: normalizeJarvisCoreSettings(raw?.jarvisCore as JarvisCoreSettings),
     projectProfiles,
     activeProjectId: normalizeActiveProjectId(raw?.activeProjectId, projectProfiles),
     githubDefaultOwner: normalizeGithubDefaultOwner(raw?.githubDefaultOwner),
@@ -1108,6 +1135,7 @@ export const saveGlobalSettings = (settings: GlobalSettings) => {
       workspacePreferences: normalizeWorkspacePreferences(settings.workspacePreferences),
       dataLocation: normalizeDataLocation(settings.dataLocation),
       modelPreferences: normalizeModelPreferences(settings.modelPreferences),
+      jarvisCore: normalizeJarvisCoreSettings(settings.jarvisCore),
       projectProfiles,
       activeProjectId: normalizeActiveProjectId(settings.activeProjectId, projectProfiles),
       githubDefaultOwner: normalizeGithubDefaultOwner(settings.githubDefaultOwner),

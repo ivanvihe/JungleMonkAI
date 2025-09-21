@@ -8,6 +8,12 @@ export const BUILTIN_PROVIDERS: BuiltinProvider[] = ['openai', 'anthropic', 'gro
 
 export type ApiKeySettings = Record<string, string>;
 
+export interface JarvisCoreSettings {
+  host: string;
+  port: number;
+  autoStart: boolean;
+}
+
 export type McpTransport = 'ws' | 'osc' | 'rest';
 
 export interface McpProfileEndpoint {
@@ -126,6 +132,7 @@ export interface GlobalSettings {
   workspacePreferences: WorkspacePreferences;
   dataLocation: DataLocationSettings;
   modelPreferences: ModelPreferences;
+  jarvisCore: JarvisCoreSettings;
   projectProfiles: ProjectProfile[];
   activeProjectId: string | null;
   githubDefaultOwner?: string;

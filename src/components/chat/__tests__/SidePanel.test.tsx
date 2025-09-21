@@ -208,7 +208,13 @@ describe('Resumen de proveedores en SidePanel', () => {
   });
 
   it('muestra los cuatro proveedores principales con su estado resumido', () => {
-    render(<SidePanel onOpenGlobalSettings={vi.fn()} onOpenModelManager={vi.fn()} />);
+    render(
+      <SidePanel
+        variant="desktop"
+        onOpenGlobalSettings={vi.fn()}
+        onOpenModelManager={vi.fn()}
+      />,
+    );
 
     const cards = screen.getAllByTestId(/provider-card-/);
     expect(cards).toHaveLength(4);
@@ -259,12 +265,28 @@ describe('Resumen de proveedores en SidePanel', () => {
       refresh: vi.fn(),
     });
 
-    render(<SidePanel onOpenGlobalSettings={vi.fn()} onOpenModelManager={vi.fn()} />);
+    render(
+      <SidePanel
+        variant="desktop"
+        onOpenGlobalSettings={vi.fn()}
+        onOpenModelManager={vi.fn()}
+      />,
+    );
 
-    expect(screen.getByTestId('provider-led-openai')).toHaveClass('is-online');
-    expect(screen.getByTestId('provider-led-anthropic')).toHaveClass('is-warning');
-    expect(screen.getByTestId('provider-led-groq')).toHaveClass('is-error');
-    expect(screen.getByTestId('provider-led-jarvis')).toHaveClass('is-warning');
+    const openaiCard = screen.getByTestId('provider-card-openai').closest('.sidepanel-provider-item');
+    const anthropicCard = screen.getByTestId('provider-card-anthropic').closest('.sidepanel-provider-item');
+    const groqCard = screen.getByTestId('provider-card-groq').closest('.sidepanel-provider-item');
+    const jarvisCard = screen.getByTestId('provider-card-jarvis').closest('.sidepanel-provider-item');
+
+    expect(openaiCard as HTMLElement | null).not.toBeNull();
+    expect(anthropicCard as HTMLElement | null).not.toBeNull();
+    expect(groqCard as HTMLElement | null).not.toBeNull();
+    expect(jarvisCard as HTMLElement | null).not.toBeNull();
+
+    expect(openaiCard as HTMLElement).toHaveClass('tone-online');
+    expect(anthropicCard as HTMLElement).toHaveClass('tone-warning');
+    expect(groqCard as HTMLElement).toHaveClass('tone-error');
+    expect(jarvisCard as HTMLElement).toHaveClass('tone-warning');
     expect(screen.getByRole('button', { name: 'Gestionar modelos' })).toBeInTheDocument();
   });
 

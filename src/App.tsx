@@ -37,7 +37,7 @@ interface AppContentProps {
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
 }
 
-const { Header, Content, Sider } = Layout;
+const { Header, Content } = Layout;
 
 const AppContent: React.FC<AppContentProps> = ({
   apiKeys,
@@ -105,17 +105,13 @@ const AppContent: React.FC<AppContentProps> = ({
               hasSider={showDesktopSidebar}
             >
               {sidePanelPosition === 'left' && showDesktopSidebar && (
-                <Sider
+                <SidePanel
+                  position="left"
                   width={siderWidth}
-                  className="app-sidebar"
-                  role="complementary"
-                  aria-label="Agent configuration"
-                >
-                  <SidePanel
-                    onOpenGlobalSettings={() => setSettingsOpen(true)}
-                    onOpenModelManager={() => setModelManagerOpen(true)}
-                  />
-                </Sider>
+                  variant="desktop"
+                  onOpenGlobalSettings={() => setSettingsOpen(true)}
+                  onOpenModelManager={() => setModelManagerOpen(true)}
+                />
               )}
 
               <Content className="chat-main-container">
@@ -131,23 +127,22 @@ const AppContent: React.FC<AppContentProps> = ({
               </Content>
 
               {sidePanelPosition === 'right' && showDesktopSidebar && (
-                <Sider
+                <SidePanel
+                  position="right"
                   width={siderWidth}
-                  className="app-sidebar"
-                  role="complementary"
-                  aria-label="Agent configuration"
-                >
-                  <SidePanel
-                    onOpenGlobalSettings={() => setSettingsOpen(true)}
-                    onOpenModelManager={() => setModelManagerOpen(true)}
-                  />
-                </Sider>
+                  variant="desktop"
+                  onOpenGlobalSettings={() => setSettingsOpen(true)}
+                  onOpenModelManager={() => setModelManagerOpen(true)}
+                />
               )}
             </Layout>
 
             {!showDesktopSidebar && (
               <div className="app-sidebar-mobile" role="complementary" aria-label="Agent configuration">
                 <SidePanel
+                  position={sidePanelPosition}
+                  width={siderWidth}
+                  variant="mobile"
                   onOpenGlobalSettings={() => setSettingsOpen(true)}
                   onOpenModelManager={() => setModelManagerOpen(true)}
                 />

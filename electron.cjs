@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { PluginManager } = require('./plugin-manager.cjs');
+const { createGitService } = require('./services/git-service.cjs');
 const { logConsoleMessage } = require('./console-message-handler.cjs');
 
 const PROVIDER_CONFIG = {
@@ -174,6 +175,14 @@ const startUrl = isDev
 
 let pluginManagerInstance = null;
 let pluginManagerReadyPromise = null;
+let gitService = null;
+
+const ensureGitService = () => {
+  if (!gitService) {
+    gitService = createGitService(app);
+  }
+  return gitService;
+};
 
 const resolvePluginsDir = () => {
   if (isDev) {
@@ -475,6 +484,91 @@ ipcMain.handle('tcp-request', (event, command, port, host) => {
     }, 3000);
   });
 });
+
+const withGitService = handler => async (event, payload) => {
+  try {
+    const service = ensureGitService();
+    return await handler(service, payload || {});
+  } catch (error) {
+    const message = error && typeof error === 'object' && 'message' in error ? error.message : String(error);
+    throw new Error(message);
+  }
+};
+
+ipcMain.handle(
+  'git:list-user-repos',
+  withGitService((service, payload) => service.listUserRepos(payload)),
+);
+
+ipcMain.handle(
+  'git:get-context',
+  withGitService((service, payload) => service.getRepositoryContext(payload)),
+);
+
+ipcMain.handle(
+  'git:list-files',
+  withGitService((service, payload) => service.listRepositoryFiles(payload)),
+);
+
+ipcMain.handle(
+  'git:status',
+  withGitService((service, payload) => service.getRepositoryStatus(payload)),
+);
+
+ipcMain.handle(
+  'git:file-diff',
+  withGitService((service, payload) => service.getFileDiff(payload)),
+);
+
+ipcMain.handle(
+  'git:commit',
+  withGitService((service, payload) => service.commitChanges(payload)),
+);
+
+ipcMain.handle(
+  'git:push',
+  withGitService((service, payload) => service.pushChanges(payload)),
+);
+
+ipcMain.handle(
+  'git:pull-repository',
+  withGitService((service, payload) => service.pullRepository(payload)),
+);
+
+ipcMain.handle(
+  'git:pull-changes',
+  withGitService((service, payload) => service.pullChanges(payload)),
+);
+
+ipcMain.handle(
+  'git:create-pull-request',
+  withGitService((service, payload) => service.createPullRequest(payload)),
+);
+
+ipcMain.handle(
+  'git:apply-patch',
+  withGitService((service, payload) => service.applyPatch(payload)),
+);
+
+ipcMain.handle(
+  'git:clone',
+  withGitService((service, payload) => service.cloneRepository(payload)),
+);
+
+ipcMain.handle(
+  'secrets:store',
+  withGitService((service, payload) => service.storeSecret(payload)),
+);
+
+ipcMain.handle(
+  'secrets:has',
+  withGitService((service, payload) => service.hasSecret(payload)),
+);
+
+ipcMain.handle(
+  'secrets:reveal',
+  withGitService((service, payload) => service.revealSecret(payload)),
+);
 
 app.whenReady().then(() => {
   createWindow();

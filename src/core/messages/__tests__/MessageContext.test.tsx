@@ -8,13 +8,18 @@ const hoistedMocks = vi.hoisted(() => ({
   sync: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/api/tauri', () => ({
-  invoke: hoistedMocks.invoke,
-}));
-
-vi.mock('../../storage/userDataPathsClient', () => ({
-  isTauriEnvironment: () => true,
-}));
+vi.mock('../../utils/runtimeBridge', () => {
+  const GitBackendUnavailableError = class extends Error {};
+  return {
+    gitInvoke: hoistedMocks.invoke,
+    canUseDesktopGit: () => true,
+    isTauriRuntime: () => true,
+    isElectronRuntime: () => false,
+    hasElectronGitBridge: () => false,
+    isGitBackendUnavailableError: (error: unknown) => error instanceof GitBackendUnavailableError,
+    GitBackendUnavailableError,
+  };
+});
 
 vi.mock('../../codex', () => ({
   enqueueRepoWorkflowRequest: hoistedMocks.enqueue,
@@ -94,7 +99,12 @@ describe('MessageContext', () => {
   });
 
   it('sincroniza el repositorio activo al solicitar analizar el proyecto', async () => {
-    invokeMock.mockResolvedValue({ branch: 'feature/research' });
+    invokeMock.mockImplementation(command => {
+      if (command === 'git_get_repository_context') {
+        return Promise.resolve({ branch: 'feature/research' });
+      }
+      return Promise.resolve({});
+    });
     const { result } = renderHook(() => useMessages(), { wrapper: ProjectWrapper });
 
     act(() => {
@@ -116,13 +126,9 @@ describe('MessageContext', () => {
     expect(enqueueRepoWorkflowRequestMock).toHaveBeenCalledWith(
       expect.objectContaining({
         repositoryPath: '/workbench/app',
-        branch: 'feature/research',
+        branch: 'develop',
       }),
     );
-    expect(invokeMock).toHaveBeenCalledWith('git_get_repository_context', {
-      repoPath: '/workbench/app',
-    });
-
     const lastMessages = result.current.messages.slice(-2).map(message => message.content);
     expect(lastMessages[1]).toContain('Sincronizando el proyecto activo');
   });

@@ -18,6 +18,8 @@ interface Window {
       }[]
     >;
     invokePlugin?: (pluginId: string, command: string, payload: unknown) => Promise<unknown>;
+    gitInvoke?: <T>(channel: string, payload?: unknown) => Promise<T>;
+    listGitRepos?: (payload?: unknown) => Promise<unknown>;
   };
 }
 

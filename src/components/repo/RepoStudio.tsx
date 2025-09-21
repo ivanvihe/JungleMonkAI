@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
 import { open as openDialog } from '@tauri-apps/api/dialog';
 import { join } from '@tauri-apps/api/path';
 import {
@@ -11,11 +10,16 @@ import {
   useRepoWorkflow,
 } from '../../core/codex';
 import { useProjects } from '../../core/projects/ProjectContext';
-import { isTauriEnvironment } from '../../core/storage/userDataPathsClient';
 import { ProjectBindingPanel } from './ProjectBindingPanel';
 import { useGithubRepos } from '../../hooks/useGithubRepos';
 import type { GithubRepoSummary } from '../../hooks/useGithubRepos';
 import './RepoStudio.css';
+import {
+  canUseDesktopGit,
+  gitInvoke,
+  isGitBackendUnavailableError,
+  isTauriRuntime,
+} from '../../utils/runtimeBridge';
 
 type RepoEntryKind = 'file' | 'directory';
 
@@ -119,7 +123,8 @@ export const RepoStudio: React.FC = () => {
   const [autoPrEnabled, setAutoPrEnabled] = useState<boolean>(false);
   const [autoPrTriggered, setAutoPrTriggered] = useState<boolean>(false);
   const { activeProject, upsertProject, selectProject } = useProjects();
-  const isDesktop = useMemo(() => isTauriEnvironment(), []);
+  const isDesktop = useMemo(() => canUseDesktopGit(), []);
+  const isTauri = useMemo(() => isTauriRuntime(), []);
   const {
     repos: remoteRepos,
     isLoading: isRemoteLoading,
@@ -135,6 +140,13 @@ export const RepoStudio: React.FC = () => {
 
   const updateExecution = useCallback((currentPlan: CodexPlan | null, currentReviews: CodexReview[]) => {
     setExecution(ensurePlanApproval(currentPlan, currentReviews));
+  }, []);
+
+  const resolveGitError = useCallback((error: unknown, fallback: string): string => {
+    if (isGitBackendUnavailableError(error)) {
+      return error.message;
+    }
+    return (error as Error)?.message ?? fallback;
   }, []);
 
   const remoteInfo = useMemo(() => {
@@ -206,6 +218,12 @@ export const RepoStudio: React.FC = () => {
     void refreshRemoteRepos({ owner: activeProject.gitOwner });
   }, [activeProject?.gitOwner, refreshRemoteRepos, remoteSupported]);
 
+  useEffect(() => {
+    if (!isDesktop) {
+      setError('El backend de Git no está disponible en esta instalación. Configura la aplicación de escritorio.');
+    }
+  }, [isDesktop]);
+
   const refreshContext = useCallback(
     async (targetPath?: string) => {
       const effectivePath = targetPath ?? repoPath;
@@ -215,14 +233,12 @@ export const RepoStudio: React.FC = () => {
       setIsContextLoading(true);
       setContextError(null);
       try {
-        const context = await invoke<RepoContextSummary>('git_get_repository_context', {
+        const context = await gitInvoke<RepoContextSummary>('git_get_repository_context', {
           repoPath: effectivePath,
         });
         setRepoContext(context);
       } catch (err) {
-        setContextError(
-          (err as Error).message ?? 'No se pudo obtener el contexto del repositorio.',
-        );
+        setContextError(resolveGitError(err, 'No se pudo obtener el contexto del repositorio.'));
         setRepoContext(null);
       } finally {
         setIsContextLoading(false);
@@ -236,13 +252,13 @@ export const RepoStudio: React.FC = () => {
       setError(null);
       setIsLoading(true);
       try {
-        const result = await invoke<RepoEntry[]>('git_list_repository_files', {
+        const result = await gitInvoke<RepoEntry[]>('git_list_repository_files', {
           repoPath: targetPath,
         });
         setEntries(result);
         await refreshContext(targetPath);
       } catch (err) {
-        setError((err as Error).message ?? 'No se pudieron listar los archivos');
+        setError(resolveGitError(err, 'No se pudieron listar los archivos'));
         throw err;
       } finally {
         setIsLoading(false);
@@ -256,11 +272,11 @@ export const RepoStudio: React.FC = () => {
       setError(null);
       setIsLoading(true);
       try {
-        const result = await invoke<RepoStatus>('git_repository_status', { repoPath: targetPath });
+        const result = await gitInvoke<RepoStatus>('git_repository_status', { repoPath: targetPath });
         setStatusEntries(result.entries);
         await refreshContext(targetPath);
       } catch (err) {
-        setError((err as Error).message ?? 'No se pudo obtener el estado del repositorio');
+        setError(resolveGitError(err, 'No se pudo obtener el estado del repositorio'));
         throw err;
       } finally {
         setIsLoading(false);
@@ -391,14 +407,14 @@ export const RepoStudio: React.FC = () => {
     }
 
     try {
-      const diff = await invoke<string>('git_get_file_diff', {
+      const diff = await gitInvoke<string>('git_get_file_diff', {
         repoPath,
         pathspec: entry.path,
       });
       setSelectedEntry(entry);
       setDiffPreview(diff || 'No hay diferencias registradas para este archivo.');
     } catch (err) {
-      setDiffPreview(`No se pudo generar el diff: ${(err as Error).message}`);
+      setDiffPreview(`No se pudo generar el diff: ${resolveGitError(err, 'Error desconocido')}`);
       setSelectedEntry(entry);
     }
   };
@@ -482,7 +498,7 @@ export const RepoStudio: React.FC = () => {
     setError(null);
     setIsLoading(true);
     try {
-      const commitId = await invoke<string>('git_commit_changes', {
+      const commitId = await gitInvoke<string>('git_commit_changes', {
         payload: {
           repoPath,
           message: commitMessage,
@@ -492,7 +508,7 @@ export const RepoStudio: React.FC = () => {
       setMessages(prev => [{ message: `Commit ${commitId} creado correctamente.`, id: commitId }, ...prev]);
       await refreshContext();
     } catch (err) {
-      setError((err as Error).message ?? 'Error al crear el commit');
+      setError(resolveGitError(err, 'Error al crear el commit'));
     } finally {
       setIsLoading(false);
     }
@@ -507,7 +523,7 @@ export const RepoStudio: React.FC = () => {
     setError(null);
     setIsLoading(true);
     try {
-      await invoke('git_push_changes', {
+      await gitInvoke('git_push_changes', {
         payload: {
           repoPath,
           remote: remoteName || undefined,
@@ -518,7 +534,7 @@ export const RepoStudio: React.FC = () => {
       setMessages(prev => [{ message: `Push enviado a ${remoteName}/${remoteBranch || '(por defecto)'}` }, ...prev]);
       await refreshContext();
     } catch (err) {
-      setError((err as Error).message ?? 'No se pudo enviar el push');
+      setError(resolveGitError(err, 'No se pudo enviar el push'));
     } finally {
       setIsLoading(false);
     }
@@ -528,7 +544,7 @@ export const RepoStudio: React.FC = () => {
     setError(null);
     setIsLoading(true);
     try {
-      const result = await invoke<string>('git_pull_changes', {
+      const result = await gitInvoke<string>('git_pull_changes', {
         repoPath,
         remote: repoContext?.remote?.name || remoteName || undefined,
         branch: repoContext?.remote?.branch || repoContext?.branch || remoteBranch || undefined,
@@ -538,7 +554,7 @@ export const RepoStudio: React.FC = () => {
       await fetchStatus();
       await refreshContext();
     } catch (err) {
-      setError((err as Error).message ?? 'No se pudo ejecutar git pull');
+      setError(resolveGitError(err, 'No se pudo ejecutar git pull'));
     } finally {
       setIsLoading(false);
     }
@@ -548,6 +564,11 @@ export const RepoStudio: React.FC = () => {
     async (repo: GithubRepoSummary) => {
       if (!isDesktop) {
         setError('La vinculación remota solo está disponible en la aplicación de escritorio.');
+        return;
+      }
+
+      if (!isTauri) {
+        setError('Configura la integración de Tauri para vincular repositorios automáticamente.');
         return;
       }
 
@@ -567,7 +588,7 @@ export const RepoStudio: React.FC = () => {
         setError(null);
         setCloneMessage(null);
 
-        await invoke('git_clone_repository', {
+        await gitInvoke('git_clone_repository', {
           payload: {
             url: cloneUrl,
             directory: targetDir,
@@ -602,13 +623,14 @@ export const RepoStudio: React.FC = () => {
         await refreshContext();
         void refreshRemoteRepos({ owner: repo.owner });
       } catch (err) {
-        setError((err as Error).message ?? 'No se pudo vincular el repositorio remoto');
+        setError(resolveGitError(err, 'No se pudo vincular el repositorio remoto'));
       } finally {
         setIsLoading(false);
       }
     },
     [
       isDesktop,
+      isTauri,
       refreshContext,
       refreshRemoteRepos,
       selectProject,
@@ -630,7 +652,7 @@ export const RepoStudio: React.FC = () => {
     setError(null);
     setIsLoading(true);
     try {
-      const response = await invoke<{ url: string; number?: number }>('git_create_pull_request', {
+      const response = await gitInvoke<{ url: string; number?: number }>('git_create_pull_request', {
         payload: {
           provider: prProvider,
           owner: prOwner,
@@ -645,7 +667,7 @@ export const RepoStudio: React.FC = () => {
       setMessages(prev => [{ message: `PR/MR creado: ${response.url}` }, ...prev]);
       await refreshContext();
     } catch (err) {
-      setError((err as Error).message ?? 'No se pudo crear el PR/MR');
+      setError(resolveGitError(err, 'No se pudo crear el PR/MR'));
     } finally {
       setIsLoading(false);
     }
@@ -665,7 +687,7 @@ export const RepoStudio: React.FC = () => {
     const runAutoPullRequest = async () => {
       setIsLoading(true);
       try {
-        const response = await invoke<{ url: string; number?: number }>('git_create_pull_request', {
+        const response = await gitInvoke<{ url: string; number?: number }>('git_create_pull_request', {
           payload: {
             provider: prProvider,
             owner: prOwner,
@@ -680,7 +702,7 @@ export const RepoStudio: React.FC = () => {
         setMessages(prev => [{ message: `Auto PR/MR creado: ${response.url}` }, ...prev]);
         await refreshContext();
       } catch (err) {
-        setError((err as Error).message ?? 'No se pudo crear el PR/MR automáticamente');
+        setError(resolveGitError(err, 'No se pudo crear el PR/MR automáticamente'));
       } finally {
         setIsLoading(false);
         setAutoPrTriggered(true);
@@ -712,7 +734,7 @@ export const RepoStudio: React.FC = () => {
     setError(null);
     setIsLoading(true);
     try {
-      await invoke('git_apply_patch', {
+      await gitInvoke('git_apply_patch', {
         repoPath,
         patch: patchContent,
         dryRun: patchDryRun,
@@ -724,7 +746,7 @@ export const RepoStudio: React.FC = () => {
         await refreshContext();
       }
     } catch (err) {
-      setError((err as Error).message ?? 'No se pudo aplicar el parche');
+      setError(resolveGitError(err, 'No se pudo aplicar el parche'));
     } finally {
       setIsLoading(false);
     }

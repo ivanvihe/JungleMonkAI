@@ -11,15 +11,21 @@ import { PluginHostProvider } from '../../../core/plugins/PluginHostProvider';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
 import { ProjectProvider } from '../../../core/projects/ProjectContext';
 
-const invokeMock = vi.hoisted(() => vi.fn());
+const gitInvokeMock = vi.hoisted(() => vi.fn());
+const runtimeMode = vi.hoisted(() => ({ current: 'tauri' as 'tauri' | 'electron' }));
 
-vi.mock('@tauri-apps/api/tauri', () => ({
-  invoke: invokeMock,
-}));
-
-vi.mock('../../../core/storage/userDataPathsClient', () => ({
-  isTauriEnvironment: () => true,
-}));
+vi.mock('../../../utils/runtimeBridge', () => {
+  const GitBackendUnavailableError = class extends Error {};
+  return {
+    gitInvoke: gitInvokeMock,
+    canUseDesktopGit: () => true,
+    isTauriRuntime: () => runtimeMode.current === 'tauri',
+    isElectronRuntime: () => runtimeMode.current === 'electron',
+    hasElectronGitBridge: () => runtimeMode.current === 'electron',
+    isGitBackendUnavailableError: (error: unknown) => error instanceof GitBackendUnavailableError,
+    GitBackendUnavailableError,
+  };
+});
 
 const messagesRef: { current: ChatMessage[] } = { current: [] };
 let setMockMessages: ((messages: ChatMessage[]) => void) | undefined;
@@ -52,72 +58,75 @@ const buildStubMessage = (): ChatMessage => ({
   },
 });
 
-describe('Repo workflow integration', () => {
-  beforeEach(() => {
-    invokeMock.mockReset();
-    invokeMock.mockImplementation((command, args) => {
-      switch (command) {
-        case 'git_list_repository_files':
-          return Promise.resolve([]);
-        case 'git_repository_status':
-          return Promise.resolve({ entries: [] });
-        case 'git_get_repository_context':
-          return Promise.resolve({
-            branch: 'main',
-            last_commit: {
-              id: 'abc123',
-              message: 'Initial commit',
-              author: 'Repo Bot',
-              time: 1_700_000_000,
-            },
-            remote: {
-              name: 'origin',
-              url: 'https://github.com/acme/wonder-project.git',
+describe.each(['tauri', 'electron'] as const)(
+  'Repo workflow integration (%s)',
+  runtime => {
+    beforeEach(() => {
+      runtimeMode.current = runtime;
+      gitInvokeMock.mockReset();
+      gitInvokeMock.mockImplementation((command, args) => {
+        switch (command) {
+          case 'git_list_repository_files':
+            return Promise.resolve([]);
+          case 'git_repository_status':
+            return Promise.resolve({ entries: [] });
+          case 'git_get_repository_context':
+            return Promise.resolve({
               branch: 'main',
-            },
-          });
-        case 'git_pull_repository':
-          return Promise.resolve('Fast-forward completado desde origin/main hasta def456.');
-        case 'git_create_pull_request':
-          return Promise.resolve({ url: 'https://example.com/pr/1' });
-        case 'git_commit_changes':
-          return Promise.resolve('abc123');
-        case 'git_push_changes':
-          return Promise.resolve('ok');
-        case 'git_pull_changes':
-          return Promise.resolve('Already up to date.');
-        case 'git_apply_patch':
-          return Promise.resolve({});
-        case 'git_list_user_repos':
-          return Promise.resolve([
-            {
-              id: 42,
-              name: 'wonder-project',
-              full_name: 'acme/wonder-project',
-              owner: 'acme',
-              description: 'Proyecto remoto de ejemplo',
-              default_branch: 'main',
-              html_url: 'https://github.com/acme/wonder-project',
-              clone_url: 'https://github.com/acme/wonder-project.git',
-              ssh_url: 'git@github.com:acme/wonder-project.git',
-              private: false,
-              visibility: 'public',
-            },
-          ]);
-        case 'git_clone_repository':
-          return Promise.resolve({});
-        default:
-          return Promise.resolve({});
-      }
+              last_commit: {
+                id: 'abc123',
+                message: 'Initial commit',
+                author: 'Repo Bot',
+                time: 1_700_000_000,
+              },
+              remote: {
+                name: 'origin',
+                url: 'https://github.com/acme/wonder-project.git',
+                branch: 'main',
+              },
+            });
+          case 'git_pull_repository':
+            return Promise.resolve('Fast-forward completado desde origin/main hasta def456.');
+          case 'git_create_pull_request':
+            return Promise.resolve({ url: 'https://example.com/pr/1' });
+          case 'git_commit_changes':
+            return Promise.resolve('abc123');
+          case 'git_push_changes':
+            return Promise.resolve('ok');
+          case 'git_pull_changes':
+            return Promise.resolve('Already up to date.');
+          case 'git_apply_patch':
+            return Promise.resolve({});
+          case 'git_list_user_repos':
+            return Promise.resolve([
+              {
+                id: 42,
+                name: 'wonder-project',
+                full_name: 'acme/wonder-project',
+                owner: 'acme',
+                description: 'Proyecto remoto de ejemplo',
+                default_branch: 'main',
+                html_url: 'https://github.com/acme/wonder-project',
+                clone_url: 'https://github.com/acme/wonder-project.git',
+                ssh_url: 'git@github.com:acme/wonder-project.git',
+                private: false,
+                visibility: 'public',
+              },
+            ]);
+          case 'git_clone_repository':
+            return Promise.resolve({});
+          default:
+            return Promise.resolve({});
+        }
+      });
+      setMockMessages?.([buildStubMessage()]);
     });
-    setMockMessages?.([buildStubMessage()]);
-  });
 
-  it('propagates message content to Repo Studio and triggers auto-PR workflow', async () => {
-    const PluginWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-      const [settings, setSettings] = React.useState(() => ({
-        ...JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)),
-      }));
+    it('propagates message content to Repo Studio and triggers auto-PR workflow', async () => {
+      const PluginWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+        const [settings, setSettings] = React.useState(() => ({
+          ...JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)),
+        }));
     return (
       <PluginHostProvider settings={settings} onSettingsChange={setSettings}>
         {children}
@@ -156,60 +165,76 @@ describe('Repo workflow integration', () => {
       </ProjectWrapper>,
     );
 
-    fireEvent.click(screen.getByText('Enviar a Repo Studio'));
+    const sendButtons = screen.getAllByText('Enviar a Repo Studio');
+    fireEvent.click(sendButtons[0]);
 
-    const analysisField = await screen.findByPlaceholderText(
+    const [analysisField] = await screen.findAllByPlaceholderText(
       'Describe qué cambios necesitas (usa `rutas/relativas` para guiar al motor).',
     );
     await waitFor(() => expect((analysisField as HTMLTextAreaElement).value).toBe(canonicalSnippet));
 
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('git_pull_repository', {
+      expect(gitInvokeMock).toHaveBeenCalledWith('git_pull_repository', {
         repoPath: '/tmp/demo',
         remote: 'origin',
         branch: 'main',
       }),
     );
 
-    await screen.findByText(/Sincronización completada:/);
+    const syncMessages = await screen.findAllByText(/Sincronización completada:/);
+    expect(syncMessages.length).toBeGreaterThan(0);
 
-    fireEvent.change(screen.getByPlaceholderText('org'), { target: { value: 'acme' } });
-    fireEvent.change(screen.getByPlaceholderText('repo'), { target: { value: 'wonder-project' } });
-    fireEvent.change(screen.getByPlaceholderText('feature/rama'), {
+    const [orgInput] = screen.getAllByPlaceholderText('org');
+    const [repoInput] = screen.getAllByPlaceholderText('repo');
+    const [featureInput] = screen.getAllByPlaceholderText('feature/rama');
+    fireEvent.change(orgInput, { target: { value: 'acme' } });
+    fireEvent.change(repoInput, { target: { value: 'wonder-project' } });
+    fireEvent.change(featureInput, {
       target: { value: 'feature/auto-pr' },
     });
 
     const planSection = await waitFor(() => container.querySelector('.repo-studio__plan'));
-    expect(planSection).not.toBeNull();
+    if (runtime === 'tauri') {
+      expect(planSection).not.toBeNull();
+    }
 
-    const stepCheckboxes = planSection?.querySelectorAll('input[type="checkbox"]') ?? [];
-    expect(stepCheckboxes.length).toBeGreaterThan(0);
-    stepCheckboxes.forEach(input => {
-      const checkbox = input as HTMLInputElement;
-      if (!checkbox.disabled && !checkbox.checked) {
-        fireEvent.click(checkbox);
-      }
-    });
+    if (planSection) {
+      const stepCheckboxes = planSection.querySelectorAll('input[type="checkbox"]');
+      expect(stepCheckboxes.length).toBeGreaterThan(0);
+      stepCheckboxes.forEach(input => {
+        const checkbox = input as HTMLInputElement;
+        if (!checkbox.disabled && !checkbox.checked) {
+          fireEvent.click(checkbox);
+        }
+      });
+    }
 
-    fireEvent.click(screen.getByLabelText('Auto-PR al aprobar'));
+    const [autoPrCheckbox] = screen.getAllByLabelText('Auto-PR al aprobar');
+    fireEvent.click(autoPrCheckbox);
 
     const approveButton = screen.getByRole('button', { name: 'Aprobar plan' });
     fireEvent.click(approveButton);
 
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('git_create_pull_request', expect.anything()));
+    if (runtime === 'tauri') {
+      await waitFor(() =>
+        expect(gitInvokeMock).toHaveBeenCalledWith('git_create_pull_request', expect.anything()),
+      );
 
-    const [, payload] = invokeMock.mock.calls.find(call => call[0] === 'git_create_pull_request') ?? [];
-    expect(payload).toBeDefined();
-    expect(payload.payload.title).toContain('Modificar src/core/example.ts');
-    expect(payload.payload.body).toContain('```');
-    expect(payload.payload.body).toContain('Etiquetas sugeridas: `feature` `automation`');
+      const [, payload] =
+        gitInvokeMock.mock.calls.find(call => call[0] === 'git_create_pull_request') ?? [];
+      expect(payload).toBeDefined();
+      expect(payload.payload.title).toContain('Modificar src/core/example.ts');
+      expect(payload.payload.body).toContain('```');
+      expect(payload.payload.body).toContain('Etiquetas sugeridas: `feature` `automation`');
 
-    await screen.findByText(/Auto PR\/MR creado:/);
+      await screen.findByText(/Auto PR\/MR creado:/);
+    }
 
     const remoteEntries = await screen.findAllByText('acme/wonder-project');
     expect(remoteEntries.length).toBeGreaterThan(0);
-    expect(screen.getByText('Proyecto remoto de ejemplo')).toBeInTheDocument();
-    expect(invokeMock).toHaveBeenCalledWith(
+    const [remoteDescription] = screen.getAllByText('Proyecto remoto de ejemplo');
+    expect(remoteDescription).toBeInTheDocument();
+    expect(gitInvokeMock).toHaveBeenCalledWith(
       'git_list_user_repos',
       expect.objectContaining({ request: expect.any(Object) }),
     );

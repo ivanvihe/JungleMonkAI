@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import type { GlobalSettings, JarvisCoreSettings } from '../../types/globalSettings';
+import { startDesktopJarvis, stopDesktopJarvis } from '../../utils/runtimeBridge';
 import {
   createJarvisCoreClient,
   type DownloadModelPayload,
@@ -249,6 +250,31 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
     return Math.max(1000, Math.trunc(candidate));
   }, [pollingIntervalMs]);
 
+  const startDesktopRuntime = useCallback(async () => {
+    if (!jarvisConfig.autoStart) {
+      return;
+    }
+
+    try {
+      const status = await startDesktopJarvis();
+      if (!mountedRef.current) {
+        return;
+      }
+      if (status?.lastError) {
+        setLastError(status.lastError);
+      }
+    } catch (error) {
+      if (!mountedRef.current) {
+        return;
+      }
+      setLastError(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo iniciar el runtime local de Jarvis.',
+      );
+    }
+  }, [jarvisConfig.autoStart]);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -324,6 +350,9 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
     }
 
     if (!client) {
+      if (jarvisConfig.autoStart) {
+        void startDesktopRuntime();
+      }
       setConnected(false);
       setRuntimeStatus('offline');
       setUptimeMs(null);
@@ -353,16 +382,24 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
     setLastError(null);
     setLastHealthMessage(null);
 
+    void startDesktopRuntime();
     void ensureOnline();
   }, [
     client,
     ensureOnline,
+    startDesktopRuntime,
     jarvisConfig.apiKey,
     jarvisConfig.autoStart,
     jarvisConfig.host,
     jarvisConfig.port,
     jarvisConfig.useHttps,
   ]);
+
+  useEffect(() => {
+    if (!jarvisConfig.autoStart) {
+      void stopDesktopJarvis();
+    }
+  }, [jarvisConfig.autoStart]);
 
   const refreshModels = useCallback(async () => {
     if (!client) {

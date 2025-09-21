@@ -32,7 +32,7 @@ describe('useProviderDiagnostics', () => {
 
   it('expone el modelo recomendado actualizado para Groq', () => {
     const { result } = renderHook(() => useProviderDiagnostics());
-    expect(result.current.getDefaultModel('groq')).toBe('llama-3.1-70b-versatile');
+    expect(result.current.getDefaultModel('groq')).toBe('llama-3.2-90b-text');
   });
 
   it('utiliza el modelo recomendado de Groq al probar conectividad', async () => {
@@ -45,10 +45,10 @@ describe('useProviderDiagnostics', () => {
     });
 
     expect(aiProviderMocks.callGroqChat).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'llama-3.1-70b-versatile' }),
+      expect.objectContaining({ model: 'llama-3.2-90b-text' }),
     );
     expect(response!.ok).toBe(true);
-    expect(response!.modelUsed).toBe('llama-3.1-70b-versatile');
+    expect(response!.modelUsed).toBe('llama-3.2-90b-text');
   });
 
   it('propaga el error de concurrencia de Anthropic', async () => {

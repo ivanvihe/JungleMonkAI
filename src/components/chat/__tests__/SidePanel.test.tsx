@@ -115,7 +115,14 @@ describe('Resumen de proveedores en SidePanel', () => {
         channel: 'claude',
         apiKey: 'sk-anthropic',
       }),
-      buildAgent({ id: 'groq-agent', name: 'LLaMA 3.1 70B', model: 'llama-3.1-70b', provider: 'Groq', channel: 'groq', apiKey: 'sk-groq' }),
+      buildAgent({
+        id: 'groq-agent',
+        name: 'LLaMA 3.2 90B',
+        model: 'llama-3.2-90b-text',
+        provider: 'Groq',
+        channel: 'groq',
+        apiKey: 'sk-groq',
+      }),
       buildAgent({
         id: 'jarvis-phi',
         name: 'Phi-3 Mini',
@@ -163,8 +170,8 @@ describe('Resumen de proveedores en SidePanel', () => {
       }),
       buildAgent({
         id: 'groq-agent',
-        name: 'LLaMA 3.1 70B',
-        model: 'llama-3.1-70b',
+        name: 'LLaMA 3.2 90B',
+        model: 'llama-3.2-90b-text',
         provider: 'Groq',
         channel: 'groq',
         apiKey: 'sk-groq',

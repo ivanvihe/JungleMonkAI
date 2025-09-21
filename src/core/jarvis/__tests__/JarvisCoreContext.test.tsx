@@ -61,6 +61,76 @@ describe('JarvisCoreContext', () => {
     vi.useRealTimers();
   });
 
+  it('inicia un EventSource interno cuando está disponible', async () => {
+    const client = createClientStub();
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      url: string;
+      listeners: Record<string, Array<(event: MessageEvent<string> | Event) => void>> = {
+        message: [],
+        error: [],
+      };
+      closed = false;
+
+      constructor(url: string) {
+        this.url = url;
+        instances.push(this);
+      }
+
+      addEventListener(type: 'message' | 'error', listener: (event: MessageEvent<string> | Event) => void) {
+        this.listeners[type]?.push(listener);
+      }
+
+      removeEventListener(type: 'message' | 'error', listener: (event: MessageEvent<string> | Event) => void) {
+        this.listeners[type] = this.listeners[type]?.filter(handler => handler !== listener) ?? [];
+      }
+
+      emitMessage(data: unknown) {
+        const payload = typeof data === 'string' ? data : JSON.stringify(data);
+        this.listeners.message.forEach(listener => listener({ data: payload } as MessageEvent<string>));
+      }
+
+      close() {
+        this.closed = true;
+      }
+    }
+
+    const originalEventSource = (globalThis as any).EventSource;
+    (globalThis as any).EventSource = MockEventSource;
+
+    try {
+      const wrapper = createWrapper(client);
+      const { result, unmount } = renderHook(() => useJarvisCore(), { wrapper });
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(instances).toHaveLength(1);
+      expect(instances[0].url).toBe(`${result.current.baseUrl}/models/stream`);
+
+      await act(async () => {
+        instances[0].emitMessage({
+          model_id: 'auto',
+          status: 'downloading',
+          downloaded: 256,
+          total: 1024,
+          percent: 25,
+        });
+        await Promise.resolve();
+      });
+
+      expect(result.current.downloads.auto?.downloaded).toBe(256);
+
+      unmount();
+
+      expect(instances[0].closed).toBe(true);
+    } finally {
+      (globalThis as any).EventSource = originalEventSource;
+    }
+  });
+
   it('ejecuta ensureOnline automáticamente cuando autoStart está activo', async () => {
     const client = createClientStub();
     const wrapper = createWrapper(client);
@@ -157,27 +227,34 @@ describe('JarvisCoreContext', () => {
   it('cambia a polling cuando no hay streaming disponible', async () => {
     vi.useFakeTimers();
     const client = createClientStub();
-    const progressStreamFactory = vi.fn().mockReturnValue(null);
-    const wrapper = createWrapper(client, {
-      progressStreamFactory,
-      pollingIntervalMs: 1500,
-    });
+    const originalEventSource = (globalThis as any).EventSource;
+    const originalFetch = (globalThis as any).fetch;
+    (globalThis as any).EventSource = undefined;
+    (globalThis as any).fetch = undefined;
 
-    renderHook(() => useJarvisCore(), { wrapper });
+    try {
+      const wrapper = createWrapper(client, {
+        pollingIntervalMs: 1500,
+      });
 
-    await act(async () => {
-      await Promise.resolve();
-    });
+      renderHook(() => useJarvisCore(), { wrapper });
 
-    expect(client.listModels).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await Promise.resolve();
+      });
 
-    await act(async () => {
-      vi.advanceTimersByTime(1500);
-      await Promise.resolve();
-    });
+      expect(client.listModels).toHaveBeenCalledTimes(1);
 
-    expect(client.listModels).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+        await Promise.resolve();
+      });
+
+      expect(client.listModels).toHaveBeenCalledTimes(2);
+    } finally {
+      (globalThis as any).EventSource = originalEventSource;
+      (globalThis as any).fetch = originalFetch;
+    }
   });
 
   it('normaliza el estado del runtime y el tiempo de actividad', async () => {

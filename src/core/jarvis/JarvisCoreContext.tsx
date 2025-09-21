@@ -242,6 +242,147 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
   const streamHandleRef = useRef<ProgressStreamHandle | null>(null);
   const startStreamRef = useRef<() => boolean>(() => false);
 
+  const resolvedProgressStreamFactory = useMemo<ProgressStreamFactory | null>(() => {
+    if (progressStreamFactory) {
+      return progressStreamFactory;
+    }
+
+    const globalScope = typeof window !== 'undefined' ? window : undefined;
+    if (!globalScope) {
+      return null;
+    }
+
+    const EventSourceConstructor = (globalScope as typeof globalThis & {
+      EventSource?: typeof EventSource;
+    }).EventSource;
+
+    if (typeof EventSourceConstructor === 'function') {
+      return (url: string, handlers: ProgressStreamHandlers) => {
+        try {
+          const eventSource = new EventSourceConstructor(url);
+
+          const handleMessage = (event: MessageEvent<string>) => {
+            if (!event?.data) {
+              return;
+            }
+            try {
+              const parsed = JSON.parse(event.data);
+              handlers.onMessage(parsed);
+            } catch (error) {
+              console.warn('No se pudo interpretar el payload del stream de progreso', error);
+            }
+          };
+
+          const handleError = (event: Event) => {
+            handlers.onError(event);
+          };
+
+          eventSource.addEventListener('message', handleMessage);
+          eventSource.addEventListener('error', handleError);
+
+          return {
+            close: () => {
+              eventSource.removeEventListener('message', handleMessage);
+              eventSource.removeEventListener('error', handleError);
+              eventSource.close();
+            },
+          };
+        } catch (error) {
+          handlers.onError(error);
+          return null;
+        }
+      };
+    }
+
+    if (typeof fetch === 'function' && typeof ReadableStream !== 'undefined' && typeof TextDecoder !== 'undefined') {
+      return (url: string, handlers: ProgressStreamHandlers) => {
+        const controller = new AbortController();
+        let cancelled = false;
+        let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+        const processEventPayload = (rawEvent: string) => {
+          const dataLines = rawEvent
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.slice(5).trim())
+            .filter(Boolean);
+
+          if (!dataLines.length) {
+            return;
+          }
+
+          const data = dataLines.join('\n');
+          if (!data) {
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(data);
+            handlers.onMessage(parsed);
+          } catch (error) {
+            console.warn('No se pudo interpretar el payload del stream de progreso', error);
+          }
+        };
+
+        const startStreaming = async () => {
+          try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (!response.body) {
+              throw new Error('El stream de progreso no está disponible.');
+            }
+
+            activeReader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (!cancelled) {
+              const { value, done } = await activeReader.read();
+              if (done) {
+                break;
+              }
+              buffer += decoder.decode(value, { stream: true });
+
+              const parts = buffer.split(/\n\n+/);
+              buffer = parts.pop() ?? '';
+
+              for (const part of parts) {
+                processEventPayload(part);
+              }
+            }
+
+            if (buffer.trim()) {
+              processEventPayload(buffer);
+            }
+          } catch (error) {
+            if (!cancelled) {
+              handlers.onError(error);
+            }
+          }
+        };
+
+        void startStreaming();
+
+        return {
+          close: () => {
+            cancelled = true;
+            controller.abort();
+            if (activeReader) {
+              const reader = activeReader;
+              activeReader = null;
+              const cancelResult = reader.cancel();
+              if (typeof (cancelResult as Promise<unknown>)?.catch === 'function') {
+                (cancelResult as Promise<unknown>).catch(() => {});
+              }
+            }
+          },
+        };
+      };
+    }
+
+    return null;
+  }, [progressStreamFactory]);
+
   const normalizedPolling = useMemo(() => {
     const candidate = pollingIntervalMs ?? 5000;
     if (!Number.isFinite(candidate) || candidate <= 0) {
@@ -491,7 +632,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       return false;
     }
 
-    if (!progressStreamFactory || !client) {
+    if (!resolvedProgressStreamFactory || !client) {
       setStreaming(false);
       return false;
     }
@@ -502,7 +643,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
         reconnectTimerRef.current = null;
       }
 
-      const handle = progressStreamFactory(`${baseUrl}${STREAM_ENDPOINT}`, {
+      const handle = resolvedProgressStreamFactory(`${baseUrl}${STREAM_ENDPOINT}`, {
         onMessage: handleProgressUpdate,
         onError: () => {
           if (!mountedRef.current) {
@@ -548,7 +689,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       return false;
     }
   }, [
-    progressStreamFactory,
+    resolvedProgressStreamFactory,
     client,
     baseUrl,
     handleProgressUpdate,
@@ -572,7 +713,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       return;
     }
 
-    if (!progressStreamFactory) {
+    if (!resolvedProgressStreamFactory) {
       setStreaming(false);
       if (streamHandleRef.current) {
         streamHandleRef.current.close();
@@ -596,7 +737,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
         streamHandleRef.current = null;
       }
     };
-  }, [client, progressStreamFactory, startStream]);
+  }, [client, resolvedProgressStreamFactory, startStream]);
 
   useEffect(() => {
     if (!client) {

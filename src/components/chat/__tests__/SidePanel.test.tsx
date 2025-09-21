@@ -7,14 +7,18 @@ import { ChatTopBar } from '../ChatTopBar';
 import { GlobalSettingsDialog } from '../../settings/GlobalSettingsDialog';
 import { ProjectProvider, useProjects } from '../../../core/projects/ProjectContext';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
-import type { AgentPresenceSummary } from '../../../core/agents/presence';
+import type { AgentPresenceEntry, AgentPresenceSummary } from '../../../core/agents/presence';
 import type { AgentDefinition } from '../../../core/agents/agentRegistry';
-import type { LocalModel } from '../../../hooks/useLocalModels';
 
-const mockUseLocalModels = vi.fn();
+const mockUseAgents = vi.fn();
+const mockUseAgentPresence = vi.fn();
 
-vi.mock('../../../hooks/useLocalModels', () => ({
-  useLocalModels: () => mockUseLocalModels(),
+vi.mock('../../../core/agents/AgentContext', () => ({
+  useAgents: () => mockUseAgents(),
+}));
+
+vi.mock('../../../core/agents/presence', () => ({
+  useAgentPresence: (...args: unknown[]) => mockUseAgentPresence(...args),
 }));
 
 const ProjectProbe: React.FC = () => {
@@ -63,32 +67,61 @@ const presenceSummary: AgentPresenceSummary = {
   },
 };
 
-const emptyAgents: AgentDefinition[] = [];
-
-const buildModel = (overrides: Partial<LocalModel>): LocalModel => ({
-  id: 'model',
-  name: 'Modelo base',
-  description: '',
-  provider: 'Proveedor',
-  tags: [],
-  size: 0,
-  checksum: '',
-  status: 'ready',
-  active: false,
-  progress: 1,
+const buildAgent = (overrides: Partial<AgentDefinition>): AgentDefinition => ({
+  id: 'agent-id',
+  model: 'test-model',
+  name: 'Agente de prueba',
+  provider: 'OpenAI',
+  description: 'Agente de prueba',
+  kind: 'cloud',
+  accent: '#ffffff',
+  active: true,
+  status: 'Disponible',
+  channel: 'gpt',
   ...overrides,
 });
 
-describe('Gestión de proyectos y modelos', () => {
+const setupAgents = (agents: AgentDefinition[]) => {
+  mockUseAgents.mockReturnValue({
+    agents,
+    activeAgents: agents.filter(agent => agent.active),
+    agentMap: new Map(agents.map(agent => [agent.id, agent])),
+    toggleAgent: vi.fn(),
+    updateLocalAgentState: vi.fn(),
+    assignAgentRole: vi.fn(),
+  });
+};
+
+describe('Resumen de proveedores en SidePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseLocalModels.mockReturnValue({
-      models: [],
-      isLoading: false,
-      error: null,
-      refresh: vi.fn().mockResolvedValue(undefined),
-      download: vi.fn(),
-      activate: vi.fn(),
+    const agents = [
+      buildAgent({ id: 'openai-agent', name: 'GPT-4o mini', model: 'gpt-4o-mini', provider: 'OpenAI', apiKey: 'sk-openai' }),
+      buildAgent({
+        id: 'anthropic-agent',
+        name: 'Claude 3.5 Sonnet',
+        model: 'claude-3.5-sonnet',
+        provider: 'Anthropic',
+        channel: 'claude',
+        apiKey: 'sk-anthropic',
+      }),
+      buildAgent({ id: 'groq-agent', name: 'LLaMA 3.1 70B', model: 'llama-3.1-70b', provider: 'Groq', channel: 'groq', apiKey: 'sk-groq' }),
+      buildAgent({
+        id: 'jarvis-phi',
+        name: 'Phi-3 Mini',
+        model: 'phi-3-mini',
+        provider: 'Local',
+        kind: 'local',
+        channel: 'jarvis',
+        active: false,
+        status: 'Inactivo',
+      }),
+    ];
+    setupAgents(agents);
+    mockUseAgentPresence.mockReturnValue({
+      presenceMap: new Map<string, AgentPresenceEntry>(),
+      summary: presenceSummary,
+      refresh: vi.fn(),
     });
   });
 
@@ -96,34 +129,65 @@ describe('Gestión de proyectos y modelos', () => {
     cleanup();
   });
 
-  it('muestra el resumen de modelos locales y permite abrir los ajustes', () => {
-    const refreshSpy = vi.fn().mockResolvedValue(undefined);
-    mockUseLocalModels.mockReturnValue({
-      models: [
-        buildModel({ id: 'm1', name: 'Llama 3', provider: 'Meta', status: 'ready', active: true }),
-        buildModel({ id: 'm2', name: 'Phi 4', provider: 'Microsoft', status: 'downloading', progress: 0.42 }),
-      ],
-      isLoading: false,
-      error: null,
-      refresh: refreshSpy,
-      download: vi.fn(),
-      activate: vi.fn(),
+  it('muestra los cuatro proveedores principales con su estado resumido', () => {
+    render(<SidePanel onOpenGlobalSettings={vi.fn()} onOpenModelManager={vi.fn()} />);
+
+    const cards = screen.getAllByTestId(/provider-card-/);
+    expect(cards).toHaveLength(4);
+    expect(screen.getByText('OpenAI')).toBeInTheDocument();
+    expect(screen.getByText('Anthropic')).toBeInTheDocument();
+    expect(screen.getByText('Groq')).toBeInTheDocument();
+    expect(screen.getByText('Jarvis')).toBeInTheDocument();
+  });
+
+  it('ajusta el indicador de estado según la presencia reportada', () => {
+    const agents = [
+      buildAgent({ id: 'openai-agent', name: 'GPT-4o mini', model: 'gpt-4o-mini', provider: 'OpenAI', apiKey: 'sk-openai' }),
+      buildAgent({
+        id: 'anthropic-agent',
+        name: 'Claude 3.5 Sonnet',
+        model: 'claude-3.5-sonnet',
+        provider: 'Anthropic',
+        channel: 'claude',
+        apiKey: 'sk-anthropic',
+      }),
+      buildAgent({
+        id: 'groq-agent',
+        name: 'LLaMA 3.1 70B',
+        model: 'llama-3.1-70b',
+        provider: 'Groq',
+        channel: 'groq',
+        apiKey: 'sk-groq',
+      }),
+      buildAgent({
+        id: 'jarvis-phi',
+        name: 'Phi-3 Mini',
+        model: 'phi-3-mini',
+        provider: 'Local',
+        kind: 'local',
+        channel: 'jarvis',
+        active: false,
+        status: 'Inactivo',
+      }),
+    ];
+    setupAgents(agents);
+    mockUseAgentPresence.mockReturnValue({
+      presenceMap: new Map<string, AgentPresenceEntry>([
+        ['openai-agent', { status: 'online', lastChecked: Date.now() }],
+        ['anthropic-agent', { status: 'offline', lastChecked: Date.now() }],
+        ['groq-agent', { status: 'error', lastChecked: Date.now(), message: 'Sin clave' }],
+      ]),
+      summary: presenceSummary,
+      refresh: vi.fn(),
     });
 
-    const onOpenGlobalSettings = vi.fn();
+    render(<SidePanel onOpenGlobalSettings={vi.fn()} onOpenModelManager={vi.fn()} />);
 
-    render(<SidePanel onOpenGlobalSettings={onOpenGlobalSettings} />);
-
-    expect(screen.getAllByText('Llama 3')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('Meta')[0]).toBeInTheDocument();
-    expect(screen.getByText('Phi 4')).toBeInTheDocument();
-    expect(screen.getByText('42%')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
-    expect(refreshSpy).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Gestionar descargas' }));
-    expect(onOpenGlobalSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('provider-led-openai')).toHaveClass('is-online');
+    expect(screen.getByTestId('provider-led-anthropic')).toHaveClass('is-warning');
+    expect(screen.getByTestId('provider-led-groq')).toHaveClass('is-error');
+    expect(screen.getByTestId('provider-led-jarvis')).toHaveClass('is-warning');
+    expect(screen.getByRole('button', { name: 'Gestionar modelos' })).toBeInTheDocument();
   });
 
   it('informa sobre la nueva ubicación de la gestión de proyectos en los ajustes', () => {
@@ -147,15 +211,6 @@ describe('Gestión de proyectos y modelos', () => {
       );
     };
 
-    mockUseLocalModels.mockReturnValue({
-      models: [],
-      isLoading: false,
-      error: null,
-      refresh: vi.fn().mockResolvedValue(undefined),
-      download: vi.fn(),
-      activate: vi.fn(),
-    });
-
     render(<TestHarness />);
 
     expect(
@@ -178,7 +233,7 @@ describe('Gestión de proyectos y modelos', () => {
       ],
       children: (
         <ChatTopBar
-          agents={emptyAgents}
+          agents={[] as AgentDefinition[]}
           presenceSummary={presenceSummary}
           activeAgents={0}
           totalAgents={0}

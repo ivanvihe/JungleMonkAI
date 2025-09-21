@@ -106,6 +106,13 @@ const cloneSettings = (value: GlobalSettings): GlobalSettings => ({
     lastMigrationFrom: value.dataLocation.lastMigrationFrom,
     lastMigrationAt: value.dataLocation.lastMigrationAt,
   },
+  jarvisCore: {
+    host: value.jarvisCore.host,
+    port: value.jarvisCore.port,
+    autoStart: value.jarvisCore.autoStart,
+    useHttps: value.jarvisCore.useHttps,
+    apiKey: value.jarvisCore.apiKey,
+  },
 });
 
 const getPresetId = () => {
@@ -173,7 +180,7 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
   const builtinProviders = useMemo(() => supportedProviders, [supportedProviders]);
   const [draft, setDraft] = useState<GlobalSettings>(() => cloneSettings(settings));
   const [activeTab, setActiveTab] = useState<
-    'providers' | 'presets' | 'routing' | 'plugins' | 'mcp' | 'storage'
+    'providers' | 'presets' | 'routing' | 'plugins' | 'mcp' | 'storage' | 'jarvis'
   >('providers');
   const [touchedProviders, setTouchedProviders] = useState<Record<string, boolean>>({});
   const [testStates, setTestStates] = useState<Record<string, ProviderTestState>>({});
@@ -184,6 +191,11 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
   const [isApplyingDataPath, setIsApplyingDataPath] = useState(false);
   const [pathError, setPathError] = useState<string | null>(null);
   const [pathFeedback, setPathFeedback] = useState<string | null>(null);
+  const [jarvisFieldTouched, setJarvisFieldTouched] = useState<{ host: boolean; port: boolean }>({
+    host: false,
+    port: false,
+  });
+  const [jarvisSubmitAttempted, setJarvisSubmitAttempted] = useState(false);
   const isDesktopApp = typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
 
   const formatMigrationTimestamp = useCallback((value?: number) => {
@@ -452,6 +464,80 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
     }));
   }, []);
 
+  const jarvisCoreValidation = useMemo(() => {
+    const trimmedHost = draft.jarvisCore.host?.trim() ?? '';
+    const hostError = trimmedHost ? null : 'El host o IP es obligatorio.';
+
+    const portValue = draft.jarvisCore.port;
+    const portIsInteger = Number.isInteger(portValue);
+    const portInRange = portIsInteger && portValue >= 1 && portValue <= 65535;
+    const portError = portInRange ? null : 'El puerto debe estar entre 1 y 65535.';
+
+    return {
+      errors: {
+        host: hostError,
+        port: portError,
+      },
+      isValid: !hostError && !portError,
+    };
+  }, [draft.jarvisCore.host, draft.jarvisCore.port]);
+
+  const handleJarvisCoreChange = useCallback(
+    (patch: Partial<GlobalSettings['jarvisCore']>) => {
+      setDraft(prev => ({
+        ...prev,
+        jarvisCore: {
+          ...prev.jarvisCore,
+          ...patch,
+        },
+      }));
+    },
+    [],
+  );
+
+  const handleJarvisHostChange = useCallback(
+    (value: string) => {
+      setJarvisFieldTouched(prev => ({ ...prev, host: true }));
+      handleJarvisCoreChange({ host: value });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisPortChange = useCallback(
+    (value: string) => {
+      setJarvisFieldTouched(prev => ({ ...prev, port: true }));
+      const parsed = Number.parseInt(value, 10);
+      handleJarvisCoreChange({ port: Number.isFinite(parsed) ? parsed : 0 });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisUseHttpsChange = useCallback(
+    (checked: boolean) => {
+      handleJarvisCoreChange({ useHttps: checked });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisAutoStartChange = useCallback(
+    (checked: boolean) => {
+      handleJarvisCoreChange({ autoStart: checked });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const handleJarvisApiKeyChange = useCallback(
+    (value: string) => {
+      handleJarvisCoreChange({ apiKey: value });
+    },
+    [handleJarvisCoreChange],
+  );
+
+  const jarvisHostError = jarvisCoreValidation.errors.host;
+  const jarvisPortError = jarvisCoreValidation.errors.port;
+  const showJarvisHostError = (jarvisFieldTouched.host || jarvisSubmitAttempted) && Boolean(jarvisHostError);
+  const showJarvisPortError = (jarvisFieldTouched.port || jarvisSubmitAttempted) && Boolean(jarvisPortError);
+
   useEffect(() => {
     if (isOpen) {
       setDraft(cloneSettings(settings));
@@ -461,6 +547,8 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
       setNewProviderId('');
       setPathError(null);
       setPathFeedback(null);
+      setJarvisFieldTouched({ host: false, port: false });
+      setJarvisSubmitAttempted(false);
       let cancelled = false;
       setIsLoadingPaths(true);
       setUserDataPaths(null);
@@ -840,9 +928,14 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
   }, []);
 
   const handleSave = useCallback(() => {
+    setJarvisSubmitAttempted(true);
+    if (!jarvisCoreValidation.isValid) {
+      setJarvisFieldTouched({ host: true, port: true });
+      return;
+    }
     onSave(cloneSettings(draft));
     onClose();
-  }, [draft, onClose, onSave]);
+  }, [draft, jarvisCoreValidation.isValid, onClose, onSave]);
 
   if (!isOpen) {
     return null;
@@ -862,6 +955,7 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
           <div className="settings-sidebar">
             {[
               { id: 'providers', label: 'Credenciales', icon: '🔑' },
+              { id: 'jarvis', label: 'Jarvis Core', icon: '🤖' },
               { id: 'presets', label: 'Comandos', icon: '🧩' },
               { id: 'routing', label: 'Preferencias', icon: '🧭' },
               { id: 'plugins', label: 'Plugins', icon: '🔌' },
@@ -1114,6 +1208,74 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {activeTab === 'jarvis' && (
+              <div className="settings-section">
+                <h3>Conexión con Jarvis Core</h3>
+                <p className="setting-hint">
+                  Define el host, puerto y autenticación para comunicarte con el servicio Jarvis Core.
+                </p>
+
+                <label className="setting-label">
+                  <span>Host o IP</span>
+                  <input
+                    type="text"
+                    className="setting-input"
+                    value={draft.jarvisCore.host}
+                    onChange={(event) => handleJarvisHostChange(event.target.value)}
+                    placeholder="127.0.0.1"
+                  />
+                </label>
+                {showJarvisHostError && jarvisHostError && (
+                  <p className="setting-error">{jarvisHostError}</p>
+                )}
+
+                <div className="setting-row">
+                  <label className="setting-label">
+                    <span>Puerto</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="65535"
+                      className="setting-input"
+                      value={draft.jarvisCore.port || ''}
+                      onChange={(event) => handleJarvisPortChange(event.target.value)}
+                    />
+                  </label>
+                  <label className="setting-label toggle">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draft.jarvisCore.useHttps)}
+                      onChange={(event) => handleJarvisUseHttpsChange(event.target.checked)}
+                    />
+                    <span>Usar HTTPS</span>
+                  </label>
+                </div>
+                {showJarvisPortError && jarvisPortError && (
+                  <p className="setting-error">{jarvisPortError}</p>
+                )}
+
+                <label className="setting-label toggle">
+                  <input
+                    type="checkbox"
+                    checked={draft.jarvisCore.autoStart}
+                    onChange={(event) => handleJarvisAutoStartChange(event.target.checked)}
+                  />
+                  <span>Iniciar Jarvis Core automáticamente al abrir JungleMonkAI</span>
+                </label>
+
+                <label className="setting-label">
+                  <span>Token o API key opcional</span>
+                  <input
+                    type="password"
+                    className="setting-input"
+                    value={draft.jarvisCore.apiKey ?? ''}
+                    onChange={(event) => handleJarvisApiKeyChange(event.target.value)}
+                    placeholder="Bearer token o secreto opcional"
+                  />
+                </label>
               </div>
             )}
 

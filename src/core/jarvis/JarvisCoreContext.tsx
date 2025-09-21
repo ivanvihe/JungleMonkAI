@@ -118,23 +118,28 @@ const extractUptimeMs = (payload: JarvisHealthResponse | null | undefined): numb
   return null;
 };
 
-const deriveBaseUrl = (host: string, port: number): string => {
+const deriveBaseUrl = (host: string, port: number, useHttps?: boolean): string => {
   const trimmedHost = host.trim();
   const normalizedPort = Number.isFinite(port) && port > 0 ? Math.trunc(port) : 8000;
+  const protocol = useHttps ? 'https' : 'http';
   try {
-    const base = trimmedHost.includes('://') ? trimmedHost : `http://${trimmedHost || '127.0.0.1'}`;
+    const base = trimmedHost.includes('://') ? trimmedHost : `${protocol}://${trimmedHost || '127.0.0.1'}`;
     const url = new URL(base);
+    url.protocol = useHttps ? 'https:' : 'http:';
     url.port = normalizedPort.toString();
     url.pathname = '';
     url.hash = '';
     url.search = '';
     return url.toString().replace(/\/$/, '');
   } catch (error) {
-    return `http://${trimmedHost || '127.0.0.1'}:${normalizedPort}`;
+    return `${protocol}://${trimmedHost || '127.0.0.1'}:${normalizedPort}`;
   }
 };
 
 const resolveJarvisApiKey = (settings: GlobalSettings): string | undefined => {
+  if (typeof settings.jarvisCore.apiKey === 'string' && settings.jarvisCore.apiKey.trim()) {
+    return settings.jarvisCore.apiKey.trim();
+  }
   const candidates = ['jarvis-core', 'jarvisCore'];
   for (const key of candidates) {
     const value = settings.apiKeys[key];
@@ -204,8 +209,8 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
   const jarvisConfig = settings.jarvisCore;
   const apiKey = resolveJarvisApiKey(settings);
   const baseUrl = useMemo(
-    () => deriveBaseUrl(jarvisConfig.host, jarvisConfig.port),
-    [jarvisConfig.host, jarvisConfig.port],
+    () => deriveBaseUrl(jarvisConfig.host, jarvisConfig.port, jarvisConfig.useHttps),
+    [jarvisConfig.host, jarvisConfig.port, jarvisConfig.useHttps],
   );
 
   const client = useMemo<JarvisCoreClient | null>(() => {
@@ -313,6 +318,52 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
     }
   }, [client]);
 
+  useEffect(() => {
+    if (!mountedRef.current) {
+      return;
+    }
+
+    if (!client) {
+      setConnected(false);
+      setRuntimeStatus('offline');
+      setUptimeMs(null);
+      setLastHealthMessage(null);
+      if (streamHandleRef.current) {
+        streamHandleRef.current.close();
+        streamHandleRef.current = null;
+      }
+      setStreaming(false);
+      return;
+    }
+
+    if (!jarvisConfig.autoStart) {
+      setConnected(false);
+      setRuntimeStatus('offline');
+      setUptimeMs(null);
+      setLastHealthMessage(null);
+      if (streamHandleRef.current) {
+        streamHandleRef.current.close();
+        streamHandleRef.current = null;
+      }
+      setStreaming(false);
+      return;
+    }
+
+    setRuntimeStatus(prev => (prev === 'ready' ? prev : 'starting'));
+    setLastError(null);
+    setLastHealthMessage(null);
+
+    void ensureOnline();
+  }, [
+    client,
+    ensureOnline,
+    jarvisConfig.apiKey,
+    jarvisConfig.autoStart,
+    jarvisConfig.host,
+    jarvisConfig.port,
+    jarvisConfig.useHttps,
+  ]);
+
   const refreshModels = useCallback(async () => {
     if (!client) {
       if (mountedRef.current) {
@@ -398,6 +449,11 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
   );
 
   const startStream = useCallback(() => {
+    if (!jarvisConfig.autoStart) {
+      setStreaming(false);
+      return false;
+    }
+
     if (!progressStreamFactory || !client) {
       setStreaming(false);
       return false;
@@ -454,7 +510,14 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       }
       return false;
     }
-  }, [progressStreamFactory, client, baseUrl, handleProgressUpdate, normalizedPolling]);
+  }, [
+    progressStreamFactory,
+    client,
+    baseUrl,
+    handleProgressUpdate,
+    normalizedPolling,
+    jarvisConfig.autoStart,
+  ]);
 
   startStreamRef.current = startStream;
 

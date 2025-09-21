@@ -11,7 +11,9 @@ export type ApiKeySettings = Record<string, string>;
 export interface JarvisCoreSettings {
   host: string;
   port: number;
+  useHttps?: boolean;
   autoStart: boolean;
+  apiKey?: string;
 }
 
 export type McpTransport = 'ws' | 'osc' | 'rest';

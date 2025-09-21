@@ -1,12 +1,14 @@
 import React from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import { SidePanel } from '../SidePanel';
 import { ChatTopBar } from '../ChatTopBar';
 import { GlobalSettingsDialog } from '../../settings/GlobalSettingsDialog';
 import { ProjectProvider, useProjects } from '../../../core/projects/ProjectContext';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
+import type { GlobalSettings } from '../../../types/globalSettings';
 import type { AgentPresenceEntry, AgentPresenceSummary } from '../../../core/agents/presence';
 import type { AgentDefinition } from '../../../core/agents/agentRegistry';
 import type { JarvisCoreContextValue } from '../../../core/jarvis/JarvisCoreContext';
@@ -43,8 +45,16 @@ vi.mock('../../../core/jarvis/JarvisCoreContext', async () => {
   };
 });
 
-const ProjectProbe: React.FC = () => {
-  const { activeProject, projects } = useProjects();
+type ProjectContextValue = ReturnType<typeof useProjects>;
+
+const ProjectProbe: React.FC<{ onContext?: (context: ProjectContextValue) => void }> = ({ onContext }) => {
+  const context = useProjects();
+  const { activeProject, projects } = context;
+
+  React.useEffect(() => {
+    onContext?.(context);
+  }, [context, onContext]);
+
   return (
     <div data-testid="project-state">{`${activeProject?.name ?? 'none'}|${projects.length}`}</div>
   );
@@ -63,22 +73,40 @@ interface HarnessProps {
 }
 
 const renderWithProjects = ({ initialProjects = [], children }: HarnessProps) => {
+  let latestContext: ProjectContextValue | null = null;
+
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children: nestedChildren }) => {
-    const [settings, setSettings] = React.useState(() => ({
+    const [settings, setSettingsState] = React.useState(() => ({
       ...DEFAULT_GLOBAL_SETTINGS,
       projectProfiles: initialProjects,
       activeProjectId: initialProjects[0]?.id ?? null,
     }));
 
+    const setSettings = React.useCallback(
+      (updater: (previous: GlobalSettings) => GlobalSettings) => {
+        setSettingsState(previous => {
+          const next = updater(previous);
+          return next;
+        });
+      },
+      [],
+    );
+
     return (
       <ProjectProvider settings={settings} onSettingsChange={setSettings}>
         {nestedChildren}
-        <ProjectProbe />
+        <ProjectProbe onContext={context => {
+          latestContext = context;
+        }}
+        />
       </ProjectProvider>
     );
   };
 
-  return render(<Wrapper>{children}</Wrapper>);
+  return {
+    ...render(<Wrapper>{children}</Wrapper>),
+    getLatestProjectContext: () => latestContext,
+  };
 };
 
 const presenceSummary: AgentPresenceSummary = {
@@ -268,8 +296,8 @@ describe('Resumen de proveedores en SidePanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('permite cambiar el proyecto activo desde la barra superior', () => {
-    renderWithProjects({
+  it('permite cambiar el proyecto activo desde la barra superior', async () => {
+    const { getLatestProjectContext } = renderWithProjects({
       initialProjects: [
         { id: 'p1', name: 'Proyecto A', repositoryPath: '/repo/a', defaultBranch: 'main' },
         {
@@ -301,12 +329,22 @@ describe('Resumen de proveedores en SidePanel', () => {
       ),
     });
 
-    fireEvent.change(screen.getByLabelText('Seleccionar proyecto activo'), {
-      target: { value: 'p2' },
+    const user = userEvent.setup();
+    const projectSelect = screen.getByRole('combobox', { name: /Proyecto activo/i });
+    await user.click(projectSelect);
+
+    const context = getLatestProjectContext();
+    expect(context).not.toBeNull();
+
+    act(() => {
+      context?.selectProject('p2');
     });
 
-    const states = screen.getAllByTestId('project-state');
-    expect(states.at(-1)).toHaveTextContent('Proyecto B|2');
+    await waitFor(() => {
+      const states = screen.getAllByTestId('project-state');
+      expect(states.at(-1)).toHaveTextContent('Proyecto B|2');
+    });
+
     expect(screen.getByText('/repo/b@release')).toBeInTheDocument();
   });
 });

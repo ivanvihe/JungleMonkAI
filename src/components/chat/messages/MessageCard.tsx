@@ -1,4 +1,5 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { Card, Typography, Tag, Space, Avatar, Badge, Button } from 'antd';
 import { ChatMessage } from '../../../core/messages/messageTypes';
 import { MessageContent } from './MessageContent';
 import { MessageAttachment } from './MessageAttachment';
@@ -32,6 +33,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   const isUser = message.author === 'user';
   const isSystem = message.author === 'system';
   const authorLabel = isUser ? 'Tú' : isSystem ? 'Control Hub' : agentDisplayName ?? 'Agente';
+  const initials = useMemo(() => authorLabel.charAt(0).toUpperCase(), [authorLabel]);
   const handleShare = useCallback(
     (agentId: string, canonicalCode?: string) => {
       if (!onShareMessage) {
@@ -42,75 +44,93 @@ export const MessageCard: React.FC<MessageCardProps> = ({
     [message.id, onShareMessage],
   );
 
+  const cardStatus = useMemo(() => {
+    if (message.status === 'pending') {
+      return <Badge status="processing" text="orquestando…" />;
+    }
+    if (message.feedback?.hasError) {
+      return <Badge status="error" text="requiere revisión" />;
+    }
+    return null;
+  }, [message.feedback?.hasError, message.status]);
+
+  const cardTone = useMemo(() => {
+    if (isUser) {
+      return '#e6f7ff';
+    }
+    if (isSystem) {
+      return '#f5f5f5';
+    }
+    return '#ffffff';
+  }, [isSystem, isUser]);
+
   return (
-    <div
-      className={`message-card ${isUser ? 'message-user' : ''} ${isSystem ? 'message-system' : ''}`}
+    <Card
+      className={`message-card message-card--${message.author}`}
+      bordered={false}
+      style={{ background: cardTone }}
       data-author={message.author}
     >
-      <div className="message-card-header">
-        <div className="message-card-author" style={{ borderColor: chipColor }}>
-          {authorLabel}
-        </div>
-        <div className="message-card-meta">
-          {!isUser && !isSystem && providerLabel ? (
-            <span className="message-card-tag" style={{ color: chipColor }}>
-              {providerLabel}
-            </span>
+      <Space align="start" size="large" style={{ width: '100%' }}>
+        <Avatar style={{ backgroundColor: chipColor, color: '#fff' }}>{initials}</Avatar>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space wrap align="center">
+            <Typography.Text strong>{authorLabel}</Typography.Text>
+            {!isUser && !isSystem && providerLabel ? <Tag color={chipColor}>{providerLabel}</Tag> : null}
+            <Typography.Text type="secondary">{formatTimestamp(message.timestamp)}</Typography.Text>
+            {cardStatus}
+            {!isUser && onLoadIntoDraft ? (
+              <Button type="link" size="small" onClick={() => onLoadIntoDraft(message.id)}>
+                Usar como borrador
+              </Button>
+            ) : null}
+          </Space>
+
+          <MessageContent
+            messageId={message.id}
+            content={message.content}
+            transcriptions={message.transcriptions}
+            onAppendToComposer={!isUser ? onAppendToComposer : undefined}
+            onShare={!isUser ? handleShare : undefined}
+          />
+
+          {message.attachments?.length ? (
+            <Space direction="vertical" className="message-card-attachments" style={{ width: '100%' }}>
+              {message.attachments.map(attachment => (
+                <MessageAttachment
+                  key={attachment.id}
+                  attachment={attachment}
+                  transcriptions={message.transcriptions}
+                />
+              ))}
+            </Space>
           ) : null}
-          <span className="message-card-time">{formatTimestamp(message.timestamp)}</span>
-          {!isUser && onLoadIntoDraft ? (
-            <button type="button" className="message-card-action" onClick={() => onLoadIntoDraft(message.id)}>
-              Usar como borrador
-            </button>
+
+          {message.modalities?.length ? (
+            <Space wrap size="small">
+              {message.modalities.map(modality => (
+                <Tag key={modality} color="cyan">
+                  {modality}
+                </Tag>
+              ))}
+            </Space>
           ) : null}
-          {message.status === 'pending' && <span className="message-card-status">orquestando…</span>}
-        </div>
-      </div>
 
-      <div className="message-card-body">
-        <MessageContent
-          messageId={message.id}
-          content={message.content}
-          transcriptions={message.transcriptions}
-          onAppendToComposer={!isUser ? onAppendToComposer : undefined}
-          onShare={!isUser ? handleShare : undefined}
-        />
-        {message.attachments?.length ? (
-          <div className="message-card-attachments">
-            {message.attachments.map(attachment => (
-              <MessageAttachment
-                key={attachment.id}
-                attachment={attachment}
-                transcriptions={message.transcriptions}
-              />
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      {message.modalities?.length ? (
-        <div className="message-card-modalities">
-          {message.modalities.map(modality => (
-            <span key={modality} className="modality-chip">
-              {modality}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {message.actions?.length ? (
-        <div className="message-card-jarvis-actions">
-          {message.actions.map(action => (
-            <JarvisActionControls
-              key={action.id}
-              action={action}
-              onTrigger={onTriggerAction}
-              onReject={onRejectAction}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
+          {message.actions?.length ? (
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              {message.actions.map(action => (
+                <JarvisActionControls
+                  key={action.id}
+                  action={action}
+                  onTrigger={onTriggerAction}
+                  onReject={onRejectAction}
+                />
+              ))}
+            </Space>
+          ) : null}
+        </Space>
+      </Space>
+    </Card>
   );
 };
 

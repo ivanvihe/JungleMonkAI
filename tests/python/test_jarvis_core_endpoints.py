@@ -283,3 +283,65 @@ async def test_models_stream_emits_error_events(sse_client, tmp_path):
         await generator.aclose()
 
     assert not getattr(sse_client.registry, "_subscribers")
+
+
+def test_restart_resets_incomplete_download(tmp_path):
+    models_dir = tmp_path / "registry"
+    models_dir.mkdir()
+
+    model_id = "omega"
+    storage_dir = models_dir / "models" / model_id
+    storage_dir.mkdir(parents=True)
+    local_path = storage_dir / "model.gguf"
+    local_path.write_bytes(b"incomplete")
+    partial_path = local_path.with_suffix(local_path.suffix + ".part")
+    partial_path.write_bytes(b"partial")
+
+    metadata_payload = {
+        "model_id": model_id,
+        "repo_id": "org/omega",
+        "filename": "model.gguf",
+        "state": ModelState.DOWNLOADING.value,
+        "local_path": str(local_path),
+        "tags": ["gguf"],
+    }
+    (models_dir / "models.json").write_text(json.dumps([metadata_payload]), encoding="utf-8")
+
+    config = AppConfig(
+        host="127.0.0.1",
+        port=8000,
+        models_dir=models_dir,
+        token=None,
+        auto_start=False,
+    )
+    log_handler = configure_logging()
+    app = create_app(config, log_handler)
+
+    registry: ModelRegistry = app.state.model_registry
+
+    with TestClient(app) as client:
+        response = client.get("/models")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload == [
+            {
+                **metadata_payload,
+                "state": ModelState.NOT_INSTALLED.value,
+                "local_path": None,
+                "active_path": None,
+                "checksum": None,
+            }
+        ]
+
+    assert not local_path.exists()
+    assert not partial_path.exists()
+
+    stored = json.loads((models_dir / "models.json").read_text(encoding="utf-8"))
+    assert stored[0]["state"] == ModelState.NOT_INSTALLED.value
+    assert stored[0]["local_path"] is None
+
+    progress = registry.get_all_progress()
+    assert model_id in progress
+    assert progress[model_id]["status"] == "error"
+    assert "Download interrupted" in progress[model_id]["error"]
+    assert progress[model_id]["error_code"] == 499

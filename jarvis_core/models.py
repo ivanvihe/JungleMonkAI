@@ -138,9 +138,58 @@ class ModelRegistry:
         except json.JSONDecodeError as exc:  # pragma: no cover - defensive
             LOGGER.warning("Invalid models.json detected; resetting file", exc_info=exc)
             data = []
+        dirty = False
         for entry in data:
             metadata = ModelMetadata.from_dict(entry)
+
+            local_path = Path(metadata.local_path) if metadata.local_path else None
+            temp_path = (
+                local_path.with_suffix(local_path.suffix + ".part")
+                if local_path is not None
+                else None
+            )
+            temp_exists = temp_path.exists() if temp_path else False
+            needs_reset = metadata.state == ModelState.DOWNLOADING or temp_exists
+
+            if temp_exists:
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    LOGGER.warning(
+                        "Unable to delete leftover partial download %s", temp_path
+                    )
+
+            if needs_reset:
+                LOGGER.warning(
+                    "Detected incomplete download for %s; marking as not installed",
+                    metadata.model_id,
+                )
+                if local_path and local_path.exists():
+                    try:
+                        local_path.unlink()
+                    except OSError:
+                        LOGGER.warning(
+                            "Unable to delete incomplete model file %s", local_path
+                        )
+                metadata.state = ModelState.NOT_INSTALLED
+                metadata.active_path = None
+                metadata.local_path = None
+                dirty = True
+
             self._models[metadata.model_id] = metadata
+
+            if needs_reset:
+                self._update_progress(
+                    metadata.model_id,
+                    status="error",
+                    downloaded=0,
+                    total=None,
+                    error="Download interrupted during previous session",
+                    error_code=499,
+                )
+
+        if dirty:
+            self._save()
 
     def _save(self) -> None:
         payload = [metadata.to_dict() for metadata in self._models.values()]

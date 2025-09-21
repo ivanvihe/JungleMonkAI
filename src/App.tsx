@@ -90,7 +90,10 @@ const AppContent: React.FC<AppContentProps> = ({
         <div className={`app-body sidebar-${sidePanelPosition}`}>
           {sidePanelPosition === 'left' && (
             <aside className="app-sidebar">
-              <SidePanel onOpenGlobalSettings={() => setSettingsOpen(true)} />
+              <SidePanel
+                onOpenGlobalSettings={() => setSettingsOpen(true)}
+                onOpenModelManager={() => setModelManagerOpen(true)}
+              />
             </aside>
           )}
 
@@ -100,7 +103,10 @@ const AppContent: React.FC<AppContentProps> = ({
 
           {sidePanelPosition === 'right' && (
             <aside className="app-sidebar">
-              <SidePanel onOpenGlobalSettings={() => setSettingsOpen(true)} />
+              <SidePanel
+                onOpenGlobalSettings={() => setSettingsOpen(true)}
+                onOpenModelManager={() => setModelManagerOpen(true)}
+              />
             </aside>
           )}
         </div>

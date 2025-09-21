@@ -12,6 +12,7 @@
       }
     ],
     "bundle": {
+      "identifier": "com.junglelabstudio.app",
       "resources": ["../jarvis_core"]
     }
   }

@@ -86,6 +86,10 @@ interface MessageContextValue {
   ) => void;
   loadMessageIntoDraft: (messageId: string) => void;
   sharedMessageLog: SharedMessageLogEntry[];
+  composerTargetAgentIds: string[];
+  setComposerTargetAgentIds: (agentIds: string[]) => void;
+  composerTargetMode: 'broadcast' | 'independent';
+  setComposerTargetMode: (mode: 'broadcast' | 'independent') => void;
 }
 
 interface PersistedQualityState {
@@ -603,6 +607,8 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   const [draft, setDraftState] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<ChatAttachment[]>([]);
   const [composerTranscriptions, setComposerTranscriptions] = useState<ChatTranscription[]>([]);
+  const [composerTargetAgentIds, setComposerTargetAgentIds] = useState<string[]>([]);
+  const [composerTargetMode, setComposerTargetMode] = useState<'broadcast' | 'independent'>('broadcast');
   const scheduledResponsesRef = useRef<Set<string>>(new Set());
   const [coordinationStrategy, setCoordinationStrategy] = useState<CoordinationStrategyId>('sequential-turn');
   const [sharedSnapshot, setSharedSnapshot] = useState<SharedConversationSnapshot>(() => createInitialSnapshot());
@@ -625,6 +631,20 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
   const appendToDraft = useCallback((command: string) => {
     setDraftState(prev => (prev ? `${prev}\n${command}` : command));
+  }, []);
+
+  const updateComposerTargetAgentIds = useCallback((agentIds: string[]) => {
+    const unique = Array.from(new Set(agentIds.filter(id => typeof id === 'string' && id.trim())));
+    setComposerTargetAgentIds(prev => {
+      if (prev.length === unique.length && prev.every((value, index) => value === unique[index])) {
+        return prev;
+      }
+      return unique;
+    });
+  }, []);
+
+  const updateComposerTargetMode = useCallback((mode: 'broadcast' | 'independent') => {
+    setComposerTargetMode(prev => (prev === mode ? prev : mode));
   }, []);
 
   const loadMessageIntoDraft = useCallback(
@@ -902,14 +922,40 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     );
     const agentPrompts: Record<string, string> = { ...mentionPlan.promptsByAgent };
     const targetedAgents: AgentDefinition[] = [...mentionPlan.targetedAgents];
+    const targetedIds = new Set(targetedAgents.map(agent => agent.id));
+    const activeAgentIds = new Set(activeAgents.map(agent => agent.id));
+    const selectedAgents = composerTargetAgentIds
+      .map(agentId => agentMap.get(agentId))
+      .filter((candidate): candidate is AgentDefinition => Boolean(candidate && activeAgentIds.has(candidate.id)));
 
-    if (mentionPlan.defaultPrompt && jarvisAgent) {
+    let defaultPrompt = mentionPlan.defaultPrompt;
+
+    if (selectedAgents.length > 0) {
+      const basePrompt = trimmed;
+      selectedAgents.forEach(agent => {
+        if (!targetedIds.has(agent.id)) {
+          targetedAgents.push(agent);
+          targetedIds.add(agent.id);
+        }
+
+        if (composerTargetMode === 'independent') {
+          agentPrompts[agent.id] = basePrompt;
+        } else if (!agentPrompts[agent.id]) {
+          agentPrompts[agent.id] = defaultPrompt || basePrompt;
+        }
+      });
+
+      defaultPrompt = composerTargetMode === 'broadcast' ? defaultPrompt || basePrompt : '';
+    }
+
+    if (defaultPrompt && jarvisAgent) {
       const existing = agentPrompts[jarvisAgent.id];
       agentPrompts[jarvisAgent.id] = existing
-        ? [existing, mentionPlan.defaultPrompt].filter(Boolean).join('\n').trim()
-        : mentionPlan.defaultPrompt;
-      if (!targetedAgents.some(agent => agent.id === jarvisAgent.id)) {
+        ? [existing, defaultPrompt].filter(Boolean).join('\n').trim()
+        : defaultPrompt;
+      if (!targetedIds.has(jarvisAgent.id)) {
         targetedAgents.push(jarvisAgent);
+        targetedIds.add(jarvisAgent.id);
       }
     }
 
@@ -1044,10 +1090,13 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     setComposerTranscriptions([]);
   }, [
     activeAgents,
+    agentMap,
     agents,
     activeProject,
     appendTraces,
     composerAttachments,
+    composerTargetAgentIds,
+    composerTargetMode,
     composerTranscriptions,
     coordinationStrategy,
     enqueueRepoWorkflowRequest,
@@ -1693,6 +1742,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       shareMessageWithAgent,
       loadMessageIntoDraft,
       sharedMessageLog,
+      composerTargetAgentIds,
+      setComposerTargetAgentIds: updateComposerTargetAgentIds,
+      composerTargetMode,
+      setComposerTargetMode: updateComposerTargetMode,
     }),
     [
       addAttachment,
@@ -1700,28 +1753,32 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       appendToDraft,
       composerAttachments,
       composerModalities,
+      composerTargetAgentIds,
+      composerTargetMode,
       composerTranscriptions,
       draft,
       lastUserMessage,
+      loadMessageIntoDraft,
+      markMessageFeedback,
       messages,
+      orchestrationTraces,
       pendingResponses,
       feedbackByMessage,
       correctionHistory,
       qualityMetrics,
-      markMessageFeedback,
-      submitCorrection,
       removeAttachment,
       removeTranscription,
       sendMessage,
       setDraft,
-      upsertTranscription,
-      coordinationStrategy,
-      updateStrategy,
-      sharedSnapshot,
-      orchestrationTraces,
-      shareMessageWithAgent,
-      loadMessageIntoDraft,
       sharedMessageLog,
+      shareMessageWithAgent,
+      submitCorrection,
+      coordinationStrategy,
+      updateComposerTargetAgentIds,
+      updateComposerTargetMode,
+      updateStrategy,
+      upsertTranscription,
+      sharedSnapshot,
     ],
   );
 

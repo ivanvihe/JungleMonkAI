@@ -11,6 +11,13 @@ El panel de conversación ahora permite reenviar respuestas entre agentes para a
 
 Cada compartición queda registrada en `shared-messages.json` dentro de la carpeta de datos de usuario (por defecto en `%APPDATA%/JungleMonkAI`, `~/Library/Application Support/JungleMonkAI` o `~/.junglemonkai`) junto al historial de correcciones para facilitar la trazabilidad del dashboard de calidad.
 
+## Selección guiada de agentes
+
+- En la cabecera del compositor encontrarás el panel **Destinatarios**, donde puedes activar los agentes que participarán en la próxima petición sin escribir menciones manuales. Para cada proveedor se muestra el modelo sugerido según las reglas de enrutado por defecto y puedes alternarlo cuando existan alternativas disponibles.
+- Los indicadores de estado combinan latencia estimada (vía `useAgentPresence`) y una pista de coste por proveedor para ayudarte a escoger el equilibrio entre rapidez y presupuesto antes de lanzar tareas complejas.
+- Si sueles repetir combinaciones, guarda la selección como preset: pulsa **Guardar preset** para almacenar el conjunto de agentes, el prompt y el modo de envío (`un único prompt` o `duplicar por agente`). Los presets aparecen junto a las sugerencias rápidas para aplicarlos en un solo clic.
+- Al enviar un mensaje con agentes seleccionados, `MessageContext.sendMessage` construye automáticamente las instrucciones necesarias para cada uno y evita que tengas que añadir prefijos en el cuerpo del mensaje.
+
 ## Ubicación de datos de usuario
 
 La aplicación guarda la configuración, los registros de calidad y los modelos locales en una carpeta específica para cada usuario.

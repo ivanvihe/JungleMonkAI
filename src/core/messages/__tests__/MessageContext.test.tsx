@@ -150,4 +150,31 @@ describe('MessageContext', () => {
     expect(syncRepositoryViaWorkflowMock).not.toHaveBeenCalled();
     expect(enqueueRepoWorkflowRequestMock).not.toHaveBeenCalled();
   });
+
+  it('orquesta automáticamente los agentes seleccionados aunque no haya menciones', () => {
+    const { result } = renderHook(() => useMessages(), { wrapper: Wrapper });
+
+    act(() => {
+      result.current.setComposerTargetAgentIds([
+        'openai-gpt-4o-mini',
+        'anthropic-claude-35-sonnet',
+      ]);
+      result.current.setComposerTargetMode('independent');
+      result.current.setDraft('Prepara un resumen ejecutivo de la conversación.');
+    });
+
+    act(() => {
+      result.current.sendMessage();
+    });
+
+    const pending = result.current.messages.filter(
+      message => message.author === 'agent' && message.status === 'pending',
+    );
+    const pendingIds = pending.map(message => message.agentId).filter(Boolean);
+
+    expect(pendingIds).toEqual(
+      expect.arrayContaining(['openai-gpt-4o-mini', 'anthropic-claude-35-sonnet']),
+    );
+    expect(pendingIds.some(id => id?.startsWith('local-'))).toBe(false);
+  });
 });

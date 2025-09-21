@@ -42,6 +42,8 @@ export interface CommandPresetSettings {
   maxTokens?: number;
 }
 
+export type CommandPresetTargetMode = 'broadcast' | 'independent';
+
 export interface CommandPreset {
   id: string;
   label: string;
@@ -50,6 +52,8 @@ export interface CommandPreset {
   provider?: string;
   model?: string;
   settings?: CommandPresetSettings;
+  agentIds?: string[];
+  targetMode?: CommandPresetTargetMode;
 }
 
 export interface RoutingRule {

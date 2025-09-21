@@ -98,7 +98,12 @@ const AppContent: React.FC<AppContentProps> = ({
           )}
 
           <main className="chat-main">
-            <ChatWorkspace actorFilter={actorFilter} />
+            <ChatWorkspace
+              actorFilter={actorFilter}
+              settings={settings}
+              onSettingsChange={onSettingsChange}
+              presenceMap={presenceMap}
+            />
           </main>
 
           {sidePanelPosition === 'right' && (

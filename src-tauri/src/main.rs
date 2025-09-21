@@ -4,8 +4,8 @@ mod audio;
 mod config;
 mod git;
 mod gpu;
+mod jarvis;
 mod midi;
-mod models;
 mod plugins;
 mod settings;
 mod vscode;
@@ -21,9 +21,6 @@ use git::{
     repository_status as git_repository_status, store_secret as git_store_secret, SecretManager,
 };
 use log::error;
-use models::{
-    activate_model, download_model, list_models, query_huggingface_models, ModelRegistry,
-};
 use settings::{UserDataPathsInfo, UserDataPathsState};
 use tauri::{Manager, State};
 
@@ -88,16 +85,10 @@ fn main() {
             .expect("no se pudo inicializar las rutas de datos de usuario");
 
     let config_dir = user_paths.config_dir();
-    let data_dir = user_paths.data_dir();
 
     let config_path = config_dir.join("config.json");
-    let models_manifest = data_dir.join("models.json");
-    let models_dir = data_dir.join("models");
-
     let cfg = Config::load(&config_path);
     let plugins_dir = config_dir.join("plugins");
-    let model_registry = ModelRegistry::load(models_manifest, models_dir)
-        .expect("no se pudo cargar el inventario de modelos");
 
     tauri::Builder::default()
         .manage(ConfigState {
@@ -109,22 +100,18 @@ fn main() {
             SecretManager::new("JungleMonkAI", config_dir.clone())
                 .expect("no se pudo inicializar el gestor de secretos"),
         )
-        .manage(model_registry)
         .manage(
             plugins::PluginManager::new(plugins_dir.clone())
                 .expect("no se pudo inicializar el gestor de plugins"),
         )
         .manage(ableton::AbletonState::default())
         .manage(vscode::VsCodeBridgeState::default())
+        .manage(jarvis::JarvisState::default())
         .invoke_handler(tauri::generate_handler![
             set_layer_opacity,
             get_config,
             save_config,
             stop_audio,
-            list_models,
-            download_model,
-            activate_model,
-            query_huggingface_models,
             ai::providers_chat,
             git_list_repository_files,
             git_repository_status,
@@ -144,8 +131,23 @@ fn main() {
             get_user_data_paths,
             set_user_data_base_dir,
             plugins::plugin_list,
-            plugins::plugin_invoke
+            plugins::plugin_invoke,
+            jarvis::jarvis_start,
+            jarvis::jarvis_stop,
+            jarvis::jarvis_status
         ])
+        .on_event(|app_handle, event| {
+            use tauri::RunEvent;
+
+            if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+                if let Some(state) = app_handle.try_state::<jarvis::JarvisState>() {
+                    let state = state.clone();
+                    tauri::async_runtime::block_on(async move {
+                        let _ = state.shutdown().await;
+                    });
+                }
+            }
+        })
         .setup(|app| {
             if let Some(manager) = app.try_state::<plugins::PluginManager>() {
                 if let Err(error) = manager.refresh() {

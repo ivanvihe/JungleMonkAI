@@ -52,6 +52,24 @@ export const hasElectronGitBridge = (): boolean => {
   return isElectronRuntime() && typeof window.electronAPI?.gitInvoke === 'function';
 };
 
+export interface DesktopJarvisStatus {
+  running: boolean;
+  pid: number | null;
+  lastExitCode: number | null;
+  lastSignal: number | string | null;
+  lastStdout: string | null;
+  lastStderr: string | null;
+  lastError: string | null;
+}
+
+export interface StartJarvisOptions {
+  pythonPath?: string;
+}
+
+export const hasElectronJarvisBridge = (): boolean => {
+  return isElectronRuntime() && typeof window.electronAPI?.jarvisStart === 'function';
+};
+
 export const isTauriRuntime = (): boolean => {
   return isWindowDefined && typeof window.__TAURI__ !== 'undefined';
 };
@@ -74,6 +92,59 @@ export const canUseDesktopGit = (): boolean => {
 
 export const isGitBackendUnavailableError = (error: unknown): error is GitBackendUnavailableError => {
   return error instanceof GitBackendUnavailableError;
+};
+
+export const startDesktopJarvis = async (
+  options?: StartJarvisOptions,
+): Promise<DesktopJarvisStatus | null> => {
+  if (hasElectronJarvisBridge()) {
+    try {
+      return (await window.electronAPI!.jarvisStart?.(options)) ?? null;
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  const invokeLoader = await ensureTauriInvoke();
+  if (invokeLoader) {
+    return invokeLoader<DesktopJarvisStatus>('jarvis_start', options ?? {});
+  }
+
+  return null;
+};
+
+export const stopDesktopJarvis = async (): Promise<DesktopJarvisStatus | null> => {
+  if (hasElectronJarvisBridge()) {
+    try {
+      return (await window.electronAPI!.jarvisStop?.()) ?? null;
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  const invokeLoader = await ensureTauriInvoke();
+  if (invokeLoader) {
+    return invokeLoader<DesktopJarvisStatus>('jarvis_stop');
+  }
+
+  return null;
+};
+
+export const getDesktopJarvisStatus = async (): Promise<DesktopJarvisStatus | null> => {
+  if (hasElectronJarvisBridge()) {
+    try {
+      return (await window.electronAPI!.jarvisStatus?.()) ?? null;
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  const invokeLoader = await ensureTauriInvoke();
+  if (invokeLoader) {
+    return invokeLoader<DesktopJarvisStatus>('jarvis_status');
+  }
+
+  return null;
 };
 
 export const gitInvoke = async <T>(command: GitCommand, payload?: unknown): Promise<T> => {

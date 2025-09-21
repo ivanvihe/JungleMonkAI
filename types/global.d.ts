@@ -1,4 +1,14 @@
 // types/global.d.ts
+interface JarvisProcessStatus {
+  running: boolean;
+  pid: number | null;
+  lastExitCode: number | null;
+  lastSignal: number | string | null;
+  lastStdout: string | null;
+  lastStderr: string | null;
+  lastError: string | null;
+}
+
 interface Window {
   __TAURI__?: any;
   electronAPI?: {
@@ -20,6 +30,9 @@ interface Window {
     invokePlugin?: (pluginId: string, command: string, payload: unknown) => Promise<unknown>;
     gitInvoke?: <T>(channel: string, payload?: unknown) => Promise<T>;
     listGitRepos?: (payload?: unknown) => Promise<unknown>;
+    jarvisStart?: (options?: { pythonPath?: string }) => Promise<JarvisProcessStatus>;
+    jarvisStop?: () => Promise<JarvisProcessStatus>;
+    jarvisStatus?: () => Promise<JarvisProcessStatus>;
   };
 }
 

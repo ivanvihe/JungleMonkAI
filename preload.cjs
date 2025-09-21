@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('plugin:invoke', pluginId, command, payload),
   gitInvoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
   listGitRepos: payload => ipcRenderer.invoke('git:list-user-repos', payload),
+  jarvisStart: options => ipcRenderer.invoke('jarvis:start', options),
+  jarvisStop: () => ipcRenderer.invoke('jarvis:stop'),
+  jarvisStatus: () => ipcRenderer.invoke('jarvis:status'),
   // Basic filesystem helpers for renderer. These will be undefined if the fs
   // module is not available in the preload context (e.g. in sandboxed
   // environments). Callers should check for their presence before use.

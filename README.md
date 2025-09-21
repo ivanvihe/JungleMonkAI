@@ -34,11 +34,11 @@ Al iniciar la versión de escritorio se detectan instalaciones previas en el dir
 - Puedes seguir utilizando **Añadir al compositor** para insertar fragmentos específicos sin reemplazar el borrador actual.
 - El dashboard de calidad incorpora una sección **Mensajes compartidos** con el histórico de hand-offs más recientes.
 
-## Catálogo de modelos locales
+## Jarvis Core local
 
-- La galería integrada lista los modelos cuantizados más habituales para asistentes de código y conversación, incluyendo Phi-3 Mini, Mistral Instruct (Q4/Q5), WizardCoder 15B y DeepSeek Coder 6.7B.
-- Cada ficha muestra el proveedor de origen y las etiquetas principales para ayudarte a elegir el modelo adecuado antes de descargarlo o activarlo.
-- Para descargar modelos alojados en Hugging Face es necesario aceptar previamente la licencia de cada repositorio y exponer un token de acceso mediante las variables de entorno `HF_TOKEN` o `HUGGINGFACE_TOKEN` antes de iniciar la aplicación (por ejemplo, `export HF_TOKEN=hf_xxx && npm run dev`).
+- Las builds de escritorio incluyen la carpeta `jarvis_core` como recurso cuando está presente en el repositorio. En desarrollo puedes forzar una ubicación distinta mediante `JARVISCORE_DIR=/ruta/a/JarvisCore npm run dev`.
+- El intérprete de Python se resuelve con la variable `JARVISCORE_PYTHON`. Si no está definida se prueban `python3` y `python`. Asegúrate de instalar las dependencias listadas en `requirements.txt` antes de iniciar el servicio.
+- Cuando **Auto-arranque** está activado, la aplicación invoca los comandos `jarvis_start`, `jarvis_stop` y `jarvis_status` (o sus equivalentes IPC en Electron) para crear, supervisar y apagar el proceso de Jarvis Core. Al cerrar la app se envía un `shutdown` automático para evitar procesos huérfanos.
 
 ## Tokens y credenciales seguras
 

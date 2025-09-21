@@ -41,6 +41,13 @@
       "electron.cjs",
       "plugin-manager.cjs"
     ],
+    "extraResources": [
+      {
+        "from": "jarvis_core",
+        "to": "jarvis_core",
+        "filter": ["**/*"]
+      }
+    ],
     "extraMetadata": {
       "main": "electron.cjs"
     }

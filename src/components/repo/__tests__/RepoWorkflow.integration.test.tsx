@@ -10,6 +10,30 @@ import type { ChatMessage } from '../../../core/messages/messageTypes';
 import { PluginHostProvider } from '../../../core/plugins/PluginHostProvider';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
 import { ProjectProvider } from '../../../core/projects/ProjectContext';
+import type { JarvisCoreContextValue } from '../../../core/jarvis/JarvisCoreContext';
+
+const mockJarvisCore: JarvisCoreContextValue = {
+  connected: false,
+  lastError: null,
+  activeModel: null,
+  downloads: {},
+  models: [],
+  runtimeStatus: 'offline',
+  uptimeMs: null,
+  config: DEFAULT_GLOBAL_SETTINGS.jarvisCore,
+  baseUrl: '',
+  lastHealthMessage: null,
+  ensureOnline: vi.fn().mockResolvedValue(undefined),
+  refreshModels: vi.fn().mockResolvedValue([]),
+  downloadModel: vi.fn().mockResolvedValue({} as unknown),
+  activateModel: vi.fn().mockResolvedValue({} as unknown),
+  invokeChat: vi.fn().mockResolvedValue({} as unknown),
+  launchAction: vi.fn().mockResolvedValue({} as unknown),
+};
+
+vi.mock('../../../core/jarvis/JarvisCoreContext', () => ({
+  useJarvisCore: () => mockJarvisCore,
+}));
 
 const gitInvokeMock = vi.hoisted(() => vi.fn());
 const runtimeMode = vi.hoisted(() => ({ current: 'tauri' as 'tauri' | 'electron' }));

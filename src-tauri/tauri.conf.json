@@ -14,6 +14,9 @@
     "bundle": {
       "identifier": "com.junglelabstudio.app",
       "resources": ["../jarvis_core"]
+    },
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:9888 ws://127.0.0.1:9888 ws://localhost:9888 https://api.pexels.com https://videos.pexels.com https://pixabay.com https://archive.org https://*.archive.org https://api.groq.com https://api.anthropic.com https://api.openai.com https://*.openai.azure.com; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://images.pexels.com https://cdn.pixabay.com https://i.vimeocdn.com https://archive.org https://*.archive.org; media-src 'self' blob: data: https://player.vimeo.com https://vod-progressive.akamaized.net https://videos.pexels.com https://pixabay.com https://cdn.pixabay.com https://archive.org https://*.archive.org https://*.vimeocdn.com;"
     }
   }
 }

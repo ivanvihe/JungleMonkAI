@@ -20,9 +20,22 @@ const PROVIDER_CONFIG = {
     headers: apiKey => ({
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01'
+    }),
+    useConcurrencyLimiter: true
+  },
+  openai: {
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    displayName: 'OpenAI',
+    headers: apiKey => ({
+      Authorization: `Bearer ${apiKey}`
     })
   }
 };
+
+const PROVIDER_REQUEST_TIMEOUT_MS = 60_000;
+const PROVIDER_MAX_ATTEMPTS = 2;
+const PROVIDER_RETRY_DELAY_MS = 250;
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 const maskApiKey = apiKey => {
   if (typeof apiKey !== 'string') {
@@ -38,23 +51,31 @@ const maskApiKey = apiKey => {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 };
 
-const ensureAnthropicLimiter = () => {
-  if (!global.__anthropicLimiter__) {
-    global.__anthropicLimiter__ = new Map();
+const ensureLimiterStore = () => {
+  if (!global.__providerLimiters__) {
+    global.__providerLimiters__ = new Map();
   }
-  return global.__anthropicLimiter__;
+  return global.__providerLimiters__;
 };
 
-const withAnthropicConcurrency = async (apiKey, task) => {
-  const limiter = ensureAnthropicLimiter();
+const ensureProviderLimiter = providerKey => {
+  const store = ensureLimiterStore();
+  if (!store.has(providerKey)) {
+    store.set(providerKey, new Map());
+  }
+  return store.get(providerKey);
+};
+
+const withProviderConcurrency = async (providerKey, apiKey, task) => {
+  const limiter = ensureProviderLimiter(providerKey);
   const key = (typeof apiKey === 'string' ? apiKey.trim() : '') || '__default__';
 
   if (limiter.has(key)) {
-    console.warn('Solicitud de Anthropic rechazada por límite de concurrencia.', {
+    console.warn(`Solicitud de ${providerKey} rechazada por límite de concurrencia.`, {
       apiKey: maskApiKey(apiKey)
     });
     throw new Error(
-      'Otra solicitud de Anthropic está en curso para esta API key. Intenta nuevamente en unos segundos.'
+      'Otra solicitud está en curso para esta API key. Intenta nuevamente en unos segundos.'
     );
   }
 
@@ -66,6 +87,9 @@ const withAnthropicConcurrency = async (apiKey, task) => {
     limiter.delete(key);
   }
 };
+
+const withAnthropicConcurrency = async (apiKey, task) =>
+  withProviderConcurrency('anthropic', apiKey, task);
 
 const extractProviderErrorMessage = payload => {
   if (!payload || typeof payload !== 'object') {
@@ -92,6 +116,36 @@ const extractProviderErrorMessage = payload => {
   return undefined;
 };
 
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const createTimeoutError = providerName => {
+  const error = new Error(`La solicitud a ${providerName} superó el tiempo de espera.`);
+  error.status = 408;
+  return error;
+};
+
+const shouldRetryError = error => {
+  if (!error) {
+    return false;
+  }
+
+  if (error.name === 'AbortError') {
+    return true;
+  }
+
+  const status = error.status ?? error.cause?.status;
+  if (typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status)) {
+    return true;
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+  if (!message) {
+    return false;
+  }
+
+  return /network|fetch|timeout|aborted/.test(message);
+};
+
 const performProviderChatRequest = async (providerId, request = {}) => {
   const providerKey = typeof providerId === 'string' ? providerId.toLowerCase() : '';
   const config = PROVIDER_CONFIG[providerKey];
@@ -111,58 +165,96 @@ const performProviderChatRequest = async (providerId, request = {}) => {
     throw new Error('fetch no está disponible en el proceso principal de Electron.');
   }
 
-  const executeRequest = async () => {
-    let response;
+  const executeAttempt = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PROVIDER_REQUEST_TIMEOUT_MS);
     try {
-      response = await fetch(config.endpoint, {
+      const response = await fetch(config.endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...config.headers(apiKey)
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
-    } catch (error) {
-      const reason = error && typeof error === 'object' && 'message' in error ? error.message : String(error);
-      throw new Error(`No se pudo contactar a ${config.displayName}: ${reason}`);
-    }
 
-    const rawText = await response.text();
-    let payload;
+      const rawText = await response.text();
+      let payload;
 
-    if (rawText) {
-      try {
-        payload = JSON.parse(rawText);
-      } catch (error) {
-        if (!response.ok) {
-          const trimmed = rawText.trim();
-          if (trimmed) {
-            throw new Error(trimmed);
+      if (rawText) {
+        try {
+          payload = JSON.parse(rawText);
+        } catch (error) {
+          if (!response.ok) {
+            const trimmed = rawText.trim();
+            if (trimmed) {
+              const parseError = new Error(trimmed);
+              parseError.status = response.status;
+              throw parseError;
+            }
           }
+          throw new Error(`Respuesta inválida de ${config.displayName}.`);
         }
-        throw new Error(`Respuesta inválida de ${config.displayName}.`);
-      }
-    } else {
-      payload = {};
-    }
-
-    if (!response.ok) {
-      const message = extractProviderErrorMessage(payload);
-      if (message) {
-        throw new Error(message);
+      } else {
+        payload = {};
       }
 
-      throw new Error(`Solicitud falló con estado ${response.status}`);
-    }
+      if (!response.ok) {
+        const message = extractProviderErrorMessage(payload);
+        const error = new Error(message || `Solicitud falló con estado ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
 
-    return payload;
+      return payload;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw createTimeoutError(config.displayName);
+      }
+
+      if (error instanceof Error) {
+        return Promise.reject(error);
+      }
+
+      return Promise.reject(new Error(String(error)));
+    } finally {
+      clearTimeout(timeout);
+    }
   };
 
-  if (providerKey === 'anthropic') {
-    return withAnthropicConcurrency(apiKey, executeRequest);
+  const runWithRetries = async () => {
+    let lastError;
+    for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await executeAttempt();
+      } catch (error) {
+        const normalized = error instanceof Error ? error : new Error(String(error ?? ''));
+        lastError = normalized;
+
+        console.error(
+          `[${config.displayName}] Error en intento ${attempt}: ${normalized.message}`,
+          {
+            apiKey: maskApiKey(apiKey)
+          }
+        );
+
+        if (attempt >= PROVIDER_MAX_ATTEMPTS || !shouldRetryError(normalized)) {
+          throw normalized;
+        }
+
+        await delay(PROVIDER_RETRY_DELAY_MS * attempt);
+      }
+    }
+
+    throw lastError ?? new Error(`No se pudo completar la solicitud para ${config.displayName}.`);
+  };
+
+  if (config.useConcurrencyLimiter) {
+    return withProviderConcurrency(providerKey, apiKey, runWithRetries);
   }
 
-  return executeRequest();
+  return runWithRetries();
 };
 
 let mainWindow;
@@ -695,7 +787,13 @@ ipcMain.handle('providers:chat', async (event, provider, payload) => {
     const message = error && typeof error === 'object' && 'message' in error
       ? error.message
       : String(error);
-    console.error(`No se pudo completar la solicitud para ${provider}:`, message);
+    const maskedKey =
+      payload && typeof payload === 'object' && 'apiKey' in payload
+        ? maskApiKey(payload.apiKey)
+        : '(desconocida)';
+    console.error(`No se pudo completar la solicitud para ${provider}: ${message}`, {
+      apiKey: maskedKey
+    });
     throw error instanceof Error ? error : new Error(message);
   }
 });

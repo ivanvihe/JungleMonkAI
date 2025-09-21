@@ -74,6 +74,11 @@ const maskApiKey = (apiKey: string): string => {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 };
 
+const PROVIDER_REQUEST_TIMEOUT_MS = 60_000;
+const PROVIDER_MAX_ATTEMPTS = 2;
+const PROVIDER_RETRY_DELAY_MS = 250;
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
 const GROQ_RECOMMENDED_MODEL = 'llama-3.2-90b-text';
 
 const GROQ_MODEL_ALIASES: Record<string, string> = {
@@ -138,7 +143,7 @@ const normalizeBridgeError = (provider: string, error: unknown): Error => {
 
 const callProviderThroughBridge = async (
   runtime: Exclude<RuntimeEnvironment, 'browser'>,
-  providerId: 'groq' | 'anthropic',
+  providerId: 'groq' | 'anthropic' | 'openai',
   providerName: string,
   payload: Record<string, unknown>,
 ): Promise<any> => {
@@ -164,6 +169,160 @@ const callProviderThroughBridge = async (
   } catch (error) {
     throw normalizeBridgeError(providerName, error);
   }
+};
+
+type ProviderRequestError = Error & { status?: number };
+
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+const extractProviderErrorMessage = (payload: unknown): string | undefined => {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  if (typeof (payload as { error?: unknown }).error === 'string') {
+    return (payload as { error: string }).error;
+  }
+
+  const errorObject = (payload as { error?: { message?: unknown; error?: unknown } }).error;
+  if (errorObject && typeof errorObject === 'object') {
+    if (typeof (errorObject as { message?: unknown }).message === 'string') {
+      return (errorObject as { message: string }).message;
+    }
+    if (typeof (errorObject as { error?: unknown }).error === 'string') {
+      return (errorObject as { error: string }).error;
+    }
+  }
+
+  if (typeof (payload as { message?: unknown }).message === 'string') {
+    return (payload as { message: string }).message;
+  }
+
+  return undefined;
+};
+
+const isAbortError = (error: ProviderRequestError): boolean => error.name === 'AbortError';
+
+const shouldRetry = (error: ProviderRequestError): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  if (isAbortError(error)) {
+    return true;
+  }
+
+  if (typeof error.status === 'number' && RETRYABLE_STATUS_CODES.has(error.status)) {
+    return true;
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+  if (!message) {
+    return false;
+  }
+
+  return /network|fetch|timeout|aborted/.test(message);
+};
+
+interface DirectRequestOptions {
+  providerId: 'openai' | 'groq' | 'anthropic';
+  providerName: string;
+  apiKey: string;
+  url: string;
+  body: unknown;
+  headers?: Record<string, string>;
+}
+
+const performDirectProviderRequest = async ({
+  providerId,
+  providerName,
+  apiKey,
+  url,
+  body,
+  headers = {},
+}: DirectRequestOptions): Promise<any> => {
+  if (typeof fetch !== 'function') {
+    throw new Error('fetch no está disponible en este entorno.');
+  }
+
+  let lastError: ProviderRequestError | undefined;
+
+  for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    if (controller) {
+      timeoutId = setTimeout(() => controller.abort(), PROVIDER_REQUEST_TIMEOUT_MS);
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+        signal: controller?.signal,
+      });
+
+      const rawText = await response.text();
+      let payload: any = {};
+
+      if (rawText) {
+        try {
+          payload = JSON.parse(rawText);
+        } catch (error) {
+          if (!response.ok) {
+            const trimmed = rawText.trim();
+            if (trimmed) {
+              const parseError = new Error(trimmed) as ProviderRequestError;
+              parseError.status = response.status;
+              throw parseError;
+            }
+          }
+          throw new Error(`Respuesta inválida de ${providerName}.`);
+        }
+      }
+
+      if (!response.ok) {
+        const message = extractProviderErrorMessage(payload);
+        const httpError = new Error(message || `Solicitud falló con estado ${response.status}`) as ProviderRequestError;
+        httpError.status = response.status;
+        throw httpError;
+      }
+
+      return payload;
+    } catch (error) {
+      let normalized = (error instanceof Error ? error : new Error(String(error ?? ''))) as ProviderRequestError;
+
+      if (controller?.signal.aborted) {
+        const timeoutError = new Error(`La solicitud a ${providerName} superó el tiempo de espera.`) as ProviderRequestError;
+        timeoutError.name = 'AbortError';
+        timeoutError.status = 408;
+        normalized = timeoutError;
+      }
+
+      lastError = normalized;
+
+      console.error(`[${providerName}] Error en intento ${attempt}: ${normalized.message}`, {
+        apiKey: maskApiKey(apiKey),
+        provider: providerId,
+      });
+
+      if (attempt >= PROVIDER_MAX_ATTEMPTS || !shouldRetry(normalized)) {
+        throw normalized;
+      }
+
+      await delay(PROVIDER_RETRY_DELAY_MS * attempt);
+    } finally {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`No se pudo completar la solicitud para ${providerName}.`);
 };
 
 const toContentParts = (value: unknown): ChatContentPart[] => {
@@ -379,47 +538,69 @@ export const callOpenAIChat = async ({
   maxTokens = DEFAULT_MAX_TOKENS,
   temperature = DEFAULT_TEMPERATURE,
 }: ChatProviderRequest): Promise<ChatProviderResponse> => {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      messages: [
-        ...(systemPrompt
-          ? [
-              {
-                role: 'system',
-                content: mapContentToOpenAI(systemPrompt),
-              },
-            ]
-          : []),
-        {
-          role: 'user',
-          content: mapContentToOpenAI(prompt),
-        },
-      ],
-    }),
-  });
+  const sanitizedApiKey = apiKey?.trim?.() ?? '';
+  const runtime = detectRuntime();
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error?.error?.message || `OpenAI respondió con ${response.status}`);
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    temperature,
+    messages: [
+      ...(systemPrompt
+        ? [
+            {
+              role: 'system',
+              content: mapContentToOpenAI(systemPrompt),
+            },
+          ]
+        : []),
+      {
+        role: 'user',
+        content: mapContentToOpenAI(prompt),
+      },
+    ],
+  };
+
+  const parseResponse = (payload: any): ChatProviderResponse => {
+    const choice = payload?.choices?.[0]?.message?.content;
+    const contentParts = toContentParts(choice);
+    const content = collapseContent(contentParts);
+    const ensuredContent = ensureContent(content, 'OpenAI');
+    return {
+      content: ensuredContent,
+      modalities: detectModalities(ensuredContent),
+    };
+  };
+
+  if (runtime === 'browser') {
+    const payload = await performDirectProviderRequest({
+      providerId: 'openai',
+      providerName: 'OpenAI',
+      apiKey: sanitizedApiKey,
+      url: 'https://api.openai.com/v1/chat/completions',
+      body,
+      headers: {
+        Authorization: `Bearer ${sanitizedApiKey}`,
+      },
+    });
+
+    return parseResponse(payload);
   }
 
-  const payload = await response.json();
-  const choice = payload?.choices?.[0]?.message?.content;
-  const contentParts = toContentParts(choice);
-  const content = collapseContent(contentParts);
-  const ensuredContent = ensureContent(content, 'OpenAI');
-  return {
-    content: ensuredContent,
-    modalities: detectModalities(ensuredContent),
-  };
+  try {
+    const payload = await callProviderThroughBridge(runtime, 'openai', 'OpenAI', {
+      apiKey: sanitizedApiKey,
+      body,
+    });
+
+    return parseResponse(payload);
+  } catch (error) {
+    const normalized = error instanceof Error ? error : new Error(String(error ?? ''));
+    console.error(`[OpenAI] Error en bridge (${runtime}): ${normalized.message}`, {
+      apiKey: maskApiKey(sanitizedApiKey),
+    });
+    throw normalized;
+  }
 };
 
 export const callGroqChat = async ({
@@ -455,27 +636,30 @@ export const callGroqChat = async ({
     };
 
     if (runtime === 'browser') {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
+      return performDirectProviderRequest({
+        providerId: 'groq',
+        providerName: 'Groq',
+        apiKey: sanitizedApiKey,
+        url: 'https://api.groq.com/openai/v1/chat/completions',
+        body,
         headers: {
-          'Content-Type': 'application/json',
           Authorization: `Bearer ${sanitizedApiKey}`,
         },
-        body: JSON.stringify(body),
       });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error?.error?.message || `Groq respondió con ${response.status}`);
-      }
-
-      return response.json();
     }
 
-    return callProviderThroughBridge(runtime, 'groq', 'Groq', {
-      apiKey: sanitizedApiKey,
-      body,
-    });
+    try {
+      return await callProviderThroughBridge(runtime, 'groq', 'Groq', {
+        apiKey: sanitizedApiKey,
+        body,
+      });
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error ?? ''));
+      console.error(`[Groq] Error en bridge (${runtime}): ${normalized.message}`, {
+        apiKey: maskApiKey(sanitizedApiKey),
+      });
+      throw normalized;
+    }
   };
 
   let activeModel = resolveGroqModel(model);
@@ -565,28 +749,30 @@ export const callAnthropicChat = async ({
     const runtime = detectRuntime();
 
     if (runtime === 'browser') {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
+      payload = await performDirectProviderRequest({
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+        apiKey: sanitizedApiKey,
+        url: 'https://api.anthropic.com/v1/messages',
+        body,
         headers: {
-          'Content-Type': 'application/json',
           'x-api-key': sanitizedApiKey,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify(body),
       });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        const message = error?.error?.message || error?.error || error?.message;
-        throw new Error(message || `Anthropic respondió con ${response.status}`);
-      }
-
-      payload = await response.json();
     } else {
-      payload = await callProviderThroughBridge(runtime, 'anthropic', 'Anthropic', {
-        apiKey: sanitizedApiKey,
-        body,
-      });
+      try {
+        payload = await callProviderThroughBridge(runtime, 'anthropic', 'Anthropic', {
+          apiKey: sanitizedApiKey,
+          body,
+        });
+      } catch (error) {
+        const normalized = error instanceof Error ? error : new Error(String(error ?? ''));
+        console.error(`[Anthropic] Error en bridge (${runtime}): ${normalized.message}`, {
+          apiKey: maskApiKey(sanitizedApiKey),
+        });
+        throw normalized;
+      }
     }
   } finally {
     limiter.release(sanitizedApiKey);

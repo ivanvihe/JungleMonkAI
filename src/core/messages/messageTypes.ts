@@ -6,6 +6,8 @@ export type ChatVisibility = 'public' | 'internal';
 
 export type ChatModality = 'text' | 'image' | 'audio' | 'video' | 'file';
 
+export type ChatActionKind = 'open' | 'read' | 'run' | string;
+
 export interface ChatAttachment {
   id: string;
   type: 'image' | 'audio' | 'file';
@@ -72,6 +74,26 @@ export interface ChatMessage {
   orchestrationContext?: MultiAgentContext;
   sharedByMessageId?: string;
   canonicalCode?: string;
+  actions?: ChatMessageAction[];
+}
+
+export interface ChatSuggestedAction {
+  kind: ChatActionKind;
+  payload: Record<string, unknown>;
+  label?: string;
+  description?: string;
+  requiresConfirmation?: boolean;
+}
+
+export interface ChatMessageAction extends ChatSuggestedAction {
+  id: string;
+  status: 'pending' | 'accepted' | 'executing' | 'completed' | 'rejected' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+  agentId?: string;
+  resultPreview?: string;
+  errorMessage?: string;
+  messageId?: string;
 }
 
 export interface MessageFeedback {

@@ -12,7 +12,7 @@ import { ApiKeySettings } from '../../types/globalSettings';
 import { AgentDefinition } from '../agents/agentRegistry';
 import { useAgents } from '../agents/AgentContext';
 import { fetchAgentReply } from '../agents/providerRouter';
-import type { AgentExchangeTrace } from '../agents/providerRouter';
+import type { AgentExchangeTrace, AgentStreamingEvent } from '../agents/providerRouter';
 import { emitAgentPresenceOverride } from '../agents/presence';
 import type { ChatProviderResponse } from '../../utils/aiProviders';
 import {
@@ -23,6 +23,8 @@ import {
   ChatTranscription,
   MessageCorrection,
   MessageFeedback,
+  ChatMessageAction,
+  ChatSuggestedAction,
 } from './messageTypes';
 import { buildCorrectionPipeline } from '../agents/providerRouter';
 import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
@@ -42,6 +44,8 @@ import {
 import { useProjects } from '../projects/ProjectContext';
 import { enqueueRepoWorkflowRequest, syncRepositoryViaWorkflow } from '../codex';
 import { isTauriEnvironment } from '../storage/userDataPathsClient';
+import { useJarvisCore } from '../jarvis/JarvisCoreContext';
+import type { JarvisActionKind } from '../../services/jarvisCoreClient';
 
 interface MessageContextValue {
   messages: ChatMessage[];
@@ -90,6 +94,9 @@ interface MessageContextValue {
   setComposerTargetAgentIds: (agentIds: string[]) => void;
   composerTargetMode: 'broadcast' | 'independent';
   setComposerTargetMode: (mode: 'broadcast' | 'independent') => void;
+  pendingActions: ChatMessageAction[];
+  triggerAction: (actionId: string) => Promise<void>;
+  rejectAction: (actionId: string) => void;
 }
 
 interface PersistedQualityState {
@@ -109,6 +116,8 @@ const CORRECTION_STORAGE_KEY = 'junglemonk.corrections.v1';
 const CORRECTION_STORAGE_FILE = 'corrections-log.json';
 const SHARED_MESSAGES_STORAGE_KEY = 'junglemonk.shared-messages.v1';
 const SHARED_MESSAGES_STORAGE_FILE = 'shared-messages.json';
+const ACTIONS_STORAGE_KEY = 'junglemonk.jarvis-actions.v1';
+const ACTIONS_STORAGE_FILE = 'jarvis-actions.json';
 
 export interface SharedMessageLogEntry {
   id: string;
@@ -123,6 +132,16 @@ export interface SharedMessageLogEntry {
 interface PersistedSharedState {
   entries: SharedMessageLogEntry[];
 }
+
+interface PersistedActionState {
+  status: ChatMessageAction['status'];
+  createdAt: string;
+  updatedAt: string;
+  resultPreview?: string;
+  errorMessage?: string;
+}
+
+type PersistedActionRegistry = Record<string, PersistedActionState>;
 
 interface MessageProviderProps {
   apiKeys: ApiKeySettings;
@@ -194,6 +213,29 @@ const normalizeCommandText = (input: string): string => {
 };
 
 const ANALYZE_PROJECT_REGEX = /\banaliza(?:r)? mi proyecto\b/;
+
+const truncate = (value: string, maxLength = 400): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+};
+
+const formatActionResultPreview = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    return truncate(value.trim());
+  }
+
+  try {
+    return truncate(JSON.stringify(value, null, 2));
+  } catch {
+    return truncate(String(value));
+  }
+};
 
 const buildContentPartsFromComposer = (
   text: string,
@@ -574,6 +616,29 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     }
   }, []);
 
+  const loadPersistedActionsState = useCallback((): PersistedActionRegistry => {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+      return {};
+    }
+
+    try {
+      const raw = localStorage.getItem(ACTIONS_STORAGE_KEY);
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        return {};
+      }
+
+      return parsed as PersistedActionRegistry;
+    } catch (error) {
+      console.warn('No se pudo cargar las acciones pendientes desde localStorage:', error);
+      return {};
+    }
+  }, []);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: buildMessageId('system'),
@@ -613,6 +678,11 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   const [coordinationStrategy, setCoordinationStrategy] = useState<CoordinationStrategyId>('sequential-turn');
   const [sharedSnapshot, setSharedSnapshot] = useState<SharedConversationSnapshot>(() => createInitialSnapshot());
   const [orchestrationTraces, setOrchestrationTraces] = useState<OrchestrationTraceEntry[]>([]);
+  const [persistedActions, setPersistedActions] = useState<PersistedActionRegistry>(
+    () => loadPersistedActionsState(),
+  );
+  const persistedActionsRef = useRef<PersistedActionRegistry>({});
+  const { ensureOnline, invokeChat, launchAction } = useJarvisCore();
 
   const appendTraces = useCallback(
     (entries: OrchestrationTraceEntry | OrchestrationTraceEntry[]) => {
@@ -623,6 +693,79 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       setOrchestrationTraces(prev => [...prev, ...normalized]);
     },
     [],
+  );
+
+  useEffect(() => {
+    persistedActionsRef.current = persistedActions;
+  }, [persistedActions]);
+
+  const registerActionsForMessage = useCallback(
+    (
+      messageId: string,
+      agentId: string | undefined,
+      suggestions: ChatSuggestedAction[] | undefined,
+      timestamp: string,
+    ) => {
+      setMessages(prevMessages =>
+        prevMessages.map(message => {
+          if (message.id !== messageId) {
+            return message;
+          }
+
+          if (!suggestions?.length) {
+            if (!message.actions?.length) {
+              return message;
+            }
+            return { ...message, actions: undefined };
+          }
+
+          const mapped: ChatMessageAction[] = suggestions.map((suggestion, index) => {
+            const actionId = `${messageId}-action-${index}`;
+            const persisted = persistedActionsRef.current[actionId];
+            const createdAt = persisted?.createdAt ?? timestamp;
+            const updatedAt = persisted?.updatedAt ?? timestamp;
+            const status = persisted?.status ?? 'pending';
+
+            return {
+              id: actionId,
+              messageId,
+              agentId,
+              kind: suggestion.kind,
+              payload: suggestion.payload,
+              label: suggestion.label ?? 'Acción sugerida',
+              description: suggestion.description,
+              requiresConfirmation: suggestion.requiresConfirmation ?? true,
+              status,
+              createdAt,
+              updatedAt,
+              resultPreview: persisted?.resultPreview,
+              errorMessage: persisted?.errorMessage,
+            } satisfies ChatMessageAction;
+          });
+
+          return { ...message, actions: mapped };
+        }),
+      );
+
+      if (suggestions?.length) {
+        const additions: PersistedActionRegistry = {};
+        suggestions.forEach((_, index) => {
+          const actionId = `${messageId}-action-${index}`;
+          if (!persistedActionsRef.current[actionId]) {
+            additions[actionId] = {
+              status: 'pending',
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            } satisfies PersistedActionState;
+          }
+        });
+
+        if (Object.keys(additions).length) {
+          setPersistedActions(prev => ({ ...prev, ...additions }));
+        }
+      }
+    },
+    [setMessages, setPersistedActions],
   );
 
   const setDraft = useCallback((value: string) => {
@@ -1107,9 +1250,23 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   ]);
 
   const resolveAgentReply = useCallback(
-    (agent: AgentDefinition, prompt: string, context?: MultiAgentContext) =>
-      fetchAgentReply({ agent, prompt, apiKeys, fallback: mockAgentReply, context, onTrace: handleProviderTrace }),
-    [apiKeys, handleProviderTrace],
+    (
+      agent: AgentDefinition,
+      prompt: string,
+      context?: MultiAgentContext,
+      onStreamUpdate?: (event: AgentStreamingEvent) => void,
+    ) =>
+      fetchAgentReply({
+        agent,
+        prompt,
+        apiKeys,
+        fallback: mockAgentReply,
+        context,
+        onTrace: handleProviderTrace,
+        jarvisClient: agent.kind === 'local' ? { sendChat: invokeChat } : null,
+        onStreamUpdate,
+      }),
+    [apiKeys, handleProviderTrace, invokeChat],
   );
 
   useEffect(() => {
@@ -1122,9 +1279,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
         await storage.ensureUserDataDirectory();
 
-        const [qualityState, sharedState] = await Promise.all([
+        const [qualityState, sharedState, actionsState] = await Promise.all([
           storage.readUserDataJson<PersistedQualityState>(CORRECTION_STORAGE_FILE),
           storage.readUserDataJson<PersistedSharedState>(SHARED_MESSAGES_STORAGE_FILE),
+          storage.readUserDataJson<PersistedActionRegistry>(ACTIONS_STORAGE_FILE),
         ]);
 
         if (qualityState) {
@@ -1134,6 +1292,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
         if (sharedState?.entries) {
           setSharedMessageLog(Array.isArray(sharedState.entries) ? sharedState.entries : []);
+        }
+
+        if (actionsState && typeof actionsState === 'object') {
+          setPersistedActions(prev => ({ ...actionsState, ...prev }));
         }
       } catch (error) {
         console.warn('No se pudo inicializar el almacenamiento de datos de usuario:', error);
@@ -1204,6 +1366,31 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   }, [sharedMessageLog]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(ACTIONS_STORAGE_KEY, JSON.stringify(persistedActions));
+      } catch (error) {
+        console.warn('No se pudo persistir las acciones de Jarvis en localStorage:', error);
+      }
+    }
+
+    const persistActionsToUserData = async () => {
+      try {
+        const storage = await import('../storage/userDataFiles');
+        if (!storage.isTauriEnvironment()) {
+          return;
+        }
+
+        await storage.writeUserDataJson(ACTIONS_STORAGE_FILE, persistedActions);
+      } catch (error) {
+        console.warn('No se pudo persistir las acciones de Jarvis en Tauri:', error);
+      }
+    };
+
+    void persistActionsToUserData();
+  }, [persistedActions]);
+
+  useEffect(() => {
     setMessages(prevMessages =>
       prevMessages.map(message => {
         const nextFeedback = feedbackByMessage[message.id];
@@ -1239,6 +1426,53 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
   }, [feedbackByMessage]);
 
   useEffect(() => {
+    setMessages(prevMessages => {
+      let shouldUpdate = false;
+
+      const nextMessages = prevMessages.map(message => {
+        if (!message.actions?.length) {
+          return message;
+        }
+
+        let actionChanged = false;
+        const updatedActions = message.actions.map(action => {
+          const persisted = persistedActions[action.id];
+          if (!persisted) {
+            return action;
+          }
+
+          if (
+            action.status !== persisted.status ||
+            action.updatedAt !== persisted.updatedAt ||
+            action.resultPreview !== persisted.resultPreview ||
+            action.errorMessage !== persisted.errorMessage
+          ) {
+            actionChanged = true;
+            return {
+              ...action,
+              status: persisted.status,
+              updatedAt: persisted.updatedAt,
+              resultPreview: persisted.resultPreview,
+              errorMessage: persisted.errorMessage,
+            };
+          }
+
+          return action;
+        });
+
+        if (actionChanged) {
+          shouldUpdate = true;
+          return { ...message, actions: updatedActions };
+        }
+
+        return message;
+      });
+
+      return shouldUpdate ? nextMessages : prevMessages;
+    });
+  }, [persistedActions]);
+
+  useEffect(() => {
     const cancelers: Array<() => void> = [];
 
     messages
@@ -1269,8 +1503,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
         const resolve = async () => {
           try {
+            const prompt = message.sourcePrompt ?? contentToPlainText(message.content);
+
             if (agent.kind === 'cloud') {
-              const prompt = message.sourcePrompt ?? contentToPlainText(message.content);
               const outcome = await resolveAgentReply(agent, prompt, message.orchestrationContext);
 
               if (cancelled) {
@@ -1308,6 +1543,12 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                         }
                       : item,
                   ),
+                );
+                registerActionsForMessage(
+                  message.id,
+                  agent.id,
+                  outcome.response.actions,
+                  completionTimestamp,
                 );
                 setSharedSnapshot(prev =>
                   limitSnapshotHistory(registerAgentConclusion(prev, agent.id, plain, completionTimestamp)),
@@ -1362,6 +1603,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                     : item,
                 ),
               );
+              registerActionsForMessage(message.id, agent.id, undefined, completionTimestamp);
               setSharedSnapshot(prev =>
                 limitSnapshotHistory(registerAgentConclusion(prev, agent.id, plain, completionTimestamp)),
               );
@@ -1405,6 +1647,136 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
               return;
             }
 
+            if (agent.kind === 'local') {
+              await ensureOnline();
+
+              const handleStream = (event: AgentStreamingEvent) => {
+                if (cancelled) {
+                  return;
+                }
+
+                if (event.type === 'delta' || event.type === 'result') {
+                  setMessages(prev =>
+                    prev.map(item =>
+                      item.id === message.id
+                        ? {
+                            ...item,
+                            content: event.content,
+                            modalities: ['text'],
+                            status: event.type === 'result' ? 'sent' : item.status,
+                          }
+                        : item,
+                    ),
+                  );
+
+                  if (event.type === 'result') {
+                    const streamTimestamp = new Date().toISOString();
+                    registerActionsForMessage(message.id, agent.id, event.actions, streamTimestamp);
+                  }
+                }
+              };
+
+              const outcome = await resolveAgentReply(
+                agent,
+                prompt,
+                message.orchestrationContext,
+                handleStream,
+              );
+
+              if (cancelled) {
+                return;
+              }
+
+              const completionTimestamp = new Date().toISOString();
+
+              if (outcome.status === 'success') {
+                let normalizedContent = normalizeProviderContent(outcome.response.content);
+                let plain = contentToPlainText(normalizedContent);
+                const hasContent = plain.trim().length > 0;
+                const finalContent: ChatMessage['content'] = hasContent
+                  ? normalizedContent
+                  : `${agentLabel} no devolvió contenido.`;
+
+                if (!hasContent) {
+                  plain = contentToPlainText(finalContent);
+                }
+
+                setMessages(prev =>
+                  prev.map(item =>
+                    item.id === message.id
+                      ? {
+                          ...item,
+                          status: 'sent',
+                          content: finalContent,
+                          attachments: outcome.response.attachments?.length
+                            ? outcome.response.attachments
+                            : undefined,
+                          modalities: ensureResponseModalities(outcome.response),
+                          transcriptions: outcome.response.transcriptions?.length
+                            ? outcome.response.transcriptions
+                            : undefined,
+                        }
+                      : item,
+                  ),
+                );
+                registerActionsForMessage(
+                  message.id,
+                  agent.id,
+                  outcome.response.actions,
+                  completionTimestamp,
+                );
+                setSharedSnapshot(prev =>
+                  limitSnapshotHistory(registerAgentConclusion(prev, agent.id, plain, completionTimestamp)),
+                );
+                appendTraces({
+                  id: `${agent.id}-local-${completionTimestamp}`,
+                  timestamp: completionTimestamp,
+                  actor: 'agent',
+                  agentId: agent.id,
+                  description: `Conclusión de ${agentLabel}`,
+                  details: plain,
+                  strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
+                });
+                return;
+              }
+
+              let normalizedContent = normalizeProviderContent(outcome.response.content);
+              if (!contentToPlainText(normalizedContent).trim()) {
+                normalizedContent = `${agentLabel} no devolvió contenido.`;
+              }
+
+              setMessages(prev =>
+                prev.map(item =>
+                  item.id === message.id
+                    ? {
+                        ...item,
+                        status: 'sent',
+                        content: normalizedContent,
+                        attachments: undefined,
+                        modalities: ['text'],
+                        transcriptions: undefined,
+                      }
+                    : item,
+                ),
+              );
+              registerActionsForMessage(message.id, agent.id, undefined, completionTimestamp);
+              setSharedSnapshot(prev =>
+                limitSnapshotHistory(
+                  registerAgentConclusion(prev, agent.id, contentToPlainText(normalizedContent), completionTimestamp),
+                ),
+              );
+              appendTraces({
+                id: `${agent.id}-fallback-${completionTimestamp}`,
+                timestamp: completionTimestamp,
+                actor: 'system',
+                agentId: agent.id,
+                description: `Se usó respuesta alternativa para ${agentLabel}`,
+                details: contentToPlainText(normalizedContent),
+                strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
+              });
+              return;
+            }
+
             const content = await new Promise<string>(resolvePromise => {
               const delay = 700 + Math.random() * 1200;
               setTimeout(
@@ -1436,6 +1808,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                   : item,
               ),
             );
+            registerActionsForMessage(message.id, agent.id, undefined, completionTimestamp);
             setSharedSnapshot(prev =>
               limitSnapshotHistory(registerAgentConclusion(prev, agent.id, normalizedContent, completionTimestamp)),
             );
@@ -1473,6 +1846,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
                   : item,
               ),
             );
+            registerActionsForMessage(message.id, agent.id, undefined, completionTimestamp);
             setSharedSnapshot(prev =>
               limitSnapshotHistory(registerAgentConclusion(prev, agent.id, fallbackMessage, completionTimestamp)),
             );
@@ -1485,6 +1859,10 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
               details: fallbackMessage,
               strategyId: message.orchestrationContext?.strategyId ?? coordinationStrategy,
             });
+
+            if (agent.kind === 'local') {
+              void ensureOnline();
+            }
           } finally {
             if (!cancelled) {
               scheduledResponsesRef.current.delete(message.id);
@@ -1502,7 +1880,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
     agentMap,
     appendTraces,
     coordinationStrategy,
+    ensureOnline,
     messages,
+    registerActionsForMessage,
     resolveAgentReply,
   ]);
 
@@ -1518,6 +1898,14 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
   const agentResponses = useMemo(
     () => messages.filter(message => message.author === 'agent'),
+    [messages],
+  );
+
+  const pendingActions = useMemo(
+    () =>
+      messages
+        .flatMap(message => message.actions ?? [])
+        .filter(action => action.status === 'pending'),
     [messages],
   );
 
@@ -1543,6 +1931,152 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
 
   const removeTranscription = useCallback((transcriptionId: string) => {
     setComposerTranscriptions(prev => prev.filter(item => item.id !== transcriptionId));
+  }, []);
+
+  const triggerAction = useCallback(
+    async (actionId: string) => {
+      const targetMessage = messages.find(message => message.actions?.some(action => action.id === actionId));
+      const targetAction = targetMessage?.actions?.find(action => action.id === actionId);
+      if (!targetMessage || !targetAction || targetAction.status === 'executing') {
+        return;
+      }
+
+      const startTimestamp = new Date().toISOString();
+
+      setMessages(prev =>
+        prev.map(message =>
+          message.id === targetMessage.id
+            ? {
+                ...message,
+                actions: message.actions?.map(action =>
+                  action.id === actionId
+                    ? {
+                        ...action,
+                        status: 'executing',
+                        updatedAt: startTimestamp,
+                        errorMessage: undefined,
+                      }
+                    : action,
+                ),
+              }
+            : message,
+        ),
+      );
+
+      setPersistedActions(prev => ({
+        ...prev,
+        [actionId]: {
+          status: 'executing',
+          createdAt: prev[actionId]?.createdAt ?? startTimestamp,
+          updatedAt: startTimestamp,
+        },
+      }));
+
+      try {
+        await ensureOnline();
+        const result = await launchAction(targetAction.kind as JarvisActionKind, targetAction.payload);
+        const completionTimestamp = new Date().toISOString();
+        const resultPreview = formatActionResultPreview(result);
+
+        setMessages(prev =>
+          prev.map(message =>
+            message.id === targetMessage.id
+              ? {
+                  ...message,
+                  actions: message.actions?.map(action =>
+                    action.id === actionId
+                      ? {
+                          ...action,
+                          status: 'completed',
+                          updatedAt: completionTimestamp,
+                          resultPreview,
+                          errorMessage: undefined,
+                        }
+                      : action,
+                  ),
+                }
+              : message,
+          ),
+        );
+
+        setPersistedActions(prev => ({
+          ...prev,
+          [actionId]: {
+            status: 'completed',
+            createdAt: prev[actionId]?.createdAt ?? startTimestamp,
+            updatedAt: completionTimestamp,
+            resultPreview,
+          },
+        }));
+      } catch (error) {
+        const failureTimestamp = new Date().toISOString();
+        const errorMessage = error instanceof Error ? error.message : String(error ?? 'Acción fallida');
+
+        setMessages(prev =>
+          prev.map(message =>
+            message.id === targetMessage.id
+              ? {
+                  ...message,
+                  actions: message.actions?.map(action =>
+                    action.id === actionId
+                      ? {
+                          ...action,
+                          status: 'failed',
+                          updatedAt: failureTimestamp,
+                          errorMessage,
+                        }
+                      : action,
+                  ),
+                }
+              : message,
+          ),
+        );
+
+        setPersistedActions(prev => ({
+          ...prev,
+          [actionId]: {
+            status: 'failed',
+            createdAt: prev[actionId]?.createdAt ?? startTimestamp,
+            updatedAt: failureTimestamp,
+            errorMessage,
+          },
+        }));
+      }
+    },
+    [ensureOnline, launchAction, messages],
+  );
+
+  const rejectAction = useCallback((actionId: string) => {
+    const timestamp = new Date().toISOString();
+    setMessages(prev =>
+      prev.map(message =>
+        message.actions?.length
+          ? {
+              ...message,
+              actions: message.actions.map(action =>
+                action.id === actionId
+                  ? {
+                      ...action,
+                      status: 'rejected',
+                      updatedAt: timestamp,
+                      errorMessage: undefined,
+                      resultPreview: undefined,
+                    }
+                  : action,
+              ),
+            }
+          : message,
+      ),
+    );
+
+    setPersistedActions(prev => ({
+      ...prev,
+      [actionId]: {
+        status: 'rejected',
+        createdAt: prev[actionId]?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      },
+    }));
   }, []);
 
   const markMessageFeedback = useCallback(
@@ -1746,6 +2280,9 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       setComposerTargetAgentIds: updateComposerTargetAgentIds,
       composerTargetMode,
       setComposerTargetMode: updateComposerTargetMode,
+      pendingActions,
+      triggerAction,
+      rejectAction,
     }),
     [
       addAttachment,
@@ -1762,10 +2299,12 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       markMessageFeedback,
       messages,
       orchestrationTraces,
+      pendingActions,
       pendingResponses,
       feedbackByMessage,
       correctionHistory,
       qualityMetrics,
+      rejectAction,
       removeAttachment,
       removeTranscription,
       sendMessage,
@@ -1773,6 +2312,7 @@ export const MessageProvider: React.FC<MessageProviderProps> = ({ apiKeys, child
       sharedMessageLog,
       shareMessageWithAgent,
       submitCorrection,
+      triggerAction,
       coordinationStrategy,
       updateComposerTargetAgentIds,
       updateComposerTargetMode,

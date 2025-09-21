@@ -63,6 +63,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setComposerTargetAgentIds,
     composerTargetMode,
     setComposerTargetMode,
+    triggerAction,
+    rejectAction,
   } = useMessages();
   const { dynamicSuggestions, recentCommands } = useConversationSuggestions();
 
@@ -508,6 +510,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     shareMessageWithAgent(agentId, messageId, { canonicalCode })
                   }
                   onLoadIntoDraft={loadMessageIntoDraft}
+                  onTriggerAction={triggerAction}
+                  onRejectAction={rejectAction}
                 />
               );
             })

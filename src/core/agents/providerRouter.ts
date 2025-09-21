@@ -6,10 +6,15 @@ import {
   callOpenAIChat,
 } from '../../utils/aiProviders';
 import { isSupportedProvider } from '../../utils/globalSettings';
-import { ChatContentPart, ChatMessage } from '../messages/messageTypes';
+import { ChatContentPart, ChatMessage, ChatSuggestedAction } from '../messages/messageTypes';
 import type { CoordinationStrategyId, MultiAgentContext } from '../orchestration';
 import { AgentDefinition } from './agentRegistry';
 import { getAgentDisplayName } from '../../utils/agentDisplay';
+import type {
+  JarvisChatRequest,
+  JarvisChatResult,
+  JarvisCoreClient,
+} from '../../services/jarvisCoreClient';
 
 export const AGENT_SYSTEM_PROMPT =
   'Actúas como parte de un colectivo de agentes creativos. Responde de forma concisa, en español cuando sea posible, y especifica los supuestos importantes que utilices al contestar.';
@@ -148,6 +153,68 @@ const buildPromptWithContext = (
   };
 };
 
+const isAsyncIterable = (value: unknown): value is AsyncIterable<unknown> => {
+  return Boolean(value) && typeof value === 'object' && Symbol.asyncIterator in (value as object);
+};
+
+const buildJarvisActionLabel = (action: ChatSuggestedAction): string => {
+  const { kind, payload } = action;
+  if (kind === 'open') {
+    const target = typeof payload.path === 'string' ? payload.path : 'recurso';
+    return `Abrir ${target}`;
+  }
+  if (kind === 'read') {
+    const target = typeof payload.path === 'string' ? payload.path : 'archivo';
+    return `Leer ${target}`;
+  }
+  if (kind === 'run') {
+    const command = Array.isArray(payload.command)
+      ? (payload.command as unknown[]).filter(entry => typeof entry === 'string').join(' ')
+      : typeof payload.command === 'string'
+        ? payload.command
+        : 'comando';
+    return `Ejecutar ${command}`;
+  }
+  return action.label ?? 'Acción sugerida';
+};
+
+const normalizeJarvisActions = (payload: unknown): ChatSuggestedAction[] => {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  const normalized: ChatSuggestedAction[] = [];
+  payload.forEach(entry => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+
+    const kind = (entry as { type?: unknown }).type;
+    const rawPayload = (entry as { payload?: unknown }).payload;
+
+    if (typeof kind !== 'string' || !rawPayload || typeof rawPayload !== 'object') {
+      return;
+    }
+
+    const suggestion: ChatSuggestedAction = {
+      kind,
+      payload: rawPayload as Record<string, unknown>,
+    };
+
+    if (typeof (entry as { label?: unknown }).label === 'string') {
+      suggestion.label = (entry as { label: string }).label;
+    }
+
+    if (typeof (entry as { description?: unknown }).description === 'string') {
+      suggestion.description = (entry as { description: string }).description;
+    }
+
+    normalized.push({ ...suggestion, label: suggestion.label ?? buildJarvisActionLabel(suggestion) });
+  });
+
+  return normalized;
+};
+
 export interface FetchAgentReplyOptions {
   agent: AgentDefinition;
   prompt: string;
@@ -155,6 +222,8 @@ export interface FetchAgentReplyOptions {
   fallback: (agent: AgentDefinition, prompt?: string, context?: MultiAgentContext) => string;
   context?: MultiAgentContext;
   onTrace?: (trace: AgentExchangeTrace) => void;
+  jarvisClient?: Pick<JarvisCoreClient, 'sendChat'> | null;
+  onStreamUpdate?: (event: AgentStreamingEvent) => void;
 }
 
 export interface AgentExchangeTrace {
@@ -172,6 +241,11 @@ export interface AgentReplyOutcome {
   errorMessage?: string;
 }
 
+export type AgentStreamingEvent =
+  | { type: 'delta'; content: string; delta: string }
+  | { type: 'result'; content: string; actions?: ChatSuggestedAction[] }
+  | { type: 'error'; error: string };
+
 export const fetchAgentReply = async ({
   agent,
   prompt,
@@ -179,6 +253,8 @@ export const fetchAgentReply = async ({
   fallback,
   context,
   onTrace,
+  jarvisClient,
+  onStreamUpdate,
 }: FetchAgentReplyOptions): Promise<AgentReplyOutcome> => {
   const displayName = getAgentDisplayName(agent);
   const providerKey = agent.provider.toLowerCase();
@@ -203,6 +279,122 @@ export const fetchAgentReply = async ({
       errorMessage: normalizedMessage,
     };
   };
+
+  if (agent.kind === 'local') {
+    const sanitizedPrompt = prompt.trim();
+    if (!sanitizedPrompt) {
+      return emitFallbackResponse('Necesito un prompt válido para generar una respuesta.');
+    }
+
+    if (!jarvisClient) {
+      const fallbackContent = fallback(agent, prompt, context);
+      return emitFallbackResponse(fallbackContent, 'Jarvis Core no está disponible.');
+    }
+
+    const { prompt: decoratedPrompt, systemPrompt } = buildPromptWithContext(
+      agent,
+      sanitizedPrompt,
+      context,
+    );
+
+    onTrace?.({
+      agentId: agent.id,
+      agentName: displayName,
+      type: 'request',
+      payload: decoratedPrompt,
+      timestamp: new Date().toISOString(),
+      strategyId: context?.strategyId,
+    });
+
+    try {
+      const payload: JarvisChatRequest = {
+        prompt: decoratedPrompt,
+        systemPrompt,
+        stream: Boolean(onStreamUpdate),
+      };
+      const result: JarvisChatResult = await jarvisClient.sendChat(payload);
+
+      const finalize = (
+        content: string,
+        actions: ChatSuggestedAction[] | undefined,
+      ): AgentReplyOutcome => {
+        const normalized = content.trim() ? content : `${displayName} no devolvió contenido.`;
+        onTrace?.({
+          agentId: agent.id,
+          agentName: displayName,
+          type: 'response',
+          payload: normalized,
+          timestamp: new Date().toISOString(),
+          strategyId: context?.strategyId,
+        });
+        return {
+          response: {
+            content: normalized,
+            modalities: ['text'],
+            actions,
+          },
+          status: 'success',
+        };
+      };
+
+      if (isAsyncIterable(result)) {
+        let aggregated = '';
+        let finalMessage = '';
+        let finalActions: ChatSuggestedAction[] | undefined;
+
+        for await (const rawEvent of result) {
+          if (!rawEvent || typeof rawEvent !== 'object') {
+            continue;
+          }
+
+          const eventType = (rawEvent as { type?: unknown }).type;
+
+          if (eventType === 'chunk') {
+            const delta = typeof (rawEvent as { delta?: unknown }).delta === 'string'
+              ? (rawEvent as { delta: string }).delta
+              : '';
+            if (delta) {
+              aggregated += delta;
+              onStreamUpdate?.({ type: 'delta', delta, content: aggregated });
+            }
+            continue;
+          }
+
+          if (eventType === 'result') {
+            const message = typeof (rawEvent as { message?: unknown }).message === 'string'
+              ? (rawEvent as { message: string }).message
+              : '';
+            finalMessage = message || aggregated;
+            finalActions = normalizeJarvisActions((rawEvent as { actions?: unknown }).actions);
+            aggregated = finalMessage;
+            onStreamUpdate?.({ type: 'result', content: aggregated, actions: finalActions });
+            continue;
+          }
+
+          if (eventType === 'error') {
+            const errorMessage = typeof (rawEvent as { message?: unknown }).message === 'string'
+              ? (rawEvent as { message: string }).message
+              : 'Jarvis Core emitió un error.';
+            onStreamUpdate?.({ type: 'error', error: errorMessage });
+            throw new Error(errorMessage);
+          }
+        }
+
+        return finalize(aggregated || finalMessage, finalActions?.length ? finalActions : undefined);
+      }
+
+      const message = typeof (result as { message?: unknown }).message === 'string'
+        ? (result as { message: string }).message
+        : '';
+      const actions = normalizeJarvisActions((result as { actions?: unknown }).actions);
+      return finalize(message, actions.length ? actions : undefined);
+    } catch (error) {
+      const fallbackContent = fallback(agent, prompt, context);
+      const rawMessage =
+        error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+      return emitFallbackResponse(fallbackContent, rawMessage);
+    }
+  }
 
   if (agent.kind !== 'cloud' || !isSupportedProvider(providerKey)) {
     const fallbackContent = fallback(agent, prompt, context);

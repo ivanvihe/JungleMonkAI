@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import { ChatMessage } from '../../../core/messages/messageTypes';
 import { MessageContent } from './MessageContent';
 import { MessageAttachment } from './MessageAttachment';
+import { JarvisActionControls } from './MessageActions';
 
 interface MessageCardProps {
   message: ChatMessage;
@@ -12,6 +13,8 @@ interface MessageCardProps {
   onAppendToComposer?: (value: string) => void;
   onShareMessage?: (agentId: string, messageId: string, canonicalCode?: string) => void;
   onLoadIntoDraft?: (messageId: string) => void;
+  onTriggerAction?: (actionId: string) => void;
+  onRejectAction?: (actionId: string) => void;
 }
 
 export const MessageCard: React.FC<MessageCardProps> = ({
@@ -23,6 +26,8 @@ export const MessageCard: React.FC<MessageCardProps> = ({
   onAppendToComposer,
   onShareMessage,
   onLoadIntoDraft,
+  onTriggerAction,
+  onRejectAction,
 }) => {
   const isUser = message.author === 'user';
   const isSystem = message.author === 'system';
@@ -89,6 +94,19 @@ export const MessageCard: React.FC<MessageCardProps> = ({
             <span key={modality} className="modality-chip">
               {modality}
             </span>
+          ))}
+        </div>
+      ) : null}
+
+      {message.actions?.length ? (
+        <div className="message-card-jarvis-actions">
+          {message.actions.map(action => (
+            <JarvisActionControls
+              key={action.id}
+              action={action}
+              onTrigger={onTriggerAction}
+              onReject={onRejectAction}
+            />
           ))}
         </div>
       ) : null}

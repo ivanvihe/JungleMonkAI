@@ -26,6 +26,7 @@ import { PluginManagerModal } from './components/settings/PluginManagerModal';
 import { McpManagerModal } from './components/settings/McpManagerModal';
 import { ProjectProvider } from './core/projects/ProjectContext';
 import { ModelManagerModal } from './components/models/ModelManagerModal';
+import { JarvisCoreProvider } from './core/jarvis/JarvisCoreContext';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -216,16 +217,18 @@ const App: React.FC = () => {
           enabledPlugins={globalSettings.enabledPlugins}
           approvedManifests={globalSettings.approvedManifests}
         >
-          <MessageProvider apiKeys={globalSettings.apiKeys}>
-            <RepoWorkflowProvider>
-              <AppContent
-                apiKeys={globalSettings.apiKeys}
-                settings={globalSettings}
-                onApiKeyChange={handleApiKeyChange}
-                onSettingsChange={setGlobalSettings}
-              />
-            </RepoWorkflowProvider>
-          </MessageProvider>
+          <JarvisCoreProvider settings={globalSettings} onSettingsChange={setGlobalSettings}>
+            <MessageProvider apiKeys={globalSettings.apiKeys}>
+              <RepoWorkflowProvider>
+                <AppContent
+                  apiKeys={globalSettings.apiKeys}
+                  settings={globalSettings}
+                  onApiKeyChange={handleApiKeyChange}
+                  onSettingsChange={setGlobalSettings}
+                />
+              </RepoWorkflowProvider>
+            </MessageProvider>
+          </JarvisCoreProvider>
         </AgentProvider>
       </ProjectProvider>
     </PluginHostProvider>

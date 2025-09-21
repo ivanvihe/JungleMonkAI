@@ -18,6 +18,9 @@ vi.mock('../../messages/MessageContext', () => ({
         agentId: 'jarvis',
       },
     ],
+    pendingActions: [],
+    triggerAction: vi.fn(),
+    rejectAction: vi.fn(),
   }),
 }));
 

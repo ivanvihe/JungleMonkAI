@@ -31,7 +31,12 @@ const messagesRef: { current: ChatMessage[] } = { current: [] };
 let setMockMessages: ((messages: ChatMessage[]) => void) | undefined;
 
 vi.mock('../../../core/messages/MessageContext', () => ({
-  useMessages: () => ({ messages: messagesRef.current }),
+  useMessages: () => ({
+    messages: messagesRef.current,
+    pendingActions: [],
+    triggerAction: vi.fn(),
+    rejectAction: vi.fn(),
+  }),
   MessageProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   __setMockMessages: (messages: ChatMessage[]) => {
     messagesRef.current = messages;

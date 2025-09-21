@@ -4,6 +4,7 @@ import { useAgents } from '../../../core/agents/AgentContext';
 import type { AgentPresenceEntry } from '../../../core/agents/presence';
 import { useRepoWorkflow } from '../../../core/codex';
 import { usePluginHost } from '../../../core/plugins/PluginHostProvider';
+import type { ChatMessageAction } from '../../../core/messages/messageTypes';
 
 interface MessageActionsProps {
   messageId: string;
@@ -162,3 +163,84 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
 };
 
 export default MessageActions;
+
+interface JarvisActionControlsProps {
+  action: ChatMessageAction;
+  onTrigger?: (actionId: string) => void;
+  onReject?: (actionId: string) => void;
+}
+
+const renderStatusLabel = (status: ChatMessageAction['status']): string => {
+  switch (status) {
+    case 'pending':
+      return 'Pendiente';
+    case 'accepted':
+      return 'Aprobada';
+    case 'executing':
+      return 'Ejecutando…';
+    case 'completed':
+      return 'Completada';
+    case 'rejected':
+      return 'Descartada';
+    case 'failed':
+      return 'Error';
+    default:
+      return status;
+  }
+};
+
+export const JarvisActionControls: React.FC<JarvisActionControlsProps> = ({
+  action,
+  onTrigger,
+  onReject,
+}) => {
+  const handleTrigger = useCallback(() => {
+    onTrigger?.(action.id);
+  }, [action.id, onTrigger]);
+
+  const handleReject = useCallback(() => {
+    onReject?.(action.id);
+  }, [action.id, onReject]);
+
+  const canTrigger = action.status === 'pending' || action.status === 'failed';
+
+  return (
+    <div className={`jarvis-action-card jarvis-action-${action.status}`}>
+      <div className="jarvis-action-header">
+        <span className="jarvis-action-label">{action.label}</span>
+        <span className="jarvis-action-status">{renderStatusLabel(action.status)}</span>
+      </div>
+      {action.description ? <p className="jarvis-action-description">{action.description}</p> : null}
+      <div className="jarvis-action-controls">
+        {canTrigger ? (
+          <button type="button" className="message-action" onClick={handleTrigger}>
+            Ejecutar
+          </button>
+        ) : null}
+        {canTrigger && onReject ? (
+          <button type="button" className="message-action" onClick={handleReject}>
+            Descartar
+          </button>
+        ) : null}
+        {action.status === 'executing' ? <span className="jarvis-action-progress">Procesando…</span> : null}
+        {action.status === 'completed' && action.resultPreview ? (
+          <span className="jarvis-action-result-label">Resultado disponible</span>
+        ) : null}
+        {action.status === 'rejected' ? (
+          <span className="jarvis-action-result-label">Rechazada</span>
+        ) : null}
+        {action.status === 'failed' && !canTrigger ? (
+          <span className="jarvis-action-error">Error detectado</span>
+        ) : null}
+      </div>
+      {action.resultPreview ? (
+        <pre className="jarvis-action-result" aria-label={`Resultado de ${action.label}`}>
+          {action.resultPreview}
+        </pre>
+      ) : null}
+      {action.errorMessage ? (
+        <p className="jarvis-action-error-message">{action.errorMessage}</p>
+      ) : null}
+    </div>
+  );
+};

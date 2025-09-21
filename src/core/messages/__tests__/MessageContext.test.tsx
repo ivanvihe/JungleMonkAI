@@ -33,18 +33,37 @@ import { AgentProvider } from '../../agents/AgentContext';
 import { MessageProvider, useMessages } from '../MessageContext';
 import { ProjectProvider } from '../../projects/ProjectContext';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
+import { JarvisCoreProvider } from '../../jarvis/JarvisCoreContext';
+import type { JarvisCoreClient } from '../../services/jarvisCoreClient';
 
 const createWrapper = (
   settingsFactory: () => typeof DEFAULT_GLOBAL_SETTINGS,
 ): React.FC<{ children: React.ReactNode }> => {
   return ({ children }) => {
     const [settings, setSettings] = React.useState(settingsFactory);
+    const jarvisClient = React.useMemo<JarvisCoreClient>(
+      () => ({
+        getHealth: vi.fn().mockResolvedValue({ status: 'ok' }),
+        listModels: vi.fn().mockResolvedValue([]),
+        downloadModel: vi.fn().mockResolvedValue({} as any),
+        activateModel: vi.fn().mockResolvedValue({} as any),
+        sendChat: vi.fn().mockResolvedValue({ message: 'stub', actions: [] }),
+        triggerAction: vi.fn().mockResolvedValue(undefined),
+      }),
+      [],
+    );
 
     return (
       <ProjectProvider settings={settings} onSettingsChange={setSettings}>
-        <AgentProvider apiKeys={{}}>
-          <MessageProvider apiKeys={{}}>{children}</MessageProvider>
-        </AgentProvider>
+        <JarvisCoreProvider
+          settings={settings}
+          onSettingsChange={setSettings}
+          clientOverride={jarvisClient}
+        >
+          <AgentProvider apiKeys={{}}>
+            <MessageProvider apiKeys={{}}>{children}</MessageProvider>
+          </AgentProvider>
+        </JarvisCoreProvider>
       </ProjectProvider>
     );
   };

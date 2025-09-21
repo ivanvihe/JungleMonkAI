@@ -8,6 +8,8 @@ import { RepoWorkflowProvider } from '../../../../core/codex';
 import { PluginHostProvider } from '../../../../core/plugins/PluginHostProvider';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../../utils/globalSettings';
 import { ProjectProvider } from '../../../../core/projects/ProjectContext';
+import { JarvisCoreProvider } from '../../../../core/jarvis/JarvisCoreContext';
+import type { JarvisCoreClient } from '../../../../services/jarvisCoreClient';
 
 const noop = vi.fn();
 
@@ -15,16 +17,29 @@ const ProviderHarness: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const [settings, setSettings] = React.useState(() => ({
     ...JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)),
   }));
+  const jarvisClient = React.useMemo<JarvisCoreClient>(
+    () => ({
+      getHealth: vi.fn().mockResolvedValue({ status: 'ok' }),
+      listModels: vi.fn().mockResolvedValue([]),
+      downloadModel: vi.fn().mockResolvedValue({} as any),
+      activateModel: vi.fn().mockResolvedValue({} as any),
+      sendChat: vi.fn().mockResolvedValue({ message: 'demo', actions: [] }),
+      triggerAction: vi.fn().mockResolvedValue(undefined),
+    }),
+    [],
+  );
 
   return (
     <ProjectProvider settings={settings} onSettingsChange={setSettings}>
-      <AgentProvider apiKeys={{}}>
-        <PluginHostProvider settings={settings} onSettingsChange={setSettings}>
-          <MessageProvider apiKeys={{}}>
-            <RepoWorkflowProvider>{children}</RepoWorkflowProvider>
-          </MessageProvider>
-        </PluginHostProvider>
-      </AgentProvider>
+      <JarvisCoreProvider settings={settings} onSettingsChange={setSettings} clientOverride={jarvisClient}>
+        <AgentProvider apiKeys={{}}>
+          <PluginHostProvider settings={settings} onSettingsChange={setSettings}>
+            <MessageProvider apiKeys={{}}>
+              <RepoWorkflowProvider>{children}</RepoWorkflowProvider>
+            </MessageProvider>
+          </PluginHostProvider>
+        </AgentProvider>
+      </JarvisCoreProvider>
     </ProjectProvider>
   );
 };

@@ -598,6 +598,84 @@
   gap: 10px;
 }
 
+.message-card-jarvis-actions {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jarvis-action-card {
+  border: 1px solid rgba(142, 141, 255, 0.18);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(120deg, rgba(18, 20, 40, 0.75), rgba(24, 28, 52, 0.55));
+  box-shadow: 0 4px 10px rgba(10, 12, 24, 0.35);
+}
+
+.jarvis-action-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jarvis-action-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: rgba(233, 236, 255, 0.92);
+}
+
+.jarvis-action-status {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(166, 170, 210, 0.85);
+}
+
+.jarvis-action-description {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(214, 218, 255, 0.75);
+}
+
+.jarvis-action-controls {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.jarvis-action-progress {
+  font-size: 12px;
+  color: rgba(214, 218, 255, 0.8);
+}
+
+.jarvis-action-result-label {
+  font-size: 11px;
+  color: rgba(166, 170, 210, 0.85);
+}
+
+.jarvis-action-result {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(12, 14, 28, 0.78);
+  border: 1px solid rgba(142, 141, 255, 0.14);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: rgba(219, 222, 255, 0.92);
+}
+
+.jarvis-action-error,
+.jarvis-action-error-message {
+  font-size: 12px;
+  color: #ff8c8c;
+}
+
 .message-card-media {
   display: flex;
   flex-direction: column;

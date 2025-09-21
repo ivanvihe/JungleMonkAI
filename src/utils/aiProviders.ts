@@ -2,6 +2,7 @@ import {
   ChatAttachment,
   ChatContentPart,
   ChatModality,
+  ChatSuggestedAction,
   ChatTranscription,
 } from '../core/messages/messageTypes';
 
@@ -21,6 +22,7 @@ export interface ChatProviderResponse {
   modalities: ChatModality[];
   attachments?: ChatAttachment[];
   transcriptions?: ChatTranscription[];
+  actions?: ChatSuggestedAction[];
 }
 
 const DEFAULT_MAX_TOKENS = 1024;

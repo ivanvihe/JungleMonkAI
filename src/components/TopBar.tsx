@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { LAUNCHPAD_PRESETS } from '../utils/launchpad';
 import './TopBar.css';
 
-interface TopBarProps {
+export interface TopBarProps {
   midiActive: boolean;
   midiDeviceName: string | null;
   midiDeviceCount: number;
@@ -18,6 +18,7 @@ interface TopBarProps {
   onClearAll: () => void;
   onOpenSettings: () => void;
   onOpenResources: () => void;
+  onOpenModelGallery?: () => void;
   launchpadAvailable: boolean;
   launchpadOutput: any | null;
   launchpadRunning: boolean;
@@ -44,6 +45,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onClearAll,
   onOpenSettings,
   onOpenResources,
+  onOpenModelGallery,
   launchpadAvailable,
   launchpadOutput,
   launchpadRunning,
@@ -108,6 +110,17 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* Center section - Actions and resources */}
         <div className="actions-section">
+          {onOpenModelGallery && (
+            <button
+              type="button"
+              onClick={onOpenModelGallery}
+              className="action-button"
+              title="Abrir gestor de modelos locales (🤗 Hugging Face)"
+              aria-label="Abrir gestor de modelos locales"
+            >
+              🤗
+            </button>
+          )}
           <button
             onClick={onOpenResources}
             className="action-button"

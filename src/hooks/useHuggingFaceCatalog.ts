@@ -11,6 +11,13 @@ export interface HuggingFaceModel {
   private?: boolean;
   tags: string[];
   cardData?: Record<string, unknown> | null;
+  files: HuggingFaceModelFile[];
+}
+
+export interface HuggingFaceModelFile {
+  fileName: string;
+  size?: number;
+  checksum?: string;
 }
 
 export interface CatalogFilters {
@@ -25,6 +32,7 @@ export interface UseHuggingFaceCatalogOptions {
   fetcher?: typeof fetch;
   initialSearch?: string;
   initialFilters?: CatalogFilters;
+  accessToken?: string;
 }
 
 export interface HuggingFaceCatalogResult {
@@ -82,6 +90,30 @@ const buildRequestUrl = (
   return new URL(`${normalizedBase}?${params.toString()}`);
 };
 
+const mapFiles = (entry: Record<string, unknown>): HuggingFaceModelFile[] => {
+  const siblingsRaw = entry.siblings;
+  if (!Array.isArray(siblingsRaw)) {
+    return [];
+  }
+
+  return siblingsRaw
+    .map(candidate => {
+      if (!candidate || typeof candidate !== 'object') {
+        return null;
+      }
+      const payload = candidate as Record<string, unknown>;
+      const fileName = typeof payload.rfilename === 'string' ? payload.rfilename : undefined;
+      if (!fileName) {
+        return null;
+      }
+      const size =
+        typeof payload.size === 'number' && Number.isFinite(payload.size) ? payload.size : undefined;
+      const checksum = typeof payload.sha256 === 'string' ? payload.sha256 : undefined;
+      return { fileName, size, checksum } satisfies HuggingFaceModelFile;
+    })
+    .filter((value): value is HuggingFaceModelFile => Boolean(value));
+};
+
 const mapModel = (entry: Record<string, unknown>): HuggingFaceModel | null => {
   const id = typeof entry.id === 'string' ? entry.id : null;
   if (!id) {
@@ -112,6 +144,7 @@ const mapModel = (entry: Record<string, unknown>): HuggingFaceModel | null => {
     private: isPrivate,
     tags,
     cardData,
+    files: mapFiles(entry),
   };
 };
 
@@ -125,6 +158,7 @@ export const useHuggingFaceCatalog = (
     fetcher = fetch,
     initialSearch = '',
     initialFilters = {},
+    accessToken,
   } = options;
 
   const [page, setPage] = useState(0);
@@ -168,7 +202,15 @@ export const useHuggingFaceCatalog = (
           effectivePageSize,
           effectiveMaxResults,
         );
-        const response = await fetcher(url.toString(), { signal });
+        const headers = new Headers();
+        if (accessToken) {
+          headers.set('Authorization', `Bearer ${accessToken}`);
+        }
+
+        const response = await fetcher(url.toString(), {
+          signal,
+          headers: headers.size ? headers : undefined,
+        });
         if (!response.ok) {
           throw new Error(`Catálogo Hugging Face: ${response.status} ${response.statusText}`);
         }

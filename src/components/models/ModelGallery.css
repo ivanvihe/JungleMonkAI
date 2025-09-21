@@ -42,6 +42,38 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.model-gallery__notice {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(77, 208, 225, 0.08);
+  border: 1px solid rgba(77, 208, 225, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: rgba(226, 244, 255, 0.85);
+}
+
+.model-gallery__notice button {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(77, 208, 225, 0.6);
+  background: rgba(77, 208, 225, 0.12);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.model-gallery__notice button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.model-gallery__notice button:not(:disabled):hover {
+  background: rgba(77, 208, 225, 0.25);
+}
+
 .model-gallery__error {
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;

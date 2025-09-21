@@ -10,6 +10,7 @@ import React, {
 import type { GlobalSettings } from '../../types/globalSettings';
 import {
   createJarvisCoreClient,
+  type DownloadModelPayload,
   type JarvisActionKind,
   type JarvisChatRequest,
   type JarvisChatResult,
@@ -58,8 +59,11 @@ export interface JarvisCoreContextValue {
   lastError: string | null;
   activeModel: string | null;
   downloads: Record<string, JarvisDownloadProgress>;
+  models: JarvisModelInfo[];
   ensureOnline: () => Promise<void>;
-  refreshModels: () => Promise<void>;
+  refreshModels: () => Promise<JarvisModelInfo[]>;
+  downloadModel: (modelId: string, payload: DownloadModelPayload) => Promise<JarvisModelInfo>;
+  activateModel: (modelId: string) => Promise<JarvisModelInfo>;
   invokeChat: (payload: JarvisChatRequest) => Promise<JarvisChatResult>;
   launchAction: <T = unknown>(kind: JarvisActionKind, payload: Record<string, unknown>) => Promise<T>;
 }
@@ -174,6 +178,7 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
   const [lastError, setLastError] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, JarvisDownloadProgress>>({});
+  const [models, setModels] = useState<JarvisModelInfo[]>([]);
   const [streaming, setStreaming] = useState(false);
 
   const mountedRef = useRef(false);
@@ -242,14 +247,15 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
         setConnected(false);
         setDownloads({});
         setActiveModel(null);
+        setModels([]);
       }
-      return;
+      return [];
     }
 
     try {
       const models = await client.listModels();
       if (!mountedRef.current) {
-        return;
+        return models;
       }
 
       let nextActive: string | null = null;
@@ -277,10 +283,12 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
       setConnected(true);
       setDownloads(nextDownloads);
       setActiveModel(nextActive);
+      setModels(models);
       setLastError(null);
+      return models;
     } catch (error) {
       if (!mountedRef.current) {
-        return;
+        return [];
       }
       setConnected(false);
       setLastError(
@@ -288,6 +296,8 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
           ? error.message
           : 'No se pudo sincronizar el estado del runtime de Jarvis.',
       );
+      setModels([]);
+      return [];
     }
   }, [client]);
 
@@ -478,18 +488,70 @@ export const JarvisCoreProvider: React.FC<JarvisCoreProviderProps> = ({
     [client],
   );
 
+  const downloadModel = useCallback(
+    async (modelId: string, payload: DownloadModelPayload) => {
+      if (!client) {
+        throw new Error('Jarvis Core no está disponible.');
+      }
+
+      const result = await client.downloadModel(modelId, payload);
+      if (mountedRef.current) {
+        setConnected(true);
+        if (result.progress) {
+          setDownloads(previous => ({
+            ...previous,
+            [modelId]: result.progress as JarvisDownloadProgress,
+          }));
+        }
+      }
+      return result;
+    },
+    [client],
+  );
+
+  const activateModel = useCallback(
+    async (modelId: string) => {
+      if (!client) {
+        throw new Error('Jarvis Core no está disponible.');
+      }
+
+      const result = await client.activateModel(modelId);
+      if (mountedRef.current) {
+        setConnected(true);
+        setActiveModel(result.model_id ?? modelId);
+      }
+      return result;
+    },
+    [client],
+  );
+
   const value = useMemo<JarvisCoreContextValue>(
     () => ({
       connected,
       lastError,
       activeModel,
       downloads,
+      models,
       ensureOnline,
       refreshModels,
+      downloadModel,
+      activateModel,
       invokeChat,
       launchAction,
     }),
-    [connected, lastError, activeModel, downloads, ensureOnline, refreshModels, invokeChat, launchAction],
+    [
+      connected,
+      lastError,
+      activeModel,
+      downloads,
+      models,
+      ensureOnline,
+      refreshModels,
+      downloadModel,
+      activateModel,
+      invokeChat,
+      launchAction,
+    ],
   );
 
   return <JarvisCoreContext.Provider value={value}>{children}</JarvisCoreContext.Provider>;

@@ -11,6 +11,7 @@ interface ModelManagerModalProps {
   storageDir: string | null;
   huggingFacePreferences: HuggingFacePreferences;
   onStorageDirChange: (nextPath: string | null) => void;
+  huggingFaceToken?: string;
 }
 
 const TASK_FILTERS: Array<{ value: string; label: string }> = [
@@ -63,6 +64,7 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
   storageDir,
   huggingFacePreferences,
   onStorageDirChange,
+  huggingFaceToken,
 }) => {
   const [syncToken, setSyncToken] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -86,6 +88,7 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
     maxResults: huggingFacePreferences.maxResults,
     initialSearch: '',
     initialFilters: {},
+    accessToken: huggingFacePreferences.useStoredToken ? huggingFaceToken : undefined,
   });
 
   const {
@@ -95,7 +98,12 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
     download,
     activate,
     refresh: refreshLocal,
+    connectionState,
+    startJarvis,
   } = useLocalModels({ storageDir, syncToken });
+
+  const isOnline = connectionState.status === 'online';
+  const isConnecting = connectionState.status === 'connecting';
 
   const localMap = useMemo(() => {
     const map = new Map<string, typeof localModels[number]>();
@@ -122,12 +130,29 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
   }, [setFilters, setPage, setSearch]);
 
   const handleDownload = useCallback(
-    async (modelId: string) => {
-      await download(modelId);
+    async (model: typeof catalogModels[number]) => {
+      const preferredFile =
+        model.files.find(file => file.fileName.toLowerCase().endsWith('.gguf')) ??
+        model.files.find(file => file.fileName.toLowerCase().endsWith('.safetensors')) ??
+        model.files[0];
+
+      if (!preferredFile) {
+        await download(model.id, { repoId: model.id });
+        setSyncToken(value => value + 1);
+        await refreshLocal();
+        return;
+      }
+
+      await download(model.id, {
+        repoId: model.id,
+        filename: preferredFile.fileName,
+        checksum: preferredFile.checksum,
+        hfToken: huggingFacePreferences.useStoredToken ? huggingFaceToken : undefined,
+      });
       setSyncToken(value => value + 1);
       await refreshLocal();
     },
-    [download, refreshLocal],
+    [download, refreshLocal, huggingFacePreferences.useStoredToken, huggingFaceToken],
   );
 
   const handleActivate = useCallback(
@@ -329,8 +354,8 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
                       {!isDownloading && !isReady && (
                         <button
                           type="button"
-                          onClick={() => void handleDownload(model.id)}
-                          disabled={isCatalogLoading || isLocalLoading}
+                          onClick={() => void handleDownload(model)}
+                          disabled={isCatalogLoading || isLocalLoading || !isOnline}
                         >
                           Descargar
                         </button>
@@ -339,7 +364,7 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
                         <button
                           type="button"
                           onClick={() => void handleActivate(model.id)}
-                          disabled={isLocalLoading}
+                          disabled={isLocalLoading || !isOnline}
                         >
                           Activar
                         </button>
@@ -363,6 +388,14 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
             <header>
               <h3>Modelos instalados</h3>
             </header>
+            {!isOnline && (
+              <div className="model-manager__notice" role="status">
+                <p>{connectionState.message}</p>
+                <button type="button" onClick={() => void startJarvis()} disabled={isConnecting}>
+                  Conectar JarvisCore
+                </button>
+              </div>
+            )}
             {localError && <div className="model-manager__error">{localError}</div>}
             <ul className="model-manager__local-list">
               {localModels.map(model => (
@@ -377,7 +410,11 @@ export const ModelManagerModal: React.FC<ModelManagerModalProps> = ({
                     </div>
                   )}
                   {model.status === 'ready' && !model.active && (
-                    <button type="button" onClick={() => void handleActivate(model.id)} disabled={isLocalLoading}>
+                    <button
+                      type="button"
+                      onClick={() => void handleActivate(model.id)}
+                      disabled={isLocalLoading || !isOnline}
+                    >
                       Activar
                     </button>
                   )}

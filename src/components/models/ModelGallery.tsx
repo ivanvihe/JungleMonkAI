@@ -17,7 +17,20 @@ const formatSize = (size: number): string => {
 };
 
 export const ModelGallery: React.FC = () => {
-  const { models, isLoading, error, download, activate, refresh } = useLocalModels();
+  const {
+    models,
+    isLoading,
+    error,
+    download,
+    activate,
+    refresh,
+    connectionState,
+    startJarvis,
+    isRemote,
+  } = useLocalModels();
+
+  const isOnline = connectionState.status === 'online';
+  const isConnecting = connectionState.status === 'connecting';
 
   return (
     <div className="model-gallery">
@@ -32,6 +45,15 @@ export const ModelGallery: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {!isOnline && (
+        <div className="model-gallery__notice" role="status">
+          <p>{connectionState.message}</p>
+          <button type="button" onClick={() => void startJarvis()} disabled={isConnecting}>
+            Conectar JarvisCore
+          </button>
+        </div>
+      )}
 
       {error && <div className="model-gallery__error">{error}</div>}
 
@@ -84,7 +106,11 @@ export const ModelGallery: React.FC = () => {
 
               <footer className="model-card__actions">
                 {model.status === 'not_installed' && (
-                  <button type="button" onClick={() => void download(model.id)} disabled={isLoading}>
+                  <button
+                    type="button"
+                    onClick={() => void download(model.id)}
+                    disabled={isLoading || !isRemote || !isOnline}
+                  >
                     Descargar
                   </button>
                 )}
@@ -95,7 +121,7 @@ export const ModelGallery: React.FC = () => {
                   </div>
                 )}
                 {model.status === 'ready' && !model.active && (
-                  <button type="button" onClick={() => void activate(model.id)}>
+                  <button type="button" onClick={() => void activate(model.id)} disabled={!isOnline}>
                     Activar
                   </button>
                 )}

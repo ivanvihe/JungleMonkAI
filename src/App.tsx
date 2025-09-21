@@ -138,6 +138,7 @@ const AppContent: React.FC<AppContentProps> = ({
         storageDir={settings.modelPreferences.storageDir}
         huggingFacePreferences={settings.modelPreferences.huggingFace}
         onStorageDirChange={handleModelStorageDirChange}
+        huggingFaceToken={apiKeys['huggingface']}
       />
 
       <OverlayModal

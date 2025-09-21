@@ -122,6 +122,8 @@ describe('JarvisCoreContext', () => {
 
     expect(result.current.activeModel).toBe('phi');
     expect(result.current.downloads.phi.percent).toBe(100);
+    expect(result.current.models).toHaveLength(1);
+    expect(result.current.models[0].model_id).toBe('phi');
   });
 
   it('integra actualizaciones de progreso provenientes del streaming', async () => {

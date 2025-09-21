@@ -19,6 +19,9 @@ vi.mock('../../../hooks/useHuggingFaceCatalog', () => ({
         likes: 230,
         lastModified: '2024-04-01T00:00:00Z',
         tags: [],
+        files: [
+          { fileName: 'remote-1.gguf', size: 1024, checksum: 'sha256-remote-1' },
+        ],
       },
     ],
     isLoading: false,
@@ -41,12 +44,12 @@ vi.mock('../../../hooks/useLocalModels', () => ({
       {
         id: 'remote-1',
         name: 'Remote Model',
-        description: 'ready model',
+        description: 'pending model',
         provider: 'Local',
         tags: [],
         size: 0,
         checksum: 'abc',
-        status: 'ready',
+        status: 'not_installed',
         localPath: '/models/remote-1',
         active: false,
         progress: 1,
@@ -59,7 +62,7 @@ vi.mock('../../../hooks/useLocalModels', () => ({
         tags: [],
         size: 0,
         checksum: 'def',
-        status: 'downloading',
+        status: 'ready',
         localPath: '/models/local-2',
         active: false,
         progress: 0.4,
@@ -70,6 +73,9 @@ vi.mock('../../../hooks/useLocalModels', () => ({
     refresh: refreshMock,
     download: downloadMock,
     activate: activateMock,
+    connectionState: { status: 'online', message: null, lastError: null },
+    startJarvis: vi.fn(),
+    isRemote: true,
   })),
 }));
 
@@ -101,10 +107,19 @@ describe('ModelManagerModal', () => {
     });
     expect(handleStorageChange).toHaveBeenCalledWith('/data/models');
 
+    fireEvent.click(screen.getAllByText('Descargar')[0]);
+
+    await waitFor(() => {
+      expect(downloadMock).toHaveBeenCalledWith(
+        'remote-1',
+        expect.objectContaining({ filename: 'remote-1.gguf', repoId: 'remote-1' }),
+      );
+    });
+
     fireEvent.click(screen.getAllByText('Activar')[0]);
 
     await waitFor(() => {
-      expect(activateMock).toHaveBeenCalledWith('remote-1');
+      expect(activateMock).toHaveBeenCalledWith('local-2');
     });
   });
 });

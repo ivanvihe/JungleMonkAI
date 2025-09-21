@@ -80,6 +80,7 @@ const AppContent: React.FC<AppContentProps> = ({
         <ChatTopBar
           agents={agents}
           presenceSummary={presenceSummary}
+          presenceMap={presenceMap}
           activeAgents={activeAgents.length}
           totalAgents={agents.length}
           pendingResponses={pendingResponses}
@@ -124,6 +125,7 @@ const AppContent: React.FC<AppContentProps> = ({
                     settings={settings}
                     onSettingsChange={onSettingsChange}
                     presenceMap={presenceMap}
+                    onActorFilterChange={setActorFilter}
                   />
                 </Flex>
               </Content>

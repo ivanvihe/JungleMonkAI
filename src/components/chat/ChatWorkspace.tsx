@@ -1,4 +1,21 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect } from 'react';
+import {
+  Space,
+  Typography,
+  Select,
+  Radio,
+  Badge,
+  Tag,
+  Button,
+  AutoComplete,
+  Input,
+  Spin,
+  message as antdMessage,
+} from 'antd';
+import type { RadioChangeEvent } from 'antd';
+import type { BadgeProps } from 'antd';
+import { SendOutlined, PaperClipOutlined, ThunderboltOutlined, LoadingOutlined } from '@ant-design/icons';
+import { VariableSizeList, type ListOnScrollProps, type ListChildComponentProps } from 'react-window';
 import { useAgents } from '../../core/agents/AgentContext';
 import { useMessages } from '../../core/messages/MessageContext';
 import { useConversationSuggestions } from '../../core/messages/useConversationSuggestions';
@@ -10,14 +27,16 @@ import { AgentKind } from '../../core/agents/agentRegistry';
 import type { AgentDefinition } from '../../core/agents/agentRegistry';
 import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
 import { MessageCard } from './messages/MessageCard';
-import { ChatCodeComposer } from './composer/ChatCodeComposer';
 import type { GlobalSettings, CommandPreset } from '../../types/globalSettings';
 import type { AgentPresenceEntry } from '../../core/agents/presence';
+
+const { TextArea } = Input;
 interface ChatWorkspaceProps {
   actorFilter: ChatActorFilter;
   settings: GlobalSettings;
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
   presenceMap: Map<string, AgentPresenceEntry>;
+  onActorFilterChange?: (next: ChatActorFilter) => void;
 }
 
 const COST_HINTS: Record<string, { badge: string; title: string }> = {
@@ -35,11 +54,19 @@ const PRESENCE_LABEL: Record<AgentPresenceEntry['status'], string> = {
   error: 'error',
 };
 
+const PRESENCE_STATUS_BADGE: Record<AgentPresenceEntry['status'], BadgeProps['status']> = {
+  online: 'success',
+  offline: 'default',
+  loading: 'processing',
+  error: 'error',
+};
+
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   actorFilter,
   settings,
   onSettingsChange,
   presenceMap,
+  onActorFilterChange,
 }) => {
   const { agents, agentMap } = useAgents();
   const {
@@ -69,9 +96,368 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   } = useMessages();
   const { dynamicSuggestions, recentCommands } = useConversationSuggestions();
 
-  const publicMessages = useMemo(
-    () => messages.filter(message => message.visibility !== 'internal'),
-    [messages],
+  const [messageTypeFilter, setMessageTypeFilter] = useState<'all' | 'public' | 'internal'>('public');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'sent'>('all');
+  const [visibleCount, setVisibleCount] = useState(40);
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const listRef = useRef<VariableSizeList>(null);
+  const sizeMap = useRef<Map<string, number>>(new Map());
+  const feedContainerRef = useRef<HTMLDivElement | null>(null);
+  const listOuterRef = useRef<HTMLDivElement | null>(null);
+  const [feedSize, setFeedSize] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const node = feedContainerRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      setFeedSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const messageCounts = useMemo(() => {
+    const counters = { public: 0, internal: 0, pending: 0, sent: 0 };
+    messages.forEach(message => {
+      const isInternal = message.visibility === 'internal';
+      if (isInternal) {
+        counters.internal += 1;
+      } else {
+        counters.public += 1;
+      }
+      if (message.status === 'pending') {
+        counters.pending += 1;
+      } else {
+        counters.sent += 1;
+      }
+    });
+    return counters;
+  }, [messages]);
+
+  const messageCountByAgent = useMemo(() => {
+    const map = new Map<string, number>();
+    messages.forEach(message => {
+      if (message.agentId) {
+        map.set(message.agentId, (map.get(message.agentId) ?? 0) + 1);
+      }
+    });
+    return map;
+  }, [messages]);
+
+  const authorCounts = useMemo(() => {
+    let userCount = 0;
+    let systemCount = 0;
+    const kindCounts: Record<AgentKind, number> = { cloud: 0, local: 0 };
+
+    messages.forEach(message => {
+      if (message.author === 'user') {
+        userCount += 1;
+      } else if (message.author === 'system') {
+        systemCount += 1;
+      }
+
+      if (message.agentId) {
+        const agent = agentMap.get(message.agentId);
+        if (agent) {
+          kindCounts[agent.kind] += 1;
+        }
+      }
+    });
+
+    return { user: userCount, system: systemCount, byKind: kindCounts };
+  }, [agentMap, messages]);
+
+  const typeFilteredMessages = useMemo(() => {
+    if (messageTypeFilter === 'all') {
+      return messages;
+    }
+    if (messageTypeFilter === 'public') {
+      return messages.filter(message => message.visibility !== 'internal');
+    }
+    return messages.filter(message => message.visibility === 'internal');
+  }, [messageTypeFilter, messages]);
+
+  const actorFilteredMessages = useMemo(() => {
+    if (actorFilter === 'all') {
+      return typeFilteredMessages;
+    }
+
+    if (actorFilter === 'user') {
+      return typeFilteredMessages.filter(message => message.author === 'user');
+    }
+
+    if (actorFilter === 'system') {
+      return typeFilteredMessages.filter(message => message.author === 'system');
+    }
+
+    if (actorFilter.startsWith('agent:')) {
+      const targetId = actorFilter.slice('agent:'.length);
+      return typeFilteredMessages.filter(message => message.agentId === targetId);
+    }
+
+    if (actorFilter.startsWith('kind:')) {
+      const kind = actorFilter.slice('kind:'.length) as AgentKind;
+      return typeFilteredMessages.filter(message => {
+        if (!message.agentId) {
+          return false;
+        }
+        const agent = agentMap.get(message.agentId);
+        return agent?.kind === kind;
+      });
+    }
+
+    return typeFilteredMessages;
+  }, [actorFilter, agentMap, typeFilteredMessages]);
+
+  const filteredMessages = useMemo(() => {
+    if (statusFilter === 'all') {
+      return actorFilteredMessages;
+    }
+    const isPending = statusFilter === 'pending';
+    return actorFilteredMessages.filter(message => {
+      const messageStatus = message.status ?? 'sent';
+      return isPending ? messageStatus === 'pending' : messageStatus !== 'pending';
+    });
+  }, [actorFilteredMessages, statusFilter]);
+
+  useEffect(() => {
+    if (filteredMessages.length === 0) {
+      setVisibleCount(0);
+      return;
+    }
+    setVisibleCount(prev => {
+      const baseline = Math.max(40, prev);
+      return Math.min(filteredMessages.length, baseline);
+    });
+  }, [filteredMessages.length]);
+
+  const visibleMessages = useMemo(() => {
+    if (visibleCount === 0) {
+      return [] as typeof filteredMessages;
+    }
+    return filteredMessages.slice(-visibleCount);
+  }, [filteredMessages, visibleCount]);
+
+  const getItemSize = useCallback(
+    (index: number) => {
+      const message = visibleMessages[index];
+      if (!message) {
+        return 240;
+      }
+      return sizeMap.current.get(message.id) ?? 240;
+    },
+    [visibleMessages],
+  );
+
+  const registerRowSize = useCallback(
+    (index: number, height: number) => {
+      const message = visibleMessages[index];
+      if (!message) {
+        return;
+      }
+      const nextSize = height + 24; // include spacing between bubbles
+      const currentSize = sizeMap.current.get(message.id);
+      if (currentSize !== nextSize) {
+        sizeMap.current.set(message.id, nextSize);
+        listRef.current?.resetAfterIndex(index);
+      }
+    },
+    [visibleMessages],
+  );
+
+  const ensureAutoScroll = useCallback(() => {
+    if (!isNearBottom) {
+      return;
+    }
+    if (!visibleMessages.length) {
+      return;
+    }
+    listRef.current?.scrollToItem(visibleMessages.length - 1, 'end');
+  }, [isNearBottom, visibleMessages.length]);
+
+  useEffect(() => {
+    ensureAutoScroll();
+  }, [ensureAutoScroll, visibleMessages.length]);
+
+  const handleListScroll = useCallback(
+    ({ scrollOffset }: ListOnScrollProps) => {
+      if (scrollOffset < 80 && visibleMessages.length < filteredMessages.length) {
+        setVisibleCount(prev => Math.min(filteredMessages.length, prev + 20));
+      }
+
+      const outer = listOuterRef.current;
+      if (!outer) {
+        return;
+      }
+      const maxOffset = outer.scrollHeight - outer.clientHeight;
+      setIsNearBottom(maxOffset - scrollOffset < 80);
+    },
+    [filteredMessages.length, visibleMessages.length],
+  );
+
+  const typingAgents = useMemo(() => {
+    const pendingIds = new Set(
+      filteredMessages
+        .filter(message => message.status === 'pending' && message.agentId)
+        .map(message => message.agentId as string),
+    );
+
+    return Array.from(pendingIds)
+      .map(agentId => {
+        const agent = agentMap.get(agentId);
+        if (!agent) {
+          return null;
+        }
+        return { agent, presence: presenceMap.get(agentId) };
+      })
+      .filter((entry): entry is { agent: AgentDefinition; presence?: AgentPresenceEntry } => Boolean(entry));
+  }, [agentMap, filteredMessages, presenceMap]);
+
+  const [autoCompleteOptions, setAutoCompleteOptions] = useState<
+    Array<{ value: string; label: React.ReactNode; commandText: string }>
+  >([]);
+
+  const actorFilterOptions = useMemo(() => {
+    const base: { value: ChatActorFilter; label: React.ReactNode }[] = [
+      {
+        value: 'all',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Todos</Typography.Text>
+            <Badge count={messages.length} size="small" showZero color="blue" />
+          </Space>
+        ),
+      },
+      {
+        value: 'user',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Usuario</Typography.Text>
+            <Badge count={authorCounts.user} size="small" showZero color="geekblue" />
+          </Space>
+        ),
+      },
+      {
+        value: 'system',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Control Hub</Typography.Text>
+            <Badge count={authorCounts.system} size="small" showZero color="purple" />
+          </Space>
+        ),
+      },
+    ];
+
+    (['cloud', 'local'] as AgentKind[]).forEach(kind => {
+      const total = authorCounts.byKind[kind];
+      if (total > 0) {
+        base.push({
+          value: `kind:${kind}` as ChatActorFilter,
+          label: (
+            <Space size="small" align="center">
+              <Typography.Text>{KIND_LABELS[kind]}</Typography.Text>
+              <Badge count={total} size="small" showZero color={kind === 'cloud' ? 'cyan' : 'green'} />
+            </Space>
+          ),
+        });
+      }
+    });
+
+    agents
+      .filter(agent => agent.active)
+      .forEach(agent => {
+        const presence = presenceMap.get(agent.id);
+        const status = presence ? PRESENCE_STATUS_BADGE[presence.status] : 'default';
+        const totalMessages = messageCountByAgent.get(agent.id) ?? 0;
+        base.push({
+          value: `agent:${agent.id}` as ChatActorFilter,
+          label: (
+            <Space size="small" align="center">
+              <Badge status={status} />
+              <Typography.Text>{getAgentDisplayName(agent)}</Typography.Text>
+              <Badge count={totalMessages} size="small" showZero color={agent.kind === 'cloud' ? 'magenta' : 'lime'} />
+            </Space>
+          ),
+        });
+      });
+
+    return base;
+  }, [agents, authorCounts, messageCountByAgent, messages.length, presenceMap]);
+
+  const messageTypeOptions = useMemo(
+    () => [
+      {
+        value: 'public',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Mensajes públicos</Typography.Text>
+            <Badge count={messageCounts.public} size="small" showZero color="blue" />
+          </Space>
+        ),
+      },
+      {
+        value: 'internal',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Notas internas</Typography.Text>
+            <Badge count={messageCounts.internal} size="small" showZero color="gold" />
+          </Space>
+        ),
+      },
+      {
+        value: 'all',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Todo el historial</Typography.Text>
+            <Badge count={messages.length} size="small" showZero />
+          </Space>
+        ),
+      },
+    ],
+    [messageCounts.internal, messageCounts.public, messages.length],
+  );
+
+  const statusFilterOptions = useMemo(
+    () => [
+      {
+        value: 'all',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Todos los estados</Typography.Text>
+            <Badge count={messages.length} size="small" showZero />
+          </Space>
+        ),
+      },
+      {
+        value: 'pending',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Pendientes</Typography.Text>
+            <Badge count={messageCounts.pending} size="small" showZero color="orange" />
+          </Space>
+        ),
+      },
+      {
+        value: 'sent',
+        label: (
+          <Space size="small" align="center">
+            <Typography.Text>Confirmados</Typography.Text>
+            <Badge count={messageCounts.sent} size="small" showZero color="green" />
+          </Space>
+        ),
+      },
+    ],
+    [messageCounts.pending, messageCounts.sent, messages.length],
   );
 
   type SuggestionChipType = 'dynamic' | 'command' | 'preset';
@@ -87,12 +473,64 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     onSelect: () => void;
   }
 
+  interface CommandOption {
+    value: string;
+    label: React.ReactNode;
+    commandText: string;
+  }
+
   const formatChipLabel = useCallback((value: string, maxLength = 70) => {
     if (value.length <= maxLength) {
       return value;
     }
     return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
   }, []);
+
+  const handleApplySuggestion = useCallback(
+    (text: string) => {
+      if (!text.trim()) {
+        return;
+      }
+      appendToDraft(text);
+    },
+    [appendToDraft],
+  );
+
+  const applyCommandPreset = useCallback(
+    (preset: CommandPreset) => {
+      if (typeof preset.prompt === 'string') {
+        setDraft(preset.prompt);
+      }
+
+      if (preset.targetMode === 'broadcast' || preset.targetMode === 'independent') {
+        setComposerTargetMode(preset.targetMode);
+      }
+
+      let resolvedAgentIds: string[] = [];
+      if (Array.isArray(preset.agentIds) && preset.agentIds.length > 0) {
+        resolvedAgentIds = preset.agentIds.filter(agentId => agentMap.has(agentId));
+      }
+
+      if (resolvedAgentIds.length === 0 && preset.provider && preset.model) {
+        const providerKey = preset.provider.trim().toLowerCase();
+        const normalizedModel = preset.model.trim();
+        const matchingAgent = agents.find(agent => {
+          return (
+            agent.provider.trim().toLowerCase() === providerKey &&
+            agent.model.trim() === normalizedModel
+          );
+        });
+        if (matchingAgent) {
+          resolvedAgentIds = [matchingAgent.id];
+        }
+      }
+
+      if (resolvedAgentIds.length > 0) {
+        setComposerTargetAgentIds(resolvedAgentIds);
+      }
+    },
+    [agentMap, agents, setComposerTargetAgentIds, setComposerTargetMode, setDraft],
+  );
 
   const suggestionChips = useMemo(() => {
     const chips: SuggestionChip[] = [];
@@ -172,51 +610,165 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     settings.commandPresets,
   ]);
 
-  const handleApplySuggestion = useCallback(
-    (text: string) => {
-      if (!text.trim()) {
+  const slashCommandPalette = useMemo<CommandOption[]>(
+    () =>
+      suggestionChips
+        .filter(chip => chip.text && chip.text.trim())
+        .map(chip => ({
+          value: chip.text ?? chip.label,
+          commandText: chip.text ?? chip.label,
+          label: (
+            <Space size="small" align="center">
+              <span aria-hidden="true">{chip.icon}</span>
+              <Typography.Text>{chip.label}</Typography.Text>
+              <Tag bordered={false}>{chip.badge}</Tag>
+            </Space>
+          ),
+        })),
+    [suggestionChips],
+  );
+
+  const handleAutoCompleteSearch = useCallback(
+    (value: string) => {
+      if (!value.startsWith('/')) {
+        setAutoCompleteOptions([]);
         return;
       }
-      appendToDraft(text);
+      const query = value.slice(1).toLowerCase();
+      const matches = slashCommandPalette.filter(option =>
+        option.commandText.toLowerCase().includes(query),
+      );
+      setAutoCompleteOptions(matches.slice(0, 8));
     },
-    [appendToDraft],
+    [slashCommandPalette],
   );
 
-  const applyCommandPreset = useCallback(
-    (preset: CommandPreset) => {
-      if (typeof preset.prompt === 'string') {
-        setDraft(preset.prompt);
-      }
+  const handleAutoCompleteSelect = useCallback(
+    (value: string, option: unknown) => {
+      const typed = option as Partial<CommandOption>;
+      const commandText = typed.commandText ?? value;
+      setDraft(commandText);
+      setAutoCompleteOptions([]);
+    },
+    [setDraft],
+  );
 
-      if (preset.targetMode === 'broadcast' || preset.targetMode === 'independent') {
-        setComposerTargetMode(preset.targetMode);
+  const handleDraftChange = useCallback(
+    (value: string) => {
+      setDraft(value);
+      if (composerError) {
+        setComposerError(null);
       }
+    },
+    [composerError, setDraft],
+  );
 
-      let resolvedAgentIds: string[] = [];
-      if (Array.isArray(preset.agentIds) && preset.agentIds.length > 0) {
-        resolvedAgentIds = preset.agentIds.filter(agentId => agentMap.has(agentId));
+  const handleMessageTypeChange = useCallback(
+    (event: RadioChangeEvent) => {
+      setMessageTypeFilter(event.target.value);
+    },
+    [],
+  );
+
+  const handleStatusFilterChange = useCallback(
+    (event: RadioChangeEvent) => {
+      setStatusFilter(event.target.value);
+    },
+    [],
+  );
+
+  const handleActorFilterSelect = useCallback(
+    (value: ChatActorFilter) => {
+      onActorFilterChange?.(value);
+    },
+    [onActorFilterChange],
+  );
+
+  const handleSendMessage = useCallback(() => {
+    const trimmed = draft.trim();
+    if (!trimmed && composerAttachments.length === 0) {
+      const errorText = 'Escribe un mensaje o adjunta un recurso antes de enviar.';
+      setComposerError(errorText);
+      antdMessage.warning(errorText);
+      return;
+    }
+
+    setComposerError(null);
+    setIsSending(true);
+    try {
+      sendMessage();
+    } catch (error) {
+      setIsSending(false);
+      setComposerError('No se pudo enviar el mensaje. Inténtalo de nuevo.');
+      antdMessage.error('No se pudo enviar el mensaje.');
+    }
+  }, [composerAttachments.length, draft, sendMessage]);
+
+  useEffect(() => {
+    if (isSending) {
+      setIsSending(false);
+    }
+  }, [isSending, lastUserMessage?.id]);
+
+  useEffect(() => {
+    if (composerAttachments.length > 0 || draft.trim()) {
+      setComposerError(null);
+    }
+  }, [composerAttachments.length, draft]);
+
+  const MessageRow: React.FC<ListChildComponentProps> = ({ index, style }) => {
+    const message = visibleMessages[index];
+    const rowRef = useRef<HTMLDivElement | null>(null);
+
+    useLayoutEffect(() => {
+      const node = rowRef.current;
+      if (!node || typeof ResizeObserver === 'undefined') {
+        return;
       }
-
-      if (resolvedAgentIds.length === 0 && preset.provider && preset.model) {
-        const providerKey = preset.provider.trim().toLowerCase();
-        const normalizedModel = preset.model.trim();
-        const matchingAgent = agents.find(agent => {
-          return (
-            agent.provider.trim().toLowerCase() === providerKey &&
-            agent.model.trim() === normalizedModel
-          );
-        });
-        if (matchingAgent) {
-          resolvedAgentIds = [matchingAgent.id];
+      const observer = new ResizeObserver(entries => {
+        const entry = entries[0];
+        if (entry) {
+          registerRowSize(index, entry.contentRect.height);
         }
-      }
+      });
+      observer.observe(node);
+      return () => observer.disconnect();
+    }, [index, registerRowSize]);
 
-      if (resolvedAgentIds.length > 0) {
-        setComposerTargetAgentIds(resolvedAgentIds);
-      }
-    },
-    [agentMap, agents, setComposerTargetAgentIds, setComposerTargetMode, setDraft],
-  );
+    if (!message) {
+      return null;
+    }
+
+    const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
+    const chipColor = agent?.accent || 'var(--accent-color)';
+    const agentDisplayName = agent ? getAgentDisplayName(agent) : undefined;
+    const providerLabel = agent
+      ? agent.kind === 'local'
+        ? getAgentVersionLabel(agent)
+        : agent.provider
+      : undefined;
+
+    return (
+      <div style={{ ...style, width: '100%' }}>
+        <div ref={rowRef} style={{ padding: '12px 0' }}>
+          <MessageCard
+            message={message}
+            chipColor={chipColor}
+            agentDisplayName={agentDisplayName}
+            providerLabel={providerLabel}
+            formatTimestamp={formatTimestamp}
+            onAppendToComposer={appendToDraft}
+            onShareMessage={(agentId, messageId, canonicalCode) =>
+              shareMessageWithAgent(agentId, messageId, { canonicalCode })
+            }
+            onLoadIntoDraft={loadMessageIntoDraft}
+            onTriggerAction={triggerAction}
+            onRejectAction={rejectAction}
+          />
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     const providerGate = new Set<string>();
@@ -449,290 +1001,268 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     [addAttachment, upsertTranscription],
   );
 
-  const filteredMessages = useMemo(() => {
-    if (actorFilter === 'all') {
-      return publicMessages;
-    }
-
-    if (actorFilter === 'user') {
-      return publicMessages.filter(message => message.author === 'user');
-    }
-
-    if (actorFilter === 'system') {
-      return publicMessages.filter(message => message.author === 'system');
-    }
-
-    if (actorFilter.startsWith('agent:')) {
-      const targetId = actorFilter.slice('agent:'.length);
-      return publicMessages.filter(message => message.agentId === targetId);
-    }
-
-    if (actorFilter.startsWith('kind:')) {
-      const kind = actorFilter.slice('kind:'.length) as AgentKind;
-      return publicMessages.filter(message => {
-        if (!message.agentId) {
-          return false;
-        }
-        const agent = agentMap.get(message.agentId);
-        return agent?.kind === kind;
-      });
-    }
-
-    return publicMessages;
-  }, [actorFilter, agentMap, publicMessages]);
-
   return (
     <div className="chat-workspace">
-      <section className="chat-feed" aria-label="Historial de mensajes">
-        <div className="message-feed">
-          {filteredMessages.length === 0 ? (
-            <div className="message-feed-empty">No hay mensajes para el filtro seleccionado.</div>
-          ) : (
-            filteredMessages.map(message => {
-              const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
-              const chipColor = agent?.accent || 'var(--accent-color)';
-              const agentDisplayName = agent ? getAgentDisplayName(agent) : undefined;
-              const providerLabel = agent
-                ? agent.kind === 'local'
-                  ? getAgentVersionLabel(agent)
-                  : agent.provider
-                : undefined;
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space wrap align="center" size="middle" className="workspace-filter-bar">
+          <Select
+            value={actorFilter}
+            onChange={value => handleActorFilterSelect(value as ChatActorFilter)}
+            options={actorFilterOptions}
+            style={{ minWidth: 220 }}
+            placeholder="Filtro de actores"
+            disabled={!onActorFilterChange}
+          />
+          <Radio.Group
+            value={messageTypeFilter}
+            onChange={handleMessageTypeChange}
+            optionType="button"
+            buttonStyle="solid"
+          >
+            {messageTypeOptions.map(option => (
+              <Radio.Button key={option.value} value={option.value}>
+                {option.label}
+              </Radio.Button>
+            ))}
+          </Radio.Group>
+          <Radio.Group
+            value={statusFilter}
+            onChange={handleStatusFilterChange}
+            optionType="button"
+            buttonStyle="solid"
+          >
+            {statusFilterOptions.map(option => (
+              <Radio.Button key={option.value} value={option.value}>
+                {option.label}
+              </Radio.Button>
+            ))}
+          </Radio.Group>
+        </Space>
 
-              return (
-                <MessageCard
-                  key={message.id}
-                  message={message}
-                  chipColor={chipColor}
-                  agentDisplayName={agentDisplayName}
-                  providerLabel={providerLabel}
-                  formatTimestamp={formatTimestamp}
-                  onAppendToComposer={appendToDraft}
-                  onShareMessage={(agentId, messageId, canonicalCode) =>
-                    shareMessageWithAgent(agentId, messageId, { canonicalCode })
-                  }
-                  onLoadIntoDraft={loadMessageIntoDraft}
-                  onTriggerAction={triggerAction}
-                  onRejectAction={rejectAction}
-                />
-              );
-            })
-          )}
-        </div>
-      </section>
-
-      <section className="chat-composer-area" aria-label="Redactor de mensajes">
-        <div className="chat-composer">
-          <div className="composer-header">
-            <div className="composer-routing-panel" aria-label="Selección de agentes">
-              <div className="routing-panel-header">
-                <span className="routing-panel-title">Destinatarios</span>
-                <div className="routing-panel-actions">
-                  <button
-                    type="button"
-                    className="routing-action"
-                    onClick={handleClearSelection}
-                    disabled={composerTargetAgentIds.length === 0}
-                  >
-                    Limpiar
-                  </button>
-                  <button
-                    type="button"
-                    className="routing-action"
-                    onClick={handleSavePreset}
-                    disabled={composerTargetAgentIds.length === 0}
-                  >
-                    Guardar preset
-                  </button>
-                </div>
+        <div className="chat-feed" aria-label="Historial de mensajes">
+          <div className="message-feed" ref={feedContainerRef}>
+            {filteredMessages.length === 0 ? (
+              <div className="message-feed-empty">No hay mensajes para el filtro seleccionado.</div>
+            ) : feedSize.height === 0 ? (
+              <div className="message-feed-loading">
+                <Spin indicator={<LoadingOutlined spin />} />
               </div>
-              <div className="routing-provider-grid">
-                {providerGroups.length === 0 ? (
-                  <p className="routing-empty">
-                    Activa agentes desde la barra lateral para planificar envíos colaborativos.
-                  </p>
-                ) : (
-                  providerGroups.map(group => {
-                    const selectedId = selectedByProvider.get(group.key) ?? null;
-                    const recommendedModel = defaultModelByProvider.get(group.key);
-                    const recommendedAgent = recommendedModel
-                      ? group.agents.find(agent => agent.active && agent.model === recommendedModel)
-                      : undefined;
-                    const fallbackAgent = group.agents.find(agent => agent.active) ?? group.agents[0];
-                    const displayAgent = selectedId
-                      ? group.agents.find(agent => agent.id === selectedId) ?? fallbackAgent
-                      : recommendedAgent ?? fallbackAgent;
-                    const presenceEntry = displayAgent ? presenceMap.get(displayAgent.id) : undefined;
-                    const costHint = getCostHint(displayAgent);
-                    const status = presenceEntry?.status ?? 'offline';
-                    const statusLabel = PRESENCE_LABEL[status as AgentPresenceEntry['status']] ?? 'sin datos';
-                    const latencyLabel = formatLatency(presenceEntry);
-                    const selectable = group.agents.some(agent => agent.active);
-
-                    return (
-                      <div
-                        key={group.key}
-                        className={`routing-provider ${selectedId ? 'is-selected' : ''} ${!selectable ? 'is-disabled' : ''}`}
-                      >
-                        <button
-                          type="button"
-                          className="routing-provider-toggle"
-                          onClick={() => handleToggleProvider(group.key, group.agents)}
-                          disabled={!selectable}
-                          aria-pressed={Boolean(selectedId)}
-                        >
-                          <span className="routing-provider-check" aria-hidden="true">
-                            {selectedId ? '☑' : '☐'}
-                          </span>
-                          <span className="routing-provider-name">{group.provider}</span>
-                          <span className="routing-provider-model">
-                            {displayAgent ? getAgentDisplayName(displayAgent) : 'Sin modelos disponibles'}
-                          </span>
-                          <span className="routing-provider-cost" title={costHint.title}>
-                            {costHint.badge}
-                          </span>
-                        </button>
-                        {group.agents.length > 1 && (
-                          <select
-                            className="routing-provider-select"
-                            value={selectedId ?? ''}
-                            onChange={event => handleAgentChoiceChange(event.target.value, group.agents)}
-                            disabled={!selectedId}
-                          >
-                            <option value="" disabled>
-                              Selecciona modelo…
-                            </option>
-                            {group.agents.map(agent => (
-                              <option key={agent.id} value={agent.id} disabled={!agent.active}>
-                                {getAgentDisplayName(agent)} ({agent.model})
-                                {!agent.active ? ' – inactivo' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <div className="routing-provider-meta">
-                          <span className={`routing-status routing-status--${status}`}>
-                            <span className="routing-status-dot" aria-hidden="true" />
-                            {statusLabel}
-                          </span>
-                          <span className="routing-latency">{latencyLabel}</span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <div className="routing-mode-row">
-                <label className="routing-mode-label">
-                  <span>Modo de envío</span>
-                  <select
-                    value={composerTargetMode}
-                    onChange={event =>
-                      setComposerTargetMode(event.target.value as 'broadcast' | 'independent')
-                    }
-                  >
-                    <option value="broadcast">Un único prompt para todos</option>
-                    <option value="independent">Duplicar y enviar por agente</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div className="chat-suggestions">
-              <span className="suggestions-label">Sugerencias</span>
-              <div className="suggestion-chip-row">
-                {suggestionChips.map(chip => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`suggestion-chip suggestion-chip--${chip.type}`}
-                    onClick={chip.onSelect}
-                    title={chip.title ?? chip.label}
-                    aria-label={`Insertar sugerencia: ${chip.label}`}
-                  >
-                    <span aria-hidden="true" className="suggestion-chip-icon">
-                      {chip.icon}
-                    </span>
-                    <span className="suggestion-chip-text">{chip.label}</span>
-                    <span className="suggestion-chip-badge">{chip.badge}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            {composerTranscriptions.length > 0 && (
-              <div className="composer-transcriptions">
-                {composerTranscriptions.map(transcription => (
-                  <div key={transcription.id} className="transcription-preview">
-                    <span className="transcription-label">{transcription.modality ?? 'audio'}</span>
-                    <span className="transcription-text">{transcription.text}</span>
-                    <button
-                      type="button"
-                      className="icon-button compact subtle"
-                      onClick={() => removeTranscription(transcription.id)}
-                      aria-label={`Eliminar transcripción ${transcription.modality ?? 'audio'}`}
-                      title="Eliminar transcripción"
-                    >
-                      <span aria-hidden="true">✕</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
+            ) : (
+              <VariableSizeList
+                ref={listRef}
+                outerRef={listOuterRef}
+                height={feedSize.height}
+                width={feedSize.width}
+                itemCount={visibleMessages.length}
+                itemSize={getItemSize}
+                itemKey={index => visibleMessages[index]?.id ?? index}
+                onScroll={handleListScroll}
+                overscanCount={8}
+              >
+                {MessageRow}
+              </VariableSizeList>
             )}
           </div>
-
-          <div className="composer-extensions">
-            <AttachmentPicker
-              attachments={composerAttachments}
-              onAdd={handleAddAttachments}
-              onRemove={handleRemoveAttachment}
-              triggerAriaLabel="Adjuntar archivos"
-              triggerTooltip="Adjuntar archivos"
-            />
-            <AudioRecorder onRecordingComplete={handleRecordingComplete} />
-          </div>
-
-          <ChatCodeComposer
-            value={draft}
-            setDraft={setDraft}
-            appendToDraft={appendToDraft}
-            onSend={sendMessage}
-            placeholder="Habla con varios agentes a la vez: por ejemplo “gpt, genera un esquema de estilos”"
-          />
-
-          <div className="composer-toolbar">
-            <div className="composer-hints">
-              <span>
-                Selecciona destinatarios en el panel superior o inicia la línea con «nombre:» para dirigirla a un
-                proveedor específico.
-              </span>
-              {lastUserMessage && (
-                <span className="composer-last">Último mensaje a las {formatTimestamp(lastUserMessage.timestamp)}</span>
-              )}
-              {composerModalities.length > 0 && (
-                <span className="composer-modalities">Modalidades: {composerModalities.join(', ')}</span>
-              )}
-            </div>
-            <div className="composer-actions">
-              <button
-                type="button"
-                className="icon-button compact subtle"
-                onClick={() => setDraft('')}
-                disabled={!draft.trim()}
-                aria-label="Limpiar borrador"
-                title="Limpiar borrador"
-              >
-                <span aria-hidden="true">🧹</span>
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={sendMessage}
-                disabled={!draft.trim() && composerAttachments.length === 0}
-              >
-                Enviar
-              </button>
-            </div>
-          </div>
         </div>
-      </section>
+
+        {typingAgents.length > 0 && (
+          <Space wrap size="small" className="typing-indicators">
+            {typingAgents.map(({ agent, presence }) => (
+              <Tag key={agent.id} color="processing" icon={<LoadingOutlined spin />}>
+                {getAgentDisplayName(agent)}{' '}
+                {presence?.status === 'loading' ? 'calibrando…' : 'escribiendo…'}
+              </Tag>
+            ))}
+          </Space>
+        )}
+
+        <div className="composer-routing">
+          <div className="composer-routing-header">
+            <Typography.Title level={5}>Destinatarios activos</Typography.Title>
+            <Space>
+              <Button type="text" size="small" onClick={handleClearSelection}>
+                Limpiar selección
+              </Button>
+              <Button type="text" size="small" icon={<ThunderboltOutlined />} onClick={handleSavePreset}>
+                Guardar preset
+              </Button>
+            </Space>
+          </div>
+          <div className="composer-routing-grid">
+            {providerGroups.length === 0 ? (
+              <div className="routing-empty">No hay proveedores configurados.</div>
+            ) : (
+              providerGroups.map(group => {
+                const selectedId = selectedByProvider.get(group.key) ?? null;
+                const recommendedModel = defaultModelByProvider.get(group.key);
+                const recommendedAgent = recommendedModel
+                  ? group.agents.find(agent => agent.active && agent.model === recommendedModel)
+                  : undefined;
+                const fallbackAgent = group.agents.find(agent => agent.active) ?? group.agents[0];
+                const displayAgent = selectedId
+                  ? group.agents.find(agent => agent.id === selectedId) ?? fallbackAgent
+                  : recommendedAgent ?? fallbackAgent;
+                const presenceEntry = displayAgent ? presenceMap.get(displayAgent.id) : undefined;
+                const costHint = getCostHint(displayAgent);
+                const status = presenceEntry?.status ?? 'offline';
+                const statusLabel = PRESENCE_LABEL[status as AgentPresenceEntry['status']] ?? 'sin datos';
+                const latencyLabel = formatLatency(presenceEntry);
+                const selectable = group.agents.some(agent => agent.active);
+
+                return (
+                  <div key={group.key} className="routing-provider-card">
+                    <Button
+                      type={selectedId ? 'primary' : 'default'}
+                      block
+                      onClick={() => handleToggleProvider(group.key, group.agents)}
+                      disabled={!selectable}
+                    >
+                      <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                        <Space align="center" justify="space-between">
+                          <Typography.Text strong>{group.provider}</Typography.Text>
+                          <Tag>{costHint.badge}</Tag>
+                        </Space>
+                        <Typography.Text type="secondary">
+                          {displayAgent ? getAgentDisplayName(displayAgent) : 'Sin modelos disponibles'}
+                        </Typography.Text>
+                      </Space>
+                    </Button>
+                    {group.agents.length > 1 && (
+                      <Select
+                        className="routing-provider-select"
+                        value={selectedId ?? undefined}
+                        onChange={value => handleAgentChoiceChange(value, group.agents)}
+                        placeholder="Selecciona modelo"
+                        disabled={!selectedId}
+                        options={group.agents.map(agent => ({
+                          label: `${getAgentDisplayName(agent)} (${agent.model})${agent.active ? '' : ' – inactivo'}`,
+                          value: agent.id,
+                          disabled: !agent.active,
+                        }))}
+                      />
+                    )}
+                    <Space size="small" className="routing-provider-meta">
+                      <Badge status={PRESENCE_STATUS_BADGE[status]} text={statusLabel} />
+                      <Typography.Text type="secondary">{latencyLabel}</Typography.Text>
+                    </Space>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <Space align="center" className="routing-mode-row">
+            <Typography.Text strong>Modo de envío</Typography.Text>
+            <Radio.Group
+              value={composerTargetMode}
+              onChange={event => setComposerTargetMode(event.target.value)}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="broadcast">Un único prompt para todos</Radio.Button>
+              <Radio.Button value="independent">Duplicar y enviar por agente</Radio.Button>
+            </Radio.Group>
+          </Space>
+        </div>
+
+        {suggestionChips.length > 0 && (
+          <Space wrap className="chat-suggestions" size="small">
+            {suggestionChips.map(chip => (
+              <Button key={chip.id} onClick={chip.onSelect} icon={<span>{chip.icon}</span>}>
+                <Space>
+                  <span>{chip.label}</span>
+                  <Tag bordered={false}>{chip.badge}</Tag>
+                </Space>
+              </Button>
+            ))}
+          </Space>
+        )}
+
+        {composerTranscriptions.length > 0 && (
+          <Space wrap className="composer-transcriptions" size="small">
+            {composerTranscriptions.map(transcription => (
+              <Tag
+                key={transcription.id}
+                closable
+                onClose={() => removeTranscription(transcription.id)}
+                color="processing"
+              >
+                {transcription.modality ?? 'audio'}: {transcription.text}
+              </Tag>
+            ))}
+          </Space>
+        )}
+
+        <Space align="center" size="middle">
+          <AttachmentPicker
+            attachments={composerAttachments}
+            onAdd={handleAddAttachments}
+            onRemove={handleRemoveAttachment}
+            triggerAriaLabel="Adjuntar archivos"
+            triggerTooltip="Adjuntar archivos"
+          />
+          <AudioRecorder onRecordingComplete={handleRecordingComplete} />
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={() => setAutoCompleteOptions(slashCommandPalette.slice(0, 6))}
+          >
+            Comandos rápidos
+          </Button>
+        </Space>
+
+        <AutoComplete
+          value={draft}
+          onChange={handleDraftChange}
+          onSearch={handleAutoCompleteSearch}
+          onSelect={handleAutoCompleteSelect}
+          options={autoCompleteOptions}
+          style={{ width: '100%' }}
+          placeholder="Escribe / para ver comandos disponibles"
+        >
+          <TextArea
+            rows={4}
+            onPressEnter={event => {
+              if (!event.shiftKey) {
+                event.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            autoSize={{ minRows: 4, maxRows: 8 }}
+          />
+        </AutoComplete>
+        {composerError && <Typography.Text type="danger">{composerError}</Typography.Text>}
+
+        <Space align="center" justify="space-between">
+          <Space size="small">
+            <Typography.Text type="secondary">
+              Selecciona destinatarios en el panel superior o inicia con «nombre:» para dirigir la petición.
+            </Typography.Text>
+            {lastUserMessage && (
+              <Typography.Text type="secondary">
+                Último mensaje a las {formatTimestamp(lastUserMessage.timestamp)}
+              </Typography.Text>
+            )}
+            {composerModalities.length > 0 && (
+              <Tag color="blue">Modalidades: {composerModalities.join(', ')}</Tag>
+            )}
+          </Space>
+          <Space>
+            <Button onClick={() => setDraft('')} disabled={!draft.trim() && composerAttachments.length === 0}>
+              Limpiar
+            </Button>
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handleSendMessage}
+              loading={isSending}
+              disabled={!draft.trim() && composerAttachments.length === 0}
+            >
+              Enviar
+            </Button>
+          </Space>
+        </Space>
+      </Space>
     </div>
   );
 };
+
+export default ChatWorkspace;

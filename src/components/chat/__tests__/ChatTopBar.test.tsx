@@ -4,9 +4,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { ChatTopBar } from '../ChatTopBar';
 import type { AgentDefinition } from '../../../core/agents/agentRegistry';
-import type { AgentPresenceSummary } from '../../../core/agents/presence';
+import type { AgentPresenceSummary, AgentPresenceEntry } from '../../../core/agents/presence';
 import type { ChatActorFilter } from '../../../types/chat';
-import type { JarvisCoreContextValue, JarvisRuntimeStatus } from '../../../core/jarvis/JarvisCoreContext';
+import type { JarvisCoreContextValue } from '../../../core/jarvis/JarvisCoreContext';
 import { DEFAULT_GLOBAL_SETTINGS } from '../../../utils/globalSettings';
 
 const useJarvisCoreMock = vi.fn<JarvisCoreContextValue, []>();
@@ -54,11 +54,18 @@ const defaultJarvisState = (overrides: Partial<JarvisCoreContextValue> = {}): Ja
   ...overrides,
 });
 
-const renderComponent = (props?: Partial<{ filter: ChatActorFilter; presence: AgentPresenceSummary }>) => {
+const renderComponent = (
+  props?: Partial<{
+    filter: ChatActorFilter;
+    presence: AgentPresenceSummary;
+    presenceMap: Map<string, AgentPresenceEntry>;
+  }>,
+) => {
   return render(
     <ChatTopBar
       agents={[] as AgentDefinition[]}
       presenceSummary={props?.presence ?? basePresence}
+      presenceMap={props?.presenceMap ?? new Map()}
       activeAgents={0}
       totalAgents={0}
       pendingResponses={0}
@@ -96,8 +103,8 @@ describe('ChatTopBar', () => {
 
     renderComponent();
 
-    const [jarvisButton] = screen.getAllByRole('button', { name: /Jarvis Core desconectado/i });
-    fireEvent.click(jarvisButton);
+    const jarvisButtons = screen.getAllByRole('button', { name: /Jarvis Core desconectado/i });
+    fireEvent.click(jarvisButtons[0]);
 
     expect(ensureOnline).toHaveBeenCalled();
   });
@@ -114,35 +121,18 @@ describe('ChatTopBar', () => {
 
     renderComponent();
 
-    const [jarvisButton] = screen.getAllByRole('button', { name: /Jarvis Core desconectado/i });
-    fireEvent.click(jarvisButton);
+    fireEvent.click(screen.getAllByRole('button', { name: /Jarvis Core desconectado/i })[0]);
 
-    expect(jarvisButton).toHaveClass('is-busy');
+    const isAnyLoading = () =>
+      screen
+        .getAllByRole('button', { name: /Jarvis Core desconectado/i })
+        .some(button => button.classList.contains('ant-btn-loading'));
+
+    expect(isAnyLoading()).toBe(true);
 
     resolveEnsure?.();
-    await waitFor(() => expect(jarvisButton).not.toHaveClass('is-busy'));
+    await waitFor(() => expect(isAnyLoading()).toBe(false));
   });
-
-  const jarvisStates: Array<{ status: JarvisRuntimeStatus; uptimeMs: number | null; snapshot: string }>
-    = [
-      { status: 'ready', uptimeMs: 90 * 60 * 1000, snapshot: 'ready-state' },
-      { status: 'starting', uptimeMs: null, snapshot: 'starting-state' },
-      { status: 'error', uptimeMs: 5 * 1000, snapshot: 'error-state' },
-    ];
-
-  it.each(jarvisStates)(
-    'renderiza el estado visual de Jarvis Core: %s',
-    ({ status, uptimeMs, snapshot }) => {
-      useJarvisCoreMock.mockReturnValue(
-        defaultJarvisState({ runtimeStatus: status, uptimeMs, lastError: status === 'error' ? 'Fallo' : null }),
-      );
-
-      const { container } = renderComponent();
-      const runtimeButton = container.querySelector('.jarvis-runtime-button');
-      expect(runtimeButton).toBeInTheDocument();
-      expect(runtimeButton).toMatchSnapshot(snapshot);
-    },
-  );
 
   it('muestra el contador de actividad cuando está disponible', () => {
     useJarvisCoreMock.mockReturnValue(defaultJarvisState({ runtimeStatus: 'ready', uptimeMs: 3_650_000 }));

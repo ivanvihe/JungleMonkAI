@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/api/dialog';
 import type { ProjectDraft } from '../../core/projects/ProjectContext';
 import { useProjects } from '../../core/projects/ProjectContext';
 import { isTauriEnvironment } from '../../core/storage/userDataPathsClient';
+import { DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES, registerExternalProviders } from '../../utils/globalSettings';
 
 interface DraftDefaults {
   defaultRemote?: string;
@@ -14,19 +15,38 @@ interface ProjectBindingPanelProps {
   defaults?: DraftDefaults;
 }
 
-const createDraft = (draft?: Partial<ProjectDraft> | null, defaults?: DraftDefaults): ProjectDraft => ({
-  id: draft?.id,
-  name: draft?.name ?? '',
-  repositoryPath: draft?.repositoryPath ?? '',
-  gitProvider: draft?.gitProvider ?? defaults?.defaultGitProvider,
-  gitOwner: draft?.gitOwner ?? defaults?.defaultGitOwner,
-  gitRepository: draft?.gitRepository ?? '',
-  defaultRemote: draft?.defaultRemote ?? defaults?.defaultRemote ?? 'origin',
-  defaultBranch: draft?.defaultBranch ?? '',
-  instructions: draft?.instructions ?? '',
-  preferredProvider: draft?.preferredProvider ?? '',
-  preferredModel: draft?.preferredModel ?? '',
-});
+const createDraft = (
+  source?: (Partial<ProjectDraft> & { orchestrator?: Partial<typeof DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES> }) | null,
+  defaults?: DraftDefaults,
+): ProjectDraft => {
+  const rawOrchestrator = source?.orchestrator;
+  const orchestrator = rawOrchestrator
+    ? { ...DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES, ...rawOrchestrator }
+    : { ...DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES };
+
+  const preferredProvider = source?.preferredProvider ?? orchestrator.primaryProvider ?? '';
+  const preferredModel = source?.preferredModel ?? orchestrator.primaryModel ?? '';
+
+  return {
+    id: source?.id,
+    name: source?.name ?? '',
+    repositoryPath: source?.repositoryPath ?? '',
+    gitProvider: source?.gitProvider ?? defaults?.defaultGitProvider,
+    gitOwner: source?.gitOwner ?? defaults?.defaultGitOwner,
+    gitRepository: source?.gitRepository ?? '',
+    defaultRemote: source?.defaultRemote ?? defaults?.defaultRemote ?? 'origin',
+    defaultBranch: source?.defaultBranch ?? '',
+    instructions: source?.instructions ?? '',
+    preferredProvider,
+    preferredModel,
+    orchestratorMode: orchestrator.mode,
+    fallbackProvider: orchestrator.fallbackProvider ?? '',
+    fallbackModel: orchestrator.fallbackModel ?? '',
+    retryLimit: orchestrator.retryLimit,
+    retryDelayMs: orchestrator.retryDelayMs,
+    degradationPolicy: orchestrator.degradationPolicy,
+  };
+};
 
 export const ProjectBindingPanel: React.FC<ProjectBindingPanelProps> = ({ defaults }) => {
   const { projects, activeProject, selectProject, upsertProject, removeProject } = useProjects();
@@ -78,7 +98,7 @@ export const ProjectBindingPanel: React.FC<ProjectBindingPanelProps> = ({ defaul
 
   const updateField = useCallback(
     (field: keyof ProjectDraft) =>
-      (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const value = event.target.value;
         setDraft(previous => ({ ...previous, [field]: value }));
         setError(null);
@@ -102,8 +122,26 @@ export const ProjectBindingPanel: React.FC<ProjectBindingPanelProps> = ({ defaul
     }
   }, [isDesktop]);
 
+  const handleRetryLimitChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = Number(event.target.value);
+      setDraft(previous => ({
+        ...previous,
+        retryLimit: Number.isFinite(value) ? value : previous.retryLimit,
+      }));
+      setError(null);
+    },
+    [],
+  );
+
   const handleSave = useCallback(() => {
     try {
+      const providers = [draft.preferredProvider, draft.fallbackProvider]
+        .map(value => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value): value is string => Boolean(value));
+      if (providers.length) {
+        registerExternalProviders(providers);
+      }
       const project = upsertProject(draft, { activate: selectedId === 'new' });
       setSelectedId(project.id);
       setDraft(createDraft(project, defaults));
@@ -210,6 +248,47 @@ export const ProjectBindingPanel: React.FC<ProjectBindingPanelProps> = ({ defaul
             value={draft.preferredModel ?? ''}
             onChange={updateField('preferredModel')}
             placeholder="gpt-4"
+          />
+        </label>
+        <label>
+          <span>Modo del orquestador</span>
+          <select value={draft.orchestratorMode ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.mode} onChange={updateField('orchestratorMode')}>
+            <option value="cloud">Forzar cloud</option>
+            <option value="local">Forzar local</option>
+            <option value="auto">Automático</option>
+          </select>
+        </label>
+        <label>
+          <span>Política de degradación</span>
+          <select value={draft.degradationPolicy ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.degradationPolicy} onChange={updateField('degradationPolicy')}>
+            <option value="on-error">Fallback al fallar</option>
+            <option value="none">Sin fallback</option>
+          </select>
+        </label>
+        <label>
+          <span>Proveedor de respaldo</span>
+          <input
+            value={draft.fallbackProvider ?? ''}
+            onChange={updateField('fallbackProvider')}
+            placeholder="anthropic"
+          />
+        </label>
+        <label>
+          <span>Modelo de respaldo</span>
+          <input
+            value={draft.fallbackModel ?? ''}
+            onChange={updateField('fallbackModel')}
+            placeholder="claude-3"
+          />
+        </label>
+        <label>
+          <span>Límite de reintentos</span>
+          <input
+            type="number"
+            min={1}
+            max={5}
+            value={draft.retryLimit ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.retryLimit}
+            onChange={handleRetryLimitChange}
           />
         </label>
         <label className="project-binding__span-2">

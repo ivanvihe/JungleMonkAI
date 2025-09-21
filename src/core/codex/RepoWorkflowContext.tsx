@@ -27,8 +27,9 @@ import { useProjects } from '../projects/ProjectContext';
 import { canUseDesktopGit, gitInvoke, isGitBackendUnavailableError } from '../../utils/runtimeBridge';
 import { useAgents } from '../agents/AgentContext';
 import type { AgentDefinition } from '../agents/agentRegistry';
-import type { ApiKeySettings } from '../../types/globalSettings';
+import type { ApiKeySettings, ProjectOrchestratorPreferences } from '../../types/globalSettings';
 import { useJarvisCore } from '../jarvis/JarvisCoreContext';
+import { DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES } from '../../utils/globalSettings';
 
 export type RepoWorkflowExecutionStatus = 'analyzing' | 'ready' | 'fallback' | 'error';
 
@@ -84,6 +85,12 @@ const RepoWorkflowContext = createContext<RepoWorkflowContextValue | undefined>(
 
 let externalQueueRequest: ((payload: QueuePayload) => void) | null = null;
 let externalSyncRepository: ((options: RepoSyncOptions) => Promise<string | null>) | null = null;
+
+interface ResolvedAgentSelection {
+  primary: AgentDefinition | null;
+  fallback: AgentDefinition | null;
+  preferences: ProjectOrchestratorPreferences;
+}
 
 export const enqueueRepoWorkflowRequest = (payload: QueuePayload): void => {
   if (!externalQueueRequest) {
@@ -183,26 +190,46 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const apiKeys = useMemo<ApiKeySettings>(() => buildApiKeySettingsFromAgents(agents), [agents]);
   const apiKeySignature = useMemo(() => computeApiKeySignature(apiKeys), [apiKeys]);
 
-  const resolvePreferredAgent = useCallback((): AgentDefinition | null => {
+  const resolvePreferredAgent = useCallback((): ResolvedAgentSelection => {
+    const basePreferences: ProjectOrchestratorPreferences = activeProject?.orchestrator
+      ? { ...DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES, ...activeProject.orchestrator }
+      : { ...DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES };
+
     if (!agents.length) {
-      return null;
+      return { primary: null, fallback: null, preferences: basePreferences };
     }
 
-    const preferredModel = activeProject?.preferredModel?.trim();
-    const preferredProvider = normalizePreference(activeProject?.preferredProvider);
-    const prioritized: AgentDefinition[] = [];
+    const mode = basePreferences.mode;
+    const filteredByMode =
+      mode === 'auto'
+        ? agents
+        : agents.filter(agent =>
+            mode === 'cloud' ? agent.kind === 'cloud' : agent.kind === 'local',
+          );
+    const candidatePool = filteredByMode.length ? filteredByMode : agents;
 
-    if (preferredModel) {
-      const modelMatches = agents.filter(agent => agent.model === preferredModel);
+    const primaryModel = basePreferences.primaryModel?.trim() || activeProject?.preferredModel?.trim() || '';
+    const primaryProvider = normalizePreference(
+      basePreferences.primaryProvider ?? activeProject?.preferredProvider,
+    );
+
+    const fallbackModel = basePreferences.fallbackModel?.trim() || '';
+    const fallbackProvider = normalizePreference(basePreferences.fallbackProvider);
+
+    const prioritized: AgentDefinition[] = [];
+    const fallbackMatches: AgentDefinition[] = [];
+
+    if (primaryModel) {
+      const modelMatches = candidatePool.filter(agent => agent.model === primaryModel);
       if (modelMatches.length) {
         mergeCandidateList(prioritized, modelMatches.filter(agent => agent.active));
         mergeCandidateList(prioritized, modelMatches);
       }
     }
 
-    if (preferredProvider) {
-      const providerMatches = agents.filter(
-        agent => normalizePreference(agent.provider) === preferredProvider,
+    if (primaryProvider) {
+      const providerMatches = candidatePool.filter(
+        agent => normalizePreference(agent.provider) === primaryProvider,
       );
       if (providerMatches.length) {
         mergeCandidateList(prioritized, providerMatches.filter(agent => agent.active));
@@ -210,30 +237,71 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     }
 
-    mergeCandidateList(prioritized, agents.filter(agent => agent.active));
-    mergeCandidateList(prioritized, agents);
+    if (basePreferences.degradationPolicy !== 'none') {
+      if (fallbackModel) {
+        const matches = candidatePool.filter(agent => agent.model === fallbackModel);
+        if (matches.length) {
+          mergeCandidateList(fallbackMatches, matches);
+        }
+      }
 
-    for (const candidate of prioritized) {
-      if (hasValidCredentials(candidate)) {
-        return candidate;
+      if (fallbackProvider) {
+        const matches = candidatePool.filter(
+          agent => normalizePreference(agent.provider) === fallbackProvider,
+        );
+        if (matches.length) {
+          mergeCandidateList(fallbackMatches, matches);
+        }
+      }
+
+      if (fallbackMatches.length) {
+        mergeCandidateList(prioritized, fallbackMatches.filter(agent => agent.active));
+        mergeCandidateList(prioritized, fallbackMatches);
       }
     }
 
-    return null;
-  }, [agents, activeProject?.preferredModel, activeProject?.preferredProvider]);
+    mergeCandidateList(prioritized, candidatePool.filter(agent => agent.active));
+    mergeCandidateList(prioritized, candidatePool);
+
+    const primary = prioritized.find(hasValidCredentials) ?? prioritized[0] ?? null;
+
+    let fallback: AgentDefinition | null = null;
+    if (basePreferences.degradationPolicy !== 'none') {
+      const eligible = fallbackMatches.length ? fallbackMatches : prioritized;
+      fallback = eligible.find(candidate => candidate !== primary && hasValidCredentials(candidate)) ??
+        eligible.find(candidate => candidate !== primary) ??
+        null;
+    }
+
+    return {
+      primary,
+      fallback,
+      preferences: basePreferences,
+    };
+  }, [
+    activeProject?.orchestrator,
+    activeProject?.preferredModel,
+    activeProject?.preferredProvider,
+    agents,
+  ]);
 
   const ensureOrchestrator = useCallback((): CodexOrchestrator | null => {
-    const agent = resolvePreferredAgent();
+    const { primary: agent, fallback: fallbackAgent, preferences } = resolvePreferredAgent();
     if (!agent) {
       return null;
     }
 
     const signature = [
       agent.id,
+      fallbackAgent?.id ?? '',
       activeProject?.id ?? '',
       apiKeySignature,
       activeProject?.instructions ?? '',
       agent.model,
+      preferences.mode,
+      preferences.degradationPolicy,
+      preferences.retryLimit.toString(),
+      preferences.retryDelayMs.toString(),
     ].join('|');
 
     const existing = orchestratorRef.current;
@@ -241,12 +309,17 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return existing.instance;
     }
 
+    const needsJarvis = agent.kind === 'local' || fallbackAgent?.kind === 'local';
     const orchestrator = new CodexOrchestrator({
       agent,
+      fallbackAgent: fallbackAgent ?? undefined,
+      degradationPolicy: preferences.degradationPolicy,
       apiKeys,
       engine: engineRef.current,
-      jarvisInvoker: agent.kind === 'local' ? invokeChat : null,
+      jarvisInvoker: needsJarvis ? invokeChat : null,
       projectInstructions: activeProject?.instructions,
+      retryAttempts: preferences.retryLimit,
+      retryDelayMs: preferences.retryDelayMs,
       onTrace: trace => {
         traceBufferRef.current = [...traceBufferRef.current, trace];
       },

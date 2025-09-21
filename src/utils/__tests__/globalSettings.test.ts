@@ -81,6 +81,9 @@ describe('globalSettings schema validation', () => {
     expect(project.defaultBranch).toBe('develop');
     expect(project.preferredProvider).toBe('OpenAI');
     expect(project.preferredModel).toBe('gpt-4');
+    expect(project.orchestrator?.primaryProvider).toBe('OpenAI');
+    expect(project.orchestrator?.primaryModel).toBe('gpt-4');
+    expect(project.orchestrator?.mode).toBe('cloud');
     expect(project.instructions).toBe('Revisar CI antes de desplegar.');
     expect(migrated.activeProjectId).toBe('demo');
   });

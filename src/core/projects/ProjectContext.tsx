@@ -2,8 +2,12 @@ import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import type {
   GitHostingProvider,
   GlobalSettings,
+  OrchestratorDegradationPolicy,
+  OrchestratorExecutionMode,
+  ProjectOrchestratorPreferences,
   ProjectProfile,
 } from '../../types/globalSettings';
+import { DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES } from '../../utils/globalSettings';
 
 interface ProjectProviderProps {
   settings: GlobalSettings;
@@ -23,6 +27,12 @@ export interface ProjectDraft {
   instructions?: string;
   preferredProvider?: string;
   preferredModel?: string;
+  orchestratorMode?: OrchestratorExecutionMode;
+  fallbackProvider?: string;
+  fallbackModel?: string;
+  retryLimit?: number;
+  retryDelayMs?: number;
+  degradationPolicy?: OrchestratorDegradationPolicy;
 }
 
 interface ProjectContextValue {
@@ -72,6 +82,24 @@ const sanitizeDraft = (draft: ProjectDraft): ProjectDraft => {
       ? (normalizedProvider as GitHostingProvider)
       : undefined;
 
+  const mode: OrchestratorExecutionMode =
+    draft.orchestratorMode && ['auto', 'cloud', 'local'].includes(draft.orchestratorMode)
+      ? draft.orchestratorMode
+      : DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.mode;
+
+  const degradation: OrchestratorDegradationPolicy =
+    draft.degradationPolicy && ['none', 'on-error'].includes(draft.degradationPolicy)
+      ? draft.degradationPolicy
+      : DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.degradationPolicy;
+
+  const retryLimit = Number.isFinite(draft.retryLimit)
+    ? Math.min(Math.max(Math.round(draft.retryLimit ?? 0), 1), 5)
+    : DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.retryLimit;
+
+  const retryDelayMs = Number.isFinite(draft.retryDelayMs)
+    ? Math.min(Math.max(Math.round(draft.retryDelayMs ?? 0), 0), 10_000)
+    : DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.retryDelayMs;
+
   return {
     ...draft,
     name: draft.name.trim(),
@@ -84,6 +112,12 @@ const sanitizeDraft = (draft: ProjectDraft): ProjectDraft => {
     instructions: draft.instructions?.trim() || undefined,
     preferredProvider: draft.preferredProvider?.trim() || undefined,
     preferredModel: draft.preferredModel?.trim() || undefined,
+    orchestratorMode: mode,
+    fallbackProvider: draft.fallbackProvider?.trim() || undefined,
+    fallbackModel: draft.fallbackModel?.trim() || undefined,
+    retryLimit,
+    retryDelayMs,
+    degradationPolicy: degradation,
   };
 };
 
@@ -138,6 +172,19 @@ export const ProjectProvider: React.FC<ProjectProviderProps> = ({
         const existingProjects = previous.projectProfiles;
         const id = ensureProjectId(sanitized, existingProjects);
 
+        const orchestrator: ProjectOrchestratorPreferences = {
+          ...DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES,
+          mode: sanitized.orchestratorMode ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.mode,
+          primaryProvider: sanitized.preferredProvider,
+          primaryModel: sanitized.preferredModel,
+          fallbackProvider: sanitized.fallbackProvider,
+          fallbackModel: sanitized.fallbackModel,
+          retryLimit: sanitized.retryLimit ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.retryLimit,
+          retryDelayMs: sanitized.retryDelayMs ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.retryDelayMs,
+          degradationPolicy:
+            sanitized.degradationPolicy ?? DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES.degradationPolicy,
+        };
+
         createdProfile = {
           id,
           name: sanitized.name,
@@ -148,8 +195,9 @@ export const ProjectProvider: React.FC<ProjectProviderProps> = ({
           defaultRemote: sanitized.defaultRemote,
           defaultBranch: sanitized.defaultBranch,
           instructions: sanitized.instructions,
-          preferredProvider: sanitized.preferredProvider,
-          preferredModel: sanitized.preferredModel,
+          preferredProvider: orchestrator.primaryProvider,
+          preferredModel: orchestrator.primaryModel,
+          orchestrator,
         };
 
         const projectIndex = existingProjects.findIndex(project => project.id === id);

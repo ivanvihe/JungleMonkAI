@@ -119,6 +119,8 @@ class ModelRegistry:
         self._lock = asyncio.Lock()
         self._progress_lock = Lock()
         self._progress: Dict[str, Dict[str, Any]] = {}
+        self._subscriber_lock = Lock()
+        self._subscribers: set[asyncio.Queue[Dict[str, Any]]] = set()
         self._tasks: Dict[str, asyncio.Task[Any]] = {}
         self._models: Dict[str, ModelMetadata] = {}
         self._load()
@@ -151,6 +153,10 @@ class ModelRegistry:
     async def list_models(self) -> List[Dict[str, Any]]:
         async with self._lock:
             return [metadata.to_dict() for metadata in self._models.values()]
+
+    def get_all_progress(self) -> Dict[str, Dict[str, Any]]:
+        with self._progress_lock:
+            return {key: dict(value) for key, value in self._progress.items()}
 
     async def get_metadata(self, model_id: str) -> ModelMetadata:
         async with self._lock:
@@ -224,6 +230,8 @@ class ModelRegistry:
             metadata.active_path = metadata.local_path
             self._save()
 
+            self.notify_progress(model_id, metadata=metadata, event="activation")
+
             return metadata.to_dict()
 
     async def remove_model(self, model_id: str) -> None:
@@ -264,6 +272,41 @@ class ModelRegistry:
                 raise ModelNotFoundError(f"No progress tracked for model '{model_id}'")
             return dict(progress)
 
+    def subscribe_progress(self) -> asyncio.Queue[Dict[str, Any]]:
+        queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+        with self._subscriber_lock:
+            self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe_progress(self, queue: asyncio.Queue[Dict[str, Any]]) -> None:
+        with self._subscriber_lock:
+            self._subscribers.discard(queue)
+
+    def notify_progress(
+        self,
+        model_id: str,
+        *,
+        event: str = "progress",
+        metadata: Optional[ModelMetadata] = None,
+    ) -> None:
+        with self._subscriber_lock:
+            subscribers = list(self._subscribers)
+
+        with self._progress_lock:
+            progress_snapshot = dict(self._progress.get(model_id, {}))
+
+        payload: Dict[str, Any] = {"type": event, "model_id": model_id}
+        if progress_snapshot:
+            payload["progress"] = progress_snapshot
+        if metadata is not None:
+            payload["metadata"] = metadata.to_dict()
+
+        for queue in subscribers:
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:  # pragma: no cover - defensive
+                LOGGER.debug("Progress queue full for %s; dropping event", model_id)
+
     async def shutdown(self) -> None:
         for task in list(self._tasks.values()):
             task.cancel()
@@ -300,6 +343,7 @@ class ModelRegistry:
                 "error": None,
                 "error_code": None,
             }
+        self.notify_progress(model_id)
 
     def _update_progress(
         self,
@@ -338,6 +382,7 @@ class ModelRegistry:
                 entry["percent"] = round((entry["downloaded"] / total_bytes) * 100, 2)
             else:
                 entry["percent"] = None
+        self.notify_progress(model_id)
 
     async def _download_and_finalize(
         self, metadata: ModelMetadata, *, hf_token: Optional[str]
@@ -426,6 +471,7 @@ class ModelRegistry:
             metadata.local_path = None
             self._models[model_id] = metadata
             self._save()
+        self.notify_progress(model_id, metadata=metadata)
 
     def _download_file(self, metadata: ModelMetadata, hf_token: Optional[str]) -> str:
         if not metadata.repo_id or not metadata.filename:

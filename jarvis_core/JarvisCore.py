@@ -444,6 +444,34 @@ def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
         except ModelRegistryError as error:
             raise HTTPException(status_code=error.status_code, detail=error.message) from error
 
+    @app.get("/models/stream")
+    async def models_stream(request: Request) -> StreamingResponse:
+        queue = registry.subscribe_progress()
+        initial_models = await registry.list_models()
+        initial_progress = registry.get_all_progress()
+
+        async def event_stream() -> AsyncGenerator[str, None]:
+            try:
+                snapshot = {
+                    "type": "snapshot",
+                    "models": initial_models,
+                    "progress": initial_progress,
+                }
+                yield _format_sse_event(snapshot)
+
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=15)
+                        yield _format_sse_event(event)
+                    except asyncio.TimeoutError:
+                        if await request.is_disconnected():
+                            break
+                        yield ": keep-alive\n\n"
+            finally:
+                registry.unsubscribe_progress(queue)
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
     @app.post("/actions/open")
     async def action_open(payload: ActionPathRequest) -> Dict[str, Any]:
         target = _resolve_allowed_path(payload.path, allowed_roots)

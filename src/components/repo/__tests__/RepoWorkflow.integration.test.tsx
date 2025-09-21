@@ -194,20 +194,41 @@ describe.each(['tauri', 'electron'] as const)(
       </ProjectWrapper>,
     );
 
-    const sendButtons = screen.getAllByText('Enviar a Repo Studio');
-    fireEvent.click(sendButtons[0]);
+    const actionTriggers = screen.getAllByRole('button', { name: 'Abrir menú de acciones' });
+    let sendButton: HTMLButtonElement | null = null;
+    for (const trigger of actionTriggers) {
+      fireEvent.click(trigger);
+      try {
+        const candidate = (await screen.findByRole('button', {
+          name: 'Enviar a Repo Studio',
+          hidden: false,
+        }, { timeout: 250 })) as HTMLButtonElement;
+        sendButton = candidate;
+        break;
+      } catch {
+        // Si el botón no aparece, probamos con el siguiente trigger
+      }
+    }
+
+    expect(sendButton).not.toBeNull();
+    fireEvent.click(sendButton!);
 
     const [analysisField] = await screen.findAllByPlaceholderText(
       'Describe qué cambios necesitas (usa `rutas/relativas` para guiar al motor).',
     );
-    await waitFor(() => expect((analysisField as HTMLTextAreaElement).value).toBe(canonicalSnippet));
+    await waitFor(
+      () => expect((analysisField as HTMLTextAreaElement).value).toBe(canonicalSnippet),
+      { timeout: 2000 },
+    );
 
-    await waitFor(() =>
-      expect(gitInvokeMock).toHaveBeenCalledWith('git_pull_repository', {
-        repoPath: '/tmp/demo',
-        remote: 'origin',
-        branch: 'main',
-      }),
+    await waitFor(
+      () =>
+        expect(gitInvokeMock).toHaveBeenCalledWith('git_pull_repository', {
+          repoPath: '/tmp/demo',
+          remote: 'origin',
+          branch: 'main',
+        }),
+      { timeout: 2000 },
     );
 
     const syncMessages = await screen.findAllByText(/Sincronización completada:/);

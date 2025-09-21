@@ -10,6 +10,7 @@ import { AgentKind } from '../../core/agents/agentRegistry';
 import type { AgentDefinition } from '../../core/agents/agentRegistry';
 import { getAgentDisplayName, getAgentVersionLabel } from '../../utils/agentDisplay';
 import { MessageCard } from './messages/MessageCard';
+import { ChatCodeComposer } from './composer/ChatCodeComposer';
 import type { GlobalSettings, CommandPreset } from '../../types/globalSettings';
 import type { AgentPresenceEntry } from '../../core/agents/presence';
 interface ChatWorkspaceProps {
@@ -688,12 +689,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <AudioRecorder onRecordingComplete={handleRecordingComplete} />
           </div>
 
-          <textarea
+          <ChatCodeComposer
             value={draft}
-            onChange={event => setDraft(event.target.value)}
+            setDraft={setDraft}
+            appendToDraft={appendToDraft}
+            onSend={sendMessage}
             placeholder="Habla con varios agentes a la vez: por ejemplo “gpt, genera un esquema de estilos”"
-            className="chat-input"
-            rows={3}
           />
 
           <div className="composer-toolbar">

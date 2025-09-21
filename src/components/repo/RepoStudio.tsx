@@ -2,10 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { open as openDialog } from '@tauri-apps/api/dialog';
 import { join } from '@tauri-apps/api/path';
 import {
+  CodexCommitSuggestion,
   CodexEngine,
+  CodexOrchestratorTrace,
   CodexPlan,
   CodexPlanExecution,
+  CodexPlanWithAnalysis,
+  CodexRepositoryDiff,
   CodexReview,
+  CodexSuggestedPatch,
+  CodexPullRequestSummary,
   RepoWorkflowRequest,
   useRepoWorkflow,
 } from '../../core/codex';
@@ -114,6 +120,12 @@ export const RepoStudio: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [patchContent, setPatchContent] = useState<string>('');
   const [patchDryRun, setPatchDryRun] = useState<boolean>(true);
+  const [enrichedPlan, setEnrichedPlan] = useState<CodexPlanWithAnalysis | null>(null);
+  const [suggestedPatch, setSuggestedPatch] = useState<CodexSuggestedPatch | null>(null);
+  const [repositoryDiffs, setRepositoryDiffs] = useState<CodexRepositoryDiff[]>([]);
+  const [suggestedCommit, setSuggestedCommit] = useState<CodexCommitSuggestion | null>(null);
+  const [suggestedPullRequest, setSuggestedPullRequest] = useState<CodexPullRequestSummary | null>(null);
+  const [orchestratorTraces, setOrchestratorTraces] = useState<CodexOrchestratorTrace[]>([]);
   const [repoContext, setRepoContext] = useState<RepoContextSummary | null>(null);
   const [isContextLoading, setIsContextLoading] = useState<boolean>(false);
   const [contextError, setContextError] = useState<string | null>(null);
@@ -138,6 +150,81 @@ export const RepoStudio: React.FC = () => {
 
   const planReady = execution?.readyToExecute ?? false;
 
+  const planForDisplay = useMemo<CodexPlanWithAnalysis | null>(() => {
+    if (enrichedPlan) {
+      return enrichedPlan;
+    }
+    if (!plan) {
+      return null;
+    }
+    return {
+      ...plan,
+      steps: plan.steps.map(step => ({ ...step })),
+    } as CodexPlanWithAnalysis;
+  }, [enrichedPlan, plan]);
+
+  const isWorkflowInProgress = pendingRequest?.status === 'analyzing';
+
+  const workflowBanner = useMemo(() => {
+    if (isWorkflowInProgress) {
+      return {
+        tone: 'info' as const,
+        title: 'Analizando solicitud…',
+        message: 'El orquestador está generando artefactos sugeridos para el repositorio.',
+      };
+    }
+
+    if (activeWorkflow?.status === 'fallback' || activeWorkflow?.status === 'error') {
+      const details = (activeWorkflow.analysisErrors ?? [])
+        .map(detail => detail.trim())
+        .filter(Boolean);
+      const tone = activeWorkflow.status === 'fallback' ? ('warning' as const) : ('error' as const);
+      const title =
+        activeWorkflow.status === 'fallback'
+          ? 'Resultado parcial del orquestador'
+          : 'Análisis remoto fallido';
+      const message =
+        activeWorkflow.status === 'fallback'
+          ? 'Se utilizarán los artefactos generados disponibles junto con el plan local.'
+          : 'Repo Studio continuará con el plan local hasta que el orquestador se recupere.';
+      return { tone, title, message, details: details.length ? details : undefined };
+    }
+
+    return null;
+  }, [isWorkflowInProgress, activeWorkflow?.status, activeWorkflow?.analysisErrors]);
+
+  const workflowRisk =
+    activeWorkflow?.request.context.riskLevel ??
+    pendingRequest?.request.context.riskLevel ??
+    'medium';
+
+  const riskLabel = workflowRisk === 'high' ? 'Alto' : workflowRisk === 'low' ? 'Bajo' : 'Medio';
+
+  const analysisStatusLabel = useMemo(() => {
+    const status = activeWorkflow?.analysisStatus ?? pendingRequest?.analysisStatus ?? null;
+    if (status === 'success') {
+      return 'Análisis completo';
+    }
+    if (status === 'fallback') {
+      return 'Análisis parcial';
+    }
+    if (status === 'error') {
+      return 'Análisis fallido';
+    }
+    return null;
+  }, [activeWorkflow?.analysisStatus, pendingRequest?.analysisStatus]);
+
+  const providerMetadata = activeWorkflow?.providerMetadata;
+  const hasSuggestedPatch = Boolean(suggestedPatch?.diff?.trim());
+  const patchConfidence =
+    typeof suggestedPatch?.confidence === 'number' ? suggestedPatch.confidence : null;
+  const diffPreviewEntries = useMemo(() => repositoryDiffs.slice(0, 3), [repositoryDiffs]);
+  const hasExtraDiffs = repositoryDiffs.length > diffPreviewEntries.length;
+  const prHighlights = useMemo(
+    () => (suggestedPullRequest?.highlights ?? []).map(entry => entry.trim()).filter(Boolean),
+    [suggestedPullRequest?.highlights],
+  );
+
   const updateExecution = useCallback((currentPlan: CodexPlan | null, currentReviews: CodexReview[]) => {
     setExecution(ensurePlanApproval(currentPlan, currentReviews));
   }, []);
@@ -147,6 +234,18 @@ export const RepoStudio: React.FC = () => {
       return error.message;
     }
     return (error as Error)?.message ?? fallback;
+  }, []);
+
+  const formatTraceTimestamp = useCallback((value: string): string => {
+    try {
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+      return parsed.toLocaleTimeString();
+    } catch {
+      return value;
+    }
   }, []);
 
   const remoteInfo = useMemo(() => {
@@ -309,6 +408,14 @@ export const RepoStudio: React.FC = () => {
 
   useEffect(() => {
     if (!pendingRequest || pendingRequest.status === 'analyzing') {
+      if (pendingRequest?.status === 'analyzing') {
+        setSuggestedPatch(null);
+        setSuggestedCommit(null);
+        setSuggestedPullRequest(null);
+        setRepositoryDiffs([]);
+        setOrchestratorTraces([]);
+        setEnrichedPlan(pendingRequest.enrichedPlan ?? null);
+      }
       return;
     }
 
@@ -385,13 +492,29 @@ export const RepoStudio: React.FC = () => {
         message: `Solicitud recibida desde el chat: ${pendingRequest.plan.summary}`,
       });
 
+      const commitSuggestion =
+        pendingRequest.suggestedCommits.find(entry => entry.message?.trim()) ?? null;
+      const patchSuggestion =
+        pendingRequest.suggestedPatches.find(entry => entry.diff?.trim()) ?? null;
+      const pullRequestSuggestion = pendingRequest.suggestedPullRequest ?? null;
+
       setMessages(prev => [...syncMessages, ...prev]);
       setActiveWorkflow(pendingRequest);
       setAnalysisPrompt(pendingRequest.analysisPrompt);
       setPlan(pendingRequest.plan);
-      setCommitMessage(pendingRequest.commitMessage);
-      setPrTitle(pendingRequest.prTitle);
+      setEnrichedPlan(pendingRequest.enrichedPlan ?? null);
+      setSuggestedCommit(commitSuggestion);
+      setSuggestedPatch(patchSuggestion ?? null);
+      setSuggestedPullRequest(pullRequestSuggestion ?? null);
+      setRepositoryDiffs(pendingRequest.repositorySnapshot?.diffs ?? []);
+      setOrchestratorTraces(pendingRequest.providerTraces ?? []);
+      setCommitMessage(commitSuggestion?.message?.trim() || pendingRequest.commitMessage);
+      setPrTitle(
+        pullRequestSuggestion?.title?.trim() || pendingRequest.prTitle || pendingRequest.plan.intent,
+      );
       setPrBody(pendingRequest.prBody);
+      setPatchContent(patchSuggestion?.diff ?? '');
+      setPatchDryRun(Boolean(pendingRequest.plan.safeguards.dryRun));
       setReviews([]);
       updateExecution(pendingRequest.plan, []);
       setAutoPrTriggered(false);
@@ -453,6 +576,12 @@ export const RepoStudio: React.FC = () => {
       preferDryRun: true,
     });
     setPlan(newPlan);
+    setEnrichedPlan(null);
+    setSuggestedPatch(null);
+    setSuggestedCommit(null);
+    setSuggestedPullRequest(null);
+    setRepositoryDiffs([]);
+    setOrchestratorTraces([]);
     setCommitMessage(`chore: ${newPlan.intent}`);
     setPrTitle(newPlan.intent);
     setPrBody(`${newPlan.summary}\n\n- Pasos:\n${newPlan.steps.map(step => `  - ${step.description}`).join('\n')}`);
@@ -466,6 +595,15 @@ export const RepoStudio: React.FC = () => {
     }
     const nextPlan = engine.withApproval(plan, stepId, approved);
     setPlan(nextPlan);
+    setEnrichedPlan(current => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        steps: current.steps.map(step => (step.id === stepId ? { ...step, approved } : step)),
+      };
+    });
     updateExecution(nextPlan, reviews);
   };
 
@@ -475,6 +613,18 @@ export const RepoStudio: React.FC = () => {
     }
     const nextPlan = engine.toggleDryRun(plan, dryRun);
     setPlan(nextPlan);
+    setEnrichedPlan(current => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        safeguards: {
+          ...current.safeguards,
+          dryRun,
+        },
+      };
+    });
     updateExecution(nextPlan, reviews);
   };
 
@@ -504,6 +654,11 @@ export const RepoStudio: React.FC = () => {
   }, [plan]);
 
   const runCommit = async () => {
+    if (isWorkflowInProgress) {
+      setError('Espera a que finalice el análisis antes de continuar.');
+      return;
+    }
+
     if (!plan) {
       setError('Genera un plan antes de commitear.');
       return;
@@ -534,6 +689,11 @@ export const RepoStudio: React.FC = () => {
   };
 
   const runPush = async () => {
+    if (isWorkflowInProgress) {
+      setError('Espera a que finalice el análisis antes de continuar.');
+      return;
+    }
+
     if (!execution?.readyToExecute) {
       setError('Confirma el plan antes de enviar los cambios al remoto.');
       return;
@@ -659,6 +819,11 @@ export const RepoStudio: React.FC = () => {
   );
 
   const runPullRequest = async () => {
+    if (isWorkflowInProgress) {
+      setError('Espera a que finalice el análisis antes de continuar.');
+      return;
+    }
+
     if (!prTitle.trim() || !prHead.trim() || !prOwner.trim() || !prRepository.trim()) {
       setError('Completa título, ramas y coordenadas del repositorio antes de crear el PR/MR.');
       return;
@@ -693,7 +858,13 @@ export const RepoStudio: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!autoPrEnabled || autoPrTriggered || !execution?.readyToExecute || !activeWorkflow) {
+    if (
+      !autoPrEnabled ||
+      autoPrTriggered ||
+      !execution?.readyToExecute ||
+      !activeWorkflow ||
+      isWorkflowInProgress
+    ) {
       return;
     }
 
@@ -735,6 +906,7 @@ export const RepoStudio: React.FC = () => {
     autoPrEnabled,
     autoPrTriggered,
     execution,
+    isWorkflowInProgress,
     prBase,
     prDraft,
     prHead,
@@ -744,31 +916,67 @@ export const RepoStudio: React.FC = () => {
     prTitle,
   ]);
 
-  const runPatch = async () => {
-    if (!patchContent.trim()) {
-      setError('Proporciona un parche unified diff antes de continuar.');
+  interface PatchExecutionOptions {
+    patch?: string;
+    dryRun?: boolean;
+    dryRunMessage?: string;
+    applyMessage?: string;
+    emptyMessage?: string;
+    errorMessage?: string;
+  }
+
+  const runPatch = async (options?: PatchExecutionOptions) => {
+    const targetPatch = (options?.patch ?? patchContent).trim();
+    if (!targetPatch) {
+      setError(options?.emptyMessage ?? 'Proporciona un parche unified diff antes de continuar.');
       return;
     }
+
+    if (isWorkflowInProgress) {
+      setError('Espera a que finalice el análisis antes de continuar.');
+      return;
+    }
+
+    const dryRun = options?.dryRun ?? patchDryRun;
+    const dryRunMessage = options?.dryRunMessage ?? 'Dry-run verificado para el parche.';
+    const applyMessage = options?.applyMessage ?? 'Parche aplicado correctamente.';
+    const errorMessage = options?.errorMessage ?? 'No se pudo aplicar el parche';
 
     setError(null);
     setIsLoading(true);
     try {
       await gitInvoke('git_apply_patch', {
         repoPath,
-        patch: patchContent,
-        dryRun: patchDryRun,
+        patch: targetPatch,
+        dryRun,
       });
-      const label = patchDryRun ? 'Dry-run verificado para el parche.' : 'Parche aplicado correctamente.';
+      const label = dryRun ? dryRunMessage : applyMessage;
       setMessages(prev => [{ message: label }, ...prev]);
-      if (!patchDryRun) {
+      if (!dryRun) {
         await fetchStatus();
         await refreshContext();
       }
     } catch (err) {
-      setError(resolveGitError(err, 'No se pudo aplicar el parche'));
+      setError(resolveGitError(err, errorMessage));
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const runSuggestedPatch = async (dryRun: boolean) => {
+    if (!suggestedPatch?.diff?.trim()) {
+      setError('El parche sugerido no está disponible.');
+      return;
+    }
+
+    await runPatch({
+      patch: suggestedPatch.diff,
+      dryRun,
+      dryRunMessage: 'Dry-run verificado para el parche sugerido.',
+      applyMessage: 'Parche sugerido aplicado correctamente.',
+      emptyMessage: 'El parche sugerido no está disponible.',
+      errorMessage: 'No se pudo aplicar el parche sugerido',
+    });
   };
 
   const repositoryUrl = remoteInfo.webUrl;
@@ -836,6 +1044,22 @@ export const RepoStudio: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {workflowBanner ? (
+        <div className={`repo-studio__banner repo-studio__banner--${workflowBanner.tone}`}>
+          <div className="repo-studio__banner-content">
+            <strong>{workflowBanner.title}</strong>
+            <p>{workflowBanner.message}</p>
+            {workflowBanner.details ? (
+              <ul>
+                {workflowBanner.details.map(detail => (
+                  <li key={detail}>{detail}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <section className="repo-studio__management">
         <div className="repo-studio__management-panel">
@@ -925,7 +1149,11 @@ export const RepoStudio: React.FC = () => {
               <button type="button" onClick={handleOpenRepository} disabled={!repositoryUrl}>
                 Abrir en GitHub
               </button>
-              <button type="button" onClick={handleQuickPr} disabled={isLoading || !execution?.readyToExecute}>
+              <button
+                type="button"
+                onClick={handleQuickPr}
+                disabled={isLoading || !execution?.readyToExecute || isWorkflowInProgress}
+              >
                 PR con rama actual
               </button>
             </div>
@@ -988,7 +1216,11 @@ export const RepoStudio: React.FC = () => {
             placeholder="Describe qué cambios necesitas (usa `rutas/relativas` para guiar al motor)."
           />
           <div className="repo-studio__analysis-actions">
-            <button type="button" onClick={analyzePrompt} disabled={!analysisPrompt.trim()}>
+            <button
+              type="button"
+              onClick={analyzePrompt}
+              disabled={!analysisPrompt.trim() || isWorkflowInProgress}
+            >
               Generar plan
             </button>
             {plan ? (
@@ -996,53 +1228,206 @@ export const RepoStudio: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={plan.safeguards.dryRun}
+                  disabled={isWorkflowInProgress}
                   onChange={event => toggleDryRun(event.target.checked)}
                 />
                 Dry-run activo
               </label>
             ) : null}
             {plan?.safeguards.manualApproval ? (
-              <button type="button" onClick={() => registerApproval(true)} disabled={planReady}>
+              <button
+                type="button"
+                onClick={() => registerApproval(true)}
+                disabled={planReady || isWorkflowInProgress}
+              >
                 Aprobar plan
               </button>
             ) : null}
           </div>
         </div>
 
-        {plan ? (
-          <div className="repo-studio__plan">
-            <header>
-              <h3>{plan.summary}</h3>
-              <span className={`badge ${planReady ? 'badge--ready' : 'badge--pending'}`}>
-                {planReady ? 'Listo para ejecutar' : 'Pendiente de aprobación'}
-              </span>
-            </header>
-            <ul>
-              {plan.steps.map(step => (
-                <li key={step.id}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(step.approved)}
-                      disabled={!step.requiresApproval}
-                      onChange={event => toggleStepApproval(step.id, event.target.checked)}
-                    />
-                    <span>
-                      <strong>{step.action.toUpperCase()}</strong> – {step.description}
-                      {step.targetPath ? <em> ({step.targetPath})</em> : null}
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <footer>
-              <h4>Salvaguardas</h4>
-              <ul>
-                {plan.safeguards.notes.map(note => (
-                  <li key={note}>{note}</li>
-                ))}
-              </ul>
-            </footer>
+        {planForDisplay ? (
+          <div className="repo-studio__analysis-grid">
+            <div className="repo-studio__analysis-card repo-studio__analysis-card--plan">
+              <div className="repo-studio__plan">
+                <header>
+                  <div className="repo-studio__plan-headline">
+                    <h3>{planForDisplay.summary}</h3>
+                    <div className="repo-studio__plan-meta">
+                      <span>
+                        <strong>Riesgo:</strong> {riskLabel}
+                      </span>
+                      {analysisStatusLabel ? (
+                        <span>
+                          <strong>Estado:</strong> {analysisStatusLabel}
+                        </span>
+                      ) : null}
+                      {providerMetadata ? (
+                        <span>
+                          <strong>Proveedor:</strong> {providerMetadata.providerId}
+                          {providerMetadata.modelId ? ` · ${providerMetadata.modelId}` : null}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <span className={`badge ${planReady ? 'badge--ready' : 'badge--pending'}`}>
+                    {planReady ? 'Listo para ejecutar' : 'Pendiente de aprobación'}
+                  </span>
+                </header>
+                <ul>
+                  {planForDisplay.steps.map(step => (
+                    <li key={step.id} className="repo-studio__plan-step">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(step.approved)}
+                          disabled={!step.requiresApproval || isWorkflowInProgress}
+                          onChange={event => toggleStepApproval(step.id, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{step.action.toUpperCase()}</strong> – {step.description}
+                          {step.targetPath ? <em> ({step.targetPath})</em> : null}
+                        </span>
+                      </label>
+                      <div className="repo-studio__plan-step-details">
+                        {typeof step.confidence === 'number' ? (
+                          <span>Confianza: {Math.round(step.confidence * 100)}%</span>
+                        ) : null}
+                        {step.providerMetadata?.modelId ? (
+                          <span>Modelo: {step.providerMetadata.modelId}</span>
+                        ) : null}
+                      </div>
+                      {step.rationale ? (
+                        <p className="repo-studio__plan-step-rationale">{step.rationale}</p>
+                      ) : null}
+                      {step.notes?.length ? (
+                        <ul className="repo-studio__plan-step-notes">
+                          {step.notes.map(note => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {step.diffExcerpt ? (
+                        <pre className="repo-studio__diff-preview">{step.diffExcerpt}</pre>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <footer>
+                  <h4>Salvaguardas</h4>
+                  <ul>
+                    <li>Dry-run: {planForDisplay.safeguards.dryRun ? 'activo' : 'desactivado'}</li>
+                    {planForDisplay.safeguards.notes.map(note => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                </footer>
+              </div>
+              {suggestedCommit ? (
+                <div className="repo-studio__plan-commit">
+                  <h4>Commit sugerido</h4>
+                  <p className="repo-studio__plan-commit-message">{suggestedCommit.message}</p>
+                  {suggestedCommit.description ? <p>{suggestedCommit.description}</p> : null}
+                  {suggestedCommit.files?.length ? (
+                    <p className="repo-studio__plan-commit-files">
+                      Archivos: {suggestedCommit.files.join(', ')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {hasSuggestedPatch ? (
+              <div className="repo-studio__analysis-card repo-studio__analysis-card--patch">
+                <h3>Parche sugerido</h3>
+                {suggestedPatch?.summary ? <p>{suggestedPatch.summary}</p> : null}
+                <div className="repo-studio__analysis-meta">
+                  {patchConfidence !== null ? (
+                    <span>Confianza: {Math.round(patchConfidence * 100)}%</span>
+                  ) : null}
+                  {suggestedPatch?.appliesCleanly ? <span>Aplica limpio ✓</span> : null}
+                  {suggestedPatch?.providerMetadata?.modelId ? (
+                    <span>Modelo: {suggestedPatch.providerMetadata.modelId}</span>
+                  ) : null}
+                </div>
+                <div className="repo-studio__analysis-actions repo-studio__analysis-actions--patch">
+                  <button
+                    type="button"
+                    onClick={() => void runSuggestedPatch(true)}
+                    disabled={isLoading || isWorkflowInProgress}
+                  >
+                    Validar parche sugerido
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runSuggestedPatch(false)}
+                    disabled={isLoading || isWorkflowInProgress}
+                  >
+                    Aplicar parche sugerido
+                  </button>
+                </div>
+                <pre className="repo-studio__diff-preview">{suggestedPatch?.diff}</pre>
+                {repositoryDiffs.length ? (
+                  <div className="repo-studio__diff-group">
+                    <h4>Diffs destacados</h4>
+                    <ul className="repo-studio__diff-list">
+                      {diffPreviewEntries.map(diff => (
+                        <li key={diff.path}>
+                          <div className="repo-studio__diff-list-header">
+                            <strong>{diff.path}</strong>
+                            {diff.truncated ? <span className="badge badge--pending">Recortado</span> : null}
+                          </div>
+                          <pre className="repo-studio__diff-preview">{diff.diff}</pre>
+                        </li>
+                      ))}
+                    </ul>
+                    {hasExtraDiffs ? (
+                      <p className="hint">Se omitieron {repositoryDiffs.length - diffPreviewEntries.length} diffs adicionales.</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {suggestedPullRequest || prTitle.trim() || prBody.trim() ? (
+              <div className="repo-studio__analysis-card repo-studio__analysis-card--pr">
+                <h3>Resumen de PR sugerido</h3>
+                <p>
+                  <strong>Título:</strong> {prTitle || suggestedPullRequest?.title || 'Sin sugerencia'}
+                </p>
+                {suggestedPullRequest?.summary ? <p>{suggestedPullRequest.summary}</p> : null}
+                {prHighlights.length ? (
+                  <ul className="repo-studio__pr-highlights">
+                    {prHighlights.map(highlight => (
+                      <li key={highlight}>{highlight}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {prBody ? (
+                  <pre className="repo-studio__diff-preview repo-studio__diff-preview--pr">{prBody}</pre>
+                ) : null}
+              </div>
+            ) : null}
+
+            {orchestratorTraces.length ? (
+              <div className="repo-studio__analysis-card repo-studio__analysis-card--traces">
+                <h3>Estado del orquestador</h3>
+                <ul className="repo-studio__trace-list">
+                  {orchestratorTraces.map(trace => (
+                    <li
+                      key={`${trace.timestamp}-${trace.stage}`}
+                      className={`repo-studio__trace repo-studio__trace--${trace.level}`}
+                    >
+                      <div className="repo-studio__trace-header">
+                        <span>{trace.stage}</span>
+                        <time dateTime={trace.timestamp}>{formatTraceTimestamp(trace.timestamp)}</time>
+                      </div>
+                      <p>{trace.message}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>
@@ -1124,10 +1509,18 @@ export const RepoStudio: React.FC = () => {
             placeholder={'diff --git a/archivo b/archivo\n...'}
           />
           <label className="inline">
-            <input type="checkbox" checked={patchDryRun} onChange={event => setPatchDryRun(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={patchDryRun}
+              onChange={event => setPatchDryRun(event.target.checked)}
+            />
             Dry-run primero
           </label>
-          <button type="button" onClick={runPatch} disabled={isLoading || !patchContent.trim()}>
+          <button
+            type="button"
+            onClick={() => void runPatch()}
+            disabled={isLoading || !patchContent.trim() || isWorkflowInProgress}
+          >
             {patchDryRun ? 'Validar parche' : 'Aplicar parche'}
           </button>
         </div>
@@ -1139,7 +1532,11 @@ export const RepoStudio: React.FC = () => {
             onChange={event => setCommitMessage(event.target.value)}
             placeholder="Mensaje del commit"
           />
-          <button type="button" onClick={runCommit} disabled={isLoading || !commitMessage.trim()}>
+          <button
+            type="button"
+            onClick={runCommit}
+            disabled={isLoading || !commitMessage.trim() || isWorkflowInProgress}
+          >
             Crear commit
           </button>
           {stageTargetsFromPlan.length > 0 ? (
@@ -1166,7 +1563,7 @@ export const RepoStudio: React.FC = () => {
             Rama
             <input value={remoteBranch} onChange={event => setRemoteBranch(event.target.value)} />
           </label>
-          <button type="button" onClick={runPush} disabled={isLoading}>
+          <button type="button" onClick={runPush} disabled={isLoading || isWorkflowInProgress}>
             Push seguro
           </button>
         </div>
@@ -1205,7 +1602,11 @@ export const RepoStudio: React.FC = () => {
             <input value={prHead} onChange={event => setPrHead(event.target.value)} placeholder="feature/rama" />
           </label>
           <label className="inline">
-            <input type="checkbox" checked={prDraft} onChange={event => setPrDraft(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={prDraft}
+              onChange={event => setPrDraft(event.target.checked)}
+            />
             PR como borrador
           </label>
           <label className="inline">
@@ -1213,11 +1614,17 @@ export const RepoStudio: React.FC = () => {
               type="checkbox"
               checked={autoPrEnabled}
               onChange={event => setAutoPrEnabled(event.target.checked)}
-              disabled={!activeWorkflow}
+              disabled={!activeWorkflow || isWorkflowInProgress}
             />
             Auto-PR al aprobar
           </label>
-          <button type="button" onClick={runPullRequest} disabled={isLoading || !prTitle.trim() || !prHead.trim()}>
+          <button
+            type="button"
+            onClick={runPullRequest}
+            disabled={
+              isLoading || !prTitle.trim() || !prHead.trim() || isWorkflowInProgress
+            }
+          >
             Crear PR/MR
           </button>
         </div>

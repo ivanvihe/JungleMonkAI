@@ -27,6 +27,51 @@
   font-size: 14px;
 }
 
+.repo-studio__banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(88, 185, 255, 0.12);
+}
+
+.repo-studio__banner--info {
+  border-color: rgba(88, 185, 255, 0.4);
+  background: rgba(88, 185, 255, 0.12);
+}
+
+.repo-studio__banner--warning {
+  border-color: rgba(255, 193, 77, 0.45);
+  background: rgba(255, 193, 77, 0.14);
+}
+
+.repo-studio__banner--error {
+  border-color: rgba(255, 110, 110, 0.55);
+  background: rgba(255, 110, 110, 0.16);
+}
+
+.repo-studio__banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: rgba(230, 236, 255, 0.9);
+  font-size: 14px;
+}
+
+.repo-studio__banner-content strong {
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+
+.repo-studio__banner-content ul {
+  margin: 0;
+  padding-left: 18px;
+  color: rgba(230, 236, 255, 0.85);
+  font-size: 13px;
+}
+
 .repo-studio__actions {
   display: flex;
   gap: 8px;
@@ -183,6 +228,45 @@
   border-color: rgba(88, 185, 255, 0.55);
 }
 
+.repo-studio__analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.repo-studio__analysis-card {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.repo-studio__analysis-card--plan {
+  gap: 12px;
+}
+
+.repo-studio__analysis-card--patch,
+.repo-studio__analysis-card--pr,
+.repo-studio__analysis-card--traces {
+  gap: 12px;
+}
+
+.repo-studio__analysis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.82);
+}
+
+.repo-studio__analysis-actions--patch {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .repo-studio__plan {
   background: rgba(0, 0, 0, 0.45);
   border-radius: 10px;
@@ -200,6 +284,20 @@
   gap: 8px;
 }
 
+.repo-studio__plan-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repo-studio__plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.82);
+}
+
 .repo-studio__plan ul {
   list-style: none;
   padding: 0;
@@ -215,8 +313,149 @@
   align-items: center;
 }
 
+.repo-studio__plan-step {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repo-studio__plan-step-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.75);
+}
+
+.repo-studio__plan-step-rationale {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(230, 236, 255, 0.88);
+}
+
+.repo-studio__plan-step-notes {
+  margin: 0 0 0 18px;
+  padding: 0;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.8);
+}
+
 .repo-studio__plan footer ul {
   gap: 6px;
+}
+
+.repo-studio__plan-commit {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repo-studio__plan-commit-message {
+  margin: 0;
+  font-weight: 600;
+}
+
+.repo-studio__plan-commit-files {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.78);
+}
+
+.repo-studio__diff-preview {
+  background: rgba(9, 11, 28, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: 'Fira Code', 'Source Code Pro', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre;
+}
+
+.repo-studio__diff-preview--pr {
+  max-height: 220px;
+}
+
+.repo-studio__diff-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-studio__diff-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-studio__diff-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: rgba(230, 236, 255, 0.9);
+}
+
+.repo-studio__pr-highlights {
+  margin: 0 0 0 18px;
+  padding: 0;
+  list-style: disc;
+  color: rgba(230, 236, 255, 0.88);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.repo-studio__trace-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.repo-studio__trace {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repo-studio__trace--warning {
+  border-color: rgba(255, 193, 77, 0.4);
+  background: rgba(255, 193, 77, 0.12);
+}
+
+.repo-studio__trace--error {
+  border-color: rgba(255, 110, 110, 0.5);
+  background: rgba(255, 110, 110, 0.14);
+}
+
+.repo-studio__trace-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.78);
 }
 
 .badge {

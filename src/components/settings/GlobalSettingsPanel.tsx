@@ -746,6 +746,7 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
       prompt: 'Describe la tarea que debe ejecutar este preset...',
       provider: providerOrder[0] ?? '',
       model: '',
+      targetMode: 'broadcast',
     };
 
     setDraft((prev) => ({
@@ -1044,6 +1045,24 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
                           placeholder="gpt-4o-mini, claude-3-haiku, etc."
                         />
                       </label>
+                      <label className="setting-label">
+                        <span>Agentes (IDs)</span>
+                        <input
+                          type="text"
+                          className="setting-input"
+                          value={(preset.agentIds ?? []).join(', ')}
+                          onChange={(event) => {
+                            const parsed = event.target.value
+                              .split(',')
+                              .map((value) => value.trim())
+                              .filter(Boolean);
+                            handlePresetChange(preset.id, {
+                              agentIds: parsed.length ? parsed : undefined,
+                            });
+                          }}
+                          placeholder="openai-gpt-4o-mini, anthropic-claude-35-sonnet"
+                        />
+                      </label>
                     </div>
                     <div className="setting-row">
                       <label className="setting-label">
@@ -1076,6 +1095,21 @@ export const GlobalSettingsPanel: React.FC<GlobalSettingsPanelProps> = ({
                             })
                           }
                         />
+                      </label>
+                      <label className="setting-label">
+                        <span>Modo de envío</span>
+                        <select
+                          className="setting-select"
+                          value={preset.targetMode ?? 'broadcast'}
+                          onChange={(event) =>
+                            handlePresetChange(preset.id, {
+                              targetMode: event.target.value as CommandPreset['targetMode'],
+                            })
+                          }
+                        >
+                          <option value="broadcast">Un único prompt</option>
+                          <option value="independent">Duplicar por agente</option>
+                        </select>
                       </label>
                     </div>
                   </div>

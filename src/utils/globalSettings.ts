@@ -90,6 +90,9 @@ const isCommandPresetSettings = (value: unknown): value is CommandPreset['settin
   });
 };
 
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(entry => typeof entry === 'string');
+
 const isCommandPreset = (value: unknown): value is CommandPreset =>
   isRecord(value) &&
   typeof value.id === 'string' &&
@@ -98,6 +101,8 @@ const isCommandPreset = (value: unknown): value is CommandPreset =>
   isOptionalString(value.description) &&
   isOptionalString(value.provider) &&
   isOptionalString(value.model) &&
+  (value.targetMode === undefined || value.targetMode === 'broadcast' || value.targetMode === 'independent') &&
+  (value.agentIds === undefined || isStringArray(value.agentIds)) &&
   isCommandPresetSettings(value.settings);
 
 const isRoutingRule = (value: unknown): value is RoutingRule =>
@@ -310,6 +315,23 @@ const normalizeCommandPresets = (presets: CommandPreset[] | undefined): CommandP
           )
         : undefined;
 
+      const agentIds = Array.isArray(preset.agentIds)
+        ? Array.from(
+            new Set(
+              preset.agentIds
+                .map(agentId => (typeof agentId === 'string' ? agentId.trim() : ''))
+                .filter(Boolean),
+            ),
+          )
+        : undefined;
+
+      const targetMode =
+        preset.targetMode === 'independent'
+          ? 'independent'
+          : preset.targetMode === 'broadcast'
+          ? 'broadcast'
+          : undefined;
+
       return {
         id: preset.id,
         label: preset.label,
@@ -327,6 +349,8 @@ const normalizeCommandPresets = (presets: CommandPreset[] | undefined): CommandP
           settings && Object.keys(settings).length > 0
             ? (settings as CommandPreset['settings'])
             : undefined,
+        agentIds: agentIds && agentIds.length > 0 ? agentIds : undefined,
+        targetMode,
       };
     });
 };

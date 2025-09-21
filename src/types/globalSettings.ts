@@ -87,6 +87,21 @@ export interface WorkspacePreferences {
 
 export type GitHostingProvider = 'github' | 'gitlab' | (string & {});
 
+export type OrchestratorExecutionMode = 'auto' | 'cloud' | 'local';
+
+export type OrchestratorDegradationPolicy = 'none' | 'on-error';
+
+export interface ProjectOrchestratorPreferences {
+  mode: OrchestratorExecutionMode;
+  primaryProvider?: string;
+  primaryModel?: string;
+  fallbackProvider?: string;
+  fallbackModel?: string;
+  retryLimit: number;
+  retryDelayMs: number;
+  degradationPolicy: OrchestratorDegradationPolicy;
+}
+
 export interface ProjectProfile {
   id: string;
   name: string;
@@ -99,6 +114,7 @@ export interface ProjectProfile {
   instructions?: string;
   preferredProvider?: string;
   preferredModel?: string;
+  orchestrator?: ProjectOrchestratorPreferences;
 }
 
 export interface DataLocationSettings {

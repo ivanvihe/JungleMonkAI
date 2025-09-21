@@ -15,6 +15,9 @@ import {
   ModelPreferences,
   PluginSettingsEntry,
   PluginSettingsMap,
+  OrchestratorDegradationPolicy,
+  OrchestratorExecutionMode,
+  ProjectOrchestratorPreferences,
   ProjectProfile,
   RoutingRule,
   SidePanelPreferences,
@@ -30,7 +33,7 @@ import type {
 
 const STORAGE_KEY = 'global-settings';
 const USER_DATA_GLOBAL_SETTINGS_FILE = 'settings/global-settings.json';
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 const supportedProviderSet = new Set<string>(BUILTIN_PROVIDERS);
 
 const normalizeProviderId = (value: string): string => value.trim().toLowerCase();
@@ -246,7 +249,8 @@ const isProjectProfile = (value: unknown): value is ProjectProfile =>
   isOptionalString(value.defaultBranch) &&
   isOptionalString(value.instructions) &&
   isOptionalString(value.preferredProvider) &&
-  isOptionalString(value.preferredModel);
+  isOptionalString(value.preferredModel) &&
+  (value.orchestrator === undefined || isProjectOrchestratorPreferences(value.orchestrator));
 
 const isGlobalSettings = (payload: unknown): payload is GlobalSettings =>
   isRecord(payload) &&
@@ -967,6 +971,110 @@ const normalizeJarvisCoreSettings = (
 
 const DEFAULT_JARVIS_CORE_SETTINGS: JarvisCoreSettings = normalizeJarvisCoreSettings(undefined);
 
+const isOrchestratorMode = (value: unknown): value is OrchestratorExecutionMode =>
+  value === 'auto' || value === 'cloud' || value === 'local';
+
+const isDegradationPolicy = (value: unknown): value is OrchestratorDegradationPolicy =>
+  value === 'none' || value === 'on-error';
+
+const isProjectOrchestratorPreferences = (
+  value: unknown,
+): value is ProjectOrchestratorPreferences =>
+  isRecord(value) &&
+  isOrchestratorMode(value.mode) &&
+  isOptionalString(value.primaryProvider) &&
+  isOptionalString(value.primaryModel) &&
+  isOptionalString(value.fallbackProvider) &&
+  isOptionalString(value.fallbackModel) &&
+  isFiniteNumber(value.retryLimit) &&
+  isFiniteNumber(value.retryDelayMs) &&
+  isDegradationPolicy(value.degradationPolicy);
+
+export const DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES: ProjectOrchestratorPreferences = {
+  mode: 'cloud',
+  primaryProvider: undefined,
+  primaryModel: undefined,
+  fallbackProvider: undefined,
+  fallbackModel: undefined,
+  retryLimit: 2,
+  retryDelayMs: 500,
+  degradationPolicy: 'on-error',
+};
+
+const sanitizeProvider = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
+};
+
+const normalizeProjectOrchestrator = (
+  input: unknown,
+  defaults: { preferredProvider?: string; preferredModel?: string } = {},
+): ProjectOrchestratorPreferences => {
+  const normalized: ProjectOrchestratorPreferences = {
+    ...DEFAULT_PROJECT_ORCHESTRATOR_PREFERENCES,
+    primaryProvider: sanitizeProvider(defaults.preferredProvider),
+    primaryModel: sanitizeProvider(defaults.preferredModel),
+  };
+
+  if (!input || typeof input !== 'object') {
+    const provider = normalized.primaryProvider;
+    if (provider) {
+      registerExternalProviders([provider]);
+    }
+    return normalized;
+  }
+
+  const candidate = input as Partial<ProjectOrchestratorPreferences>;
+
+  if (isOrchestratorMode(candidate.mode)) {
+    normalized.mode = candidate.mode;
+  }
+
+  const primaryProvider = sanitizeProvider(candidate.primaryProvider);
+  if (primaryProvider) {
+    normalized.primaryProvider = primaryProvider;
+  }
+
+  const primaryModel = sanitizeProvider(candidate.primaryModel);
+  if (primaryModel) {
+    normalized.primaryModel = primaryModel;
+  }
+
+  const fallbackProvider = sanitizeProvider(candidate.fallbackProvider);
+  if (fallbackProvider) {
+    normalized.fallbackProvider = fallbackProvider;
+  }
+
+  const fallbackModel = sanitizeProvider(candidate.fallbackModel);
+  if (fallbackModel) {
+    normalized.fallbackModel = fallbackModel;
+  }
+
+  if (typeof candidate.retryLimit === 'number' && Number.isFinite(candidate.retryLimit)) {
+    const rounded = Math.round(candidate.retryLimit);
+    normalized.retryLimit = clamp(rounded, 1, 5);
+  }
+
+  if (typeof candidate.retryDelayMs === 'number' && Number.isFinite(candidate.retryDelayMs)) {
+    normalized.retryDelayMs = clamp(Math.round(candidate.retryDelayMs), 0, 10_000);
+  }
+
+  if (isDegradationPolicy(candidate.degradationPolicy)) {
+    normalized.degradationPolicy = candidate.degradationPolicy;
+  }
+
+  const providersToRegister = [normalized.primaryProvider, normalized.fallbackProvider]
+    .filter((provider): provider is string => Boolean(provider));
+  if (providersToRegister.length) {
+    registerExternalProviders(providersToRegister);
+  }
+
+  return normalized;
+};
+
 const normalizeProjectProfiles = (input: unknown): ProjectProfile[] => {
   if (!Array.isArray(input)) {
     return [];
@@ -1033,18 +1141,31 @@ const normalizeProjectProfiles = (input: unknown): ProjectProfile[] => {
       profile.instructions = instructions;
     }
 
-    const preferredProvider =
-      typeof candidate.preferredProvider === 'string' ? candidate.preferredProvider.trim() : '';
+    const preferredProvider = sanitizeProvider(candidate.preferredProvider);
     if (preferredProvider) {
       profile.preferredProvider = preferredProvider;
       registerExternalProviders([preferredProvider]);
     }
 
-    const preferredModel =
-      typeof candidate.preferredModel === 'string' ? candidate.preferredModel.trim() : '';
+    const preferredModel = sanitizeProvider(candidate.preferredModel);
     if (preferredModel) {
       profile.preferredModel = preferredModel;
     }
+
+    const orchestrator = normalizeProjectOrchestrator(candidate.orchestrator, {
+      preferredProvider,
+      preferredModel,
+    });
+
+    if (orchestrator.primaryProvider) {
+      profile.preferredProvider = orchestrator.primaryProvider;
+    }
+
+    if (orchestrator.primaryModel) {
+      profile.preferredModel = orchestrator.primaryModel;
+    }
+
+    profile.orchestrator = orchestrator;
 
     normalized.push(profile);
     seen.add(id);

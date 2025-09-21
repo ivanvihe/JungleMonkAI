@@ -20,7 +20,7 @@ import type {
 } from './types';
 import { fetchAgentReply, AGENT_SYSTEM_PROMPT } from '../agents/providerRouter';
 import type { AgentDefinition } from '../agents/agentRegistry';
-import type { ApiKeySettings } from '../../types/globalSettings';
+import type { ApiKeySettings, OrchestratorDegradationPolicy } from '../../types/globalSettings';
 import { gitInvoke, isGitBackendUnavailableError } from '../../utils/runtimeBridge';
 import type { JarvisChatRequest, JarvisChatResult } from '../../services/jarvisCoreClient';
 import type { ChatProviderResponse } from '../../utils/aiProviders';
@@ -56,6 +56,7 @@ interface JarvisInvoker {
 
 interface CodexOrchestratorOptions {
   agent: AgentDefinition;
+  fallbackAgent?: AgentDefinition;
   apiKeys: ApiKeySettings;
   engine?: CodexEngine;
   fetchReplyFn?: FetchAgentReplyFn;
@@ -66,6 +67,7 @@ interface CodexOrchestratorOptions {
   retryDelayMs?: number;
   maxDiffs?: number;
   providerTimeoutMs?: number;
+  degradationPolicy?: OrchestratorDegradationPolicy;
   onTrace?: (trace: CodexOrchestratorTrace) => void;
   onError?: (error: Error, stage: string) => void;
 }
@@ -89,7 +91,8 @@ interface ProviderCallResult {
 }
 
 export class CodexOrchestrator {
-  private readonly agent: AgentDefinition;
+  private readonly primaryAgent: AgentDefinition;
+  private readonly fallbackAgent: AgentDefinition | null;
   private readonly apiKeys: ApiKeySettings;
   private readonly engine: CodexEngine;
   private readonly fetchReply: FetchAgentReplyFn;
@@ -100,11 +103,13 @@ export class CodexOrchestrator {
   private readonly retryDelayMs: number;
   private readonly maxDiffs: number;
   private readonly providerTimeoutMs: number | null;
+  private readonly degradationPolicy: OrchestratorDegradationPolicy;
   private readonly onTrace?: (trace: CodexOrchestratorTrace) => void;
   private readonly onError?: (error: Error, stage: string) => void;
 
   constructor(options: CodexOrchestratorOptions) {
-    this.agent = options.agent;
+    this.primaryAgent = options.agent;
+    this.fallbackAgent = options.fallbackAgent ?? null;
     this.apiKeys = options.apiKeys;
     this.engine = options.engine ?? new CodexEngine({ defaultDryRun: true });
     this.fetchReply = options.fetchReplyFn ?? fetchAgentReply;
@@ -115,6 +120,7 @@ export class CodexOrchestrator {
     this.retryDelayMs = Math.max(0, options.retryDelayMs ?? 500);
     this.maxDiffs = Math.max(0, options.maxDiffs ?? 5);
     this.providerTimeoutMs = options.providerTimeoutMs ?? null;
+    this.degradationPolicy = options.degradationPolicy ?? 'on-error';
     this.onTrace = options.onTrace;
     this.onError = options.onError;
   }
@@ -140,7 +146,7 @@ export class CodexOrchestrator {
     this.emitTrace('prompt', 'Prompt generado para el análisis.', finalPrompt);
 
     let providerResult: ProviderCallResult | null = null;
-    if (this.agent.kind === 'cloud' || this.agent.kind === 'local') {
+    if (this.primaryAgent.kind === 'cloud' || this.primaryAgent.kind === 'local') {
       try {
         providerResult = await this.executeProvider(finalPrompt, fallbackPlan, options);
         if (providerResult.status === 'fallback' && providerResult.errorMessage) {
@@ -419,8 +425,8 @@ export class CodexOrchestrator {
                   notes: ['<nota>'],
                   diffExcerpt: '<fragmento>',
                   providerMetadata: {
-                    providerId: this.agent.provider,
-                    modelId: this.agent.model,
+                    providerId: this.primaryAgent.provider,
+                    modelId: this.primaryAgent.model,
                   },
                 },
               ],
@@ -459,18 +465,51 @@ export class CodexOrchestrator {
     return sections.join('\n\n');
   }
 
+  private canUseFallback(): boolean {
+    return this.degradationPolicy === 'on-error' && Boolean(this.fallbackAgent);
+  }
+
   private async executeProvider(
     prompt: string,
     fallbackPlan: CodexPlan,
     options?: CodexAnalysisOptions,
   ): Promise<ProviderCallResult> {
     this.emitTrace('provider:request', 'Enviando prompt al proveedor.', prompt);
+
+    try {
+      const primaryResult = await this.invokeAgent(
+        this.primaryAgent,
+        prompt,
+        fallbackPlan,
+        options,
+      );
+
+      if (this.canUseFallback() && primaryResult.status === 'fallback') {
+        return await this.invokeFallback(prompt, fallbackPlan, options, primaryResult);
+      }
+
+      return primaryResult;
+    } catch (error) {
+      const normalized = this.normalizeError(error);
+      if (!this.canUseFallback()) {
+        throw normalized;
+      }
+      return await this.invokeFallback(prompt, fallbackPlan, options, null, normalized);
+    }
+  }
+
+  private async invokeAgent(
+    agent: AgentDefinition,
+    prompt: string,
+    fallbackPlan: CodexPlan,
+    options?: CodexAnalysisOptions,
+  ): Promise<ProviderCallResult> {
     const metadataBase: CodexProviderMetadata = {
-      providerId: this.agent.provider,
-      modelId: this.agent.model,
+      providerId: agent.provider,
+      modelId: agent.model,
     };
 
-    if (this.agent.kind === 'local') {
+    if (agent.kind === 'local') {
       if (!this.jarvisInvoker) {
         throw new Error('Jarvis Core no está disponible para ejecutar modelos locales.');
       }
@@ -499,7 +538,11 @@ export class CodexOrchestrator {
             latencyMs,
             attempt,
           };
-          this.emitTrace('provider:response', 'Respuesta recibida del modelo local.', text);
+          this.emitTrace(
+            'provider:response',
+            `Respuesta recibida del modelo local (${agent.model}).`,
+            text,
+          );
           return {
             content: text,
             status: 'success',
@@ -511,8 +554,8 @@ export class CodexOrchestrator {
           lastError = this.normalizeError(error);
           this.emitTrace(
             'provider:retry',
-            `Intento ${attempt} con Jarvis falló: ${lastError.message}`,
-            { attempt },
+            `Intento ${attempt} con ${agent.provider}/${agent.model} falló: ${lastError.message}`,
+            { attempt, providerId: agent.provider },
             'warning',
           );
           if (attempt < attempts) {
@@ -534,7 +577,7 @@ export class CodexOrchestrator {
         const start = Date.now();
         const outcome = await this.withTimeout(
           this.fetchReply({
-            agent: this.agent,
+            agent,
             prompt,
             apiKeys: this.apiKeys,
             fallback: () => fallbackText,
@@ -551,7 +594,11 @@ export class CodexOrchestrator {
           attempt,
         };
 
-        this.emitTrace('provider:response', 'Respuesta recibida del proveedor.', content);
+        this.emitTrace(
+          'provider:response',
+          `Respuesta recibida del proveedor ${agent.provider}.`,
+          content,
+        );
 
         const normalized: ProviderCallResult = {
           content,
@@ -576,12 +623,13 @@ export class CodexOrchestrator {
         lastError = this.normalizeError(error);
         this.emitTrace(
           'provider:retry',
-          `Intento ${attempt} fallido con el proveedor: ${lastError.message}`,
-          { attempt },
+          `Intento ${attempt} fallido con ${agent.provider}: ${lastError.message}`,
+          { attempt, providerId: agent.provider },
           'warning',
         );
         if (attempt < attempts) {
           await this.delay(this.retryDelayMs);
+          continue;
         }
       }
     }
@@ -590,7 +638,52 @@ export class CodexOrchestrator {
       return lastOutcome;
     }
 
-    throw lastError ?? new Error('El proveedor no pudo procesar la solicitud.');
+    throw lastError ?? new Error('El proveedor remoto no respondió.');
+  }
+
+  private async invokeFallback(
+    prompt: string,
+    fallbackPlan: CodexPlan,
+    options: CodexAnalysisOptions | undefined,
+    primaryResult: ProviderCallResult | null,
+    primaryError?: Error,
+  ): Promise<ProviderCallResult> {
+    if (!this.fallbackAgent || !this.canUseFallback()) {
+      if (primaryError) {
+        throw primaryError;
+      }
+      return primaryResult ?? Promise.reject(new Error('No hay proveedor de respaldo disponible.'));
+    }
+
+    const reason = primaryError?.message ?? 'respuesta incompleta';
+    this.emitTrace(
+      'provider:fallback',
+      `Activando proveedor de respaldo (${this.fallbackAgent.provider}) tras ${reason}.`,
+      {
+        providerId: this.fallbackAgent.provider,
+        modelId: this.fallbackAgent.model,
+      },
+      'warning',
+    );
+
+    try {
+      return await this.invokeAgent(this.fallbackAgent, prompt, fallbackPlan, options);
+    } catch (error) {
+      const normalized = this.normalizeError(error);
+      this.emitTrace(
+        'provider:fallback',
+        `El proveedor de respaldo falló: ${normalized.message}.`,
+        {
+          providerId: this.fallbackAgent.provider,
+          modelId: this.fallbackAgent.model,
+        },
+        'error',
+      );
+      if (primaryResult) {
+        return primaryResult;
+      }
+      throw normalized;
+    }
   }
 
   private async normalizeJarvisResult(result: JarvisChatResult): Promise<string> {
@@ -975,14 +1068,14 @@ export class CodexOrchestrator {
         ? normalized.providerId
         : typeof normalized.provider === 'string'
         ? normalized.provider
-        : base?.providerId ?? this.agent.provider;
+        : base?.providerId ?? this.primaryAgent.provider;
 
     const modelId =
       typeof normalized.modelId === 'string'
         ? normalized.modelId
         : typeof normalized.model === 'string'
         ? normalized.model
-        : base?.modelId ?? this.agent.model;
+        : base?.modelId ?? this.primaryAgent.model;
 
     const latencyMs =
       typeof normalized.latencyMs === 'number' && Number.isFinite(normalized.latencyMs)

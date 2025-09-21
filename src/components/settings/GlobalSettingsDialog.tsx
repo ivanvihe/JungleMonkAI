@@ -1,11 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiKeySettings, GlobalSettings } from '../../types/globalSettings';
+import {
+  ApiKeySettings,
+  GlobalSettings,
+  McpCredentialEntry,
+  PluginSettingsEntry,
+} from '../../types/globalSettings';
 import {
   providerSecretExists,
   revealProviderSecret,
   storeProviderSecret,
 } from '../../utils/secrets';
 import { OverlayModal } from '../common/OverlayModal';
+import { usePluginHost } from '../../core/plugins/PluginHostProvider';
+import { PluginSettingsSection } from './PluginSettingsSection';
+import { McpSettingsSection } from './McpSettingsSection';
 import './GlobalSettingsDialog.css';
 
 interface GlobalSettingsDialogProps {
@@ -17,7 +25,12 @@ interface GlobalSettingsDialogProps {
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
 }
 
-type SettingsTab = 'providers' | 'models' | 'preferences';
+interface SettingsSectionDescriptor {
+  id: string;
+  label: string;
+  icon?: string;
+  render: () => React.ReactNode;
+}
 
 const PROVIDER_FIELDS: Array<{ id: keyof ApiKeySettings; label: string; placeholder: string }> = [
   { id: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
@@ -33,7 +46,8 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   onApiKeyChange,
   onSettingsChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
+  const { plugins: runtimePlugins } = usePluginHost();
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [githubStored, setGithubStored] = useState(false);
   const [gitlabStored, setGitlabStored] = useState(false);
   const [huggingFaceStored, setHuggingFaceStored] = useState(false);
@@ -42,6 +56,7 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const [secretError, setSecretError] = useState<string | null>(null);
   const previousGithubOwnerRef = useRef<string>(settings.githubDefaultOwner ?? '');
   const onApiKeyChangeRef = useRef(onApiKeyChange);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     onApiKeyChangeRef.current = onApiKeyChange;
@@ -123,13 +138,13 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setActiveTab('providers');
       setSecretError(null);
       setGitlabInput('');
     } else {
       setGithubInput('');
       setGitlabInput('');
       setSecretError(null);
+      setActiveSectionId(null);
     }
   }, [isOpen]);
 
@@ -270,6 +285,64 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
     [huggingFaceStored, updateModelPreferences],
   );
 
+  const handlePluginCredentialChange = useCallback(
+    (pluginId: string, fieldId: string, value: string) => {
+      onSettingsChange(prev => {
+        const previousEntry = prev.pluginSettings[pluginId];
+        const nextEntry: PluginSettingsEntry = {
+          enabled: previousEntry?.enabled ?? prev.enabledPlugins.includes(pluginId),
+          credentials: {
+            ...(previousEntry?.credentials ?? {}),
+            [fieldId]: value,
+          },
+          lastApprovedChecksum: previousEntry?.lastApprovedChecksum,
+        };
+
+        return {
+          ...prev,
+          pluginSettings: {
+            ...prev.pluginSettings,
+            [pluginId]: nextEntry,
+          },
+        };
+      });
+    },
+    [onSettingsChange],
+  );
+
+  const handleMcpCredentialChange = useCallback(
+    (
+      profileId: string,
+      fieldId: string,
+      entryType: McpCredentialEntry['type'],
+      patch: Partial<Pick<McpCredentialEntry, 'value' | 'secretId'>>,
+    ) => {
+      onSettingsChange(prev => {
+        const existingProfile = prev.mcpCredentials[profileId] ?? {};
+        const currentEntry = existingProfile[fieldId] ?? {
+          id: fieldId,
+          type: entryType,
+        };
+        const nextEntry: McpCredentialEntry = {
+          ...currentEntry,
+          type: entryType,
+          ...patch,
+        };
+        return {
+          ...prev,
+          mcpCredentials: {
+            ...prev.mcpCredentials,
+            [profileId]: {
+              ...existingProfile,
+              [fieldId]: nextEntry,
+            },
+          },
+        };
+      });
+    },
+    [onSettingsChange],
+  );
+
   useEffect(() => {
     const currentDefault = settings.githubDefaultOwner ?? '';
     const previousDefault = previousGithubOwnerRef.current;
@@ -325,232 +398,370 @@ export const GlobalSettingsDialog: React.FC<GlobalSettingsDialogProps> = ({
   const huggingFacePrefs = settings.modelPreferences.huggingFace;
   const huggingFaceTokenStatus = huggingFaceStored ? 'Token almacenado disponible' : 'Token no encontrado';
 
+  const pluginEntriesById = useMemo(() => {
+    const map = new Map<string, (typeof runtimePlugins)[number]>();
+    runtimePlugins.forEach(entry => {
+      map.set(entry.pluginId, entry);
+    });
+    return map;
+  }, [runtimePlugins]);
+
+  const sections: SettingsSectionDescriptor[] = [
+    {
+      id: 'providers',
+      label: 'Proveedores',
+      icon: '🔑',
+      render: () => (
+        <div className="settings-section">
+          <h3>Conecta proveedores</h3>
+          <p>Guarda tus credenciales para habilitar canales en caliente.</p>
+          <div className="provider-form">
+            {PROVIDER_FIELDS.map(field => (
+              <label key={field.id}>
+                <span>{field.label}</span>
+                <input
+                  type="password"
+                  value={apiKeys[field.id] ?? ''}
+                  placeholder={field.placeholder}
+                  onChange={event => onApiKeyChange(field.id, event.target.value)}
+                />
+              </label>
+            ))}
+
+            <div className="secure-provider">
+              <label htmlFor="github-secret">
+                GitHub <span className="badge">{githubStored ? 'guardado' : 'pendiente'}</span>
+              </label>
+              <div className="secure-input">
+                <input
+                  id="github-secret"
+                  type="password"
+                  placeholder={githubStored ? 'token almacenado' : 'ghp_...'}
+                  value={githubInput}
+                  onChange={event => setGithubInput(event.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSecretSave('github', githubInput)}
+                  disabled={!githubInput.trim() && !githubStored}
+                >
+                  {githubInput.trim() || !githubStored ? 'Guardar' : 'Eliminar'}
+                </button>
+              </div>
+              <label htmlFor="github-default-owner" className="github-default-owner">
+                Usuario/organización por defecto
+              </label>
+              <input
+                id="github-default-owner"
+                type="text"
+                value={settings.githubDefaultOwner ?? ''}
+                placeholder="org"
+                onChange={event => handleGithubDefaultOwnerChange(event.target.value)}
+              />
+            </div>
+
+            <div className="secure-provider">
+              <label htmlFor="gitlab-secret">
+                GitLab <span className="badge">{gitlabStored ? 'guardado' : 'pendiente'}</span>
+              </label>
+              <div className="secure-input">
+                <input
+                  id="gitlab-secret"
+                  type="password"
+                  placeholder={gitlabStored ? 'token almacenado' : 'glpat-...'}
+                  value={gitlabInput}
+                  onChange={event => setGitlabInput(event.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSecretSave('gitlab', gitlabInput)}
+                  disabled={!gitlabInput.trim() && !gitlabStored}
+                >
+                  {gitlabInput.trim() || !gitlabStored ? 'Guardar' : 'Eliminar'}
+                </button>
+              </div>
+            </div>
+
+            {secretError && <p className="settings-error">{secretError}</p>}
+            <p className="settings-hint">
+              La administración de perfiles de proyecto ahora se realiza directamente desde Repo Studio.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'models',
+      label: 'Modelos',
+      icon: '💾',
+      render: () => (
+        <div className="settings-section">
+          <h3>Preferencias de modelos</h3>
+          <p>Ajusta el directorio local y la conexión con la galería de Hugging Face.</p>
+
+          <div className="model-preferences">
+            <div className="model-preferences__field">
+              <label htmlFor="model-storage-dir">Directorio de modelos locales</label>
+              <div className="model-preferences__input-row">
+                <input
+                  id="model-storage-dir"
+                  type="text"
+                  value={modelStorageDir}
+                  placeholder="Usar directorio predeterminado"
+                  onChange={event => handleModelStorageDirChange(event.target.value)}
+                />
+                <button type="button" onClick={() => void handleModelStorageBrowse()}>
+                  Seleccionar…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleModelStorageDirChange(null)}
+                  disabled={!modelStorageDir}
+                >
+                  Restablecer
+                </button>
+              </div>
+              <p className="model-preferences__hint">
+                El gestor de modelos utilizará esta carpeta para guardar descargas locales.
+              </p>
+            </div>
+
+            <div className="model-preferences__field">
+              <label htmlFor="huggingface-api-base">URL base de la API de Hugging Face</label>
+              <input
+                id="huggingface-api-base"
+                type="url"
+                value={huggingFacePrefs.apiBaseUrl}
+                onChange={event => handleHuggingFaceApiBaseChange(event.target.value)}
+                placeholder="https://huggingface.co"
+              />
+            </div>
+
+            <div className="model-preferences__field model-preferences__field--compact">
+              <label htmlFor="huggingface-max-results">Máximo de resultados por búsqueda</label>
+              <input
+                id="huggingface-max-results"
+                type="number"
+                min={10}
+                max={200}
+                value={huggingFacePrefs.maxResults}
+                onChange={event => handleHuggingFaceMaxResultsChange(Number(event.target.value))}
+              />
+              <p className="model-preferences__hint">
+                Limita el tamaño de página utilizado en la galería para optimizar las peticiones.
+              </p>
+            </div>
+
+            <div className="model-preferences__field model-preferences__token">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={huggingFacePrefs.useStoredToken && huggingFaceStored}
+                  onChange={event => handleUseStoredTokenChange(event.target.checked)}
+                  disabled={!huggingFaceStored}
+                />
+                <span>Usar token almacenado de Hugging Face</span>
+              </label>
+              <span
+                className={`model-preferences__token-status ${huggingFaceStored ? 'is-available' : 'is-missing'}`}
+              >
+                {huggingFaceTokenStatus}
+              </span>
+              {!huggingFaceStored && (
+                <p className="model-preferences__hint">
+                  Guarda tu token de Hugging Face en la pestaña de proveedores para activar esta opción.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'preferences',
+      label: 'Preferencias',
+      icon: '⚙️',
+      render: () => (
+        <div className="settings-section">
+          <h3>Preferencias generales</h3>
+          <p>Personaliza la interfaz del estudio y revisa la configuración local.</p>
+
+          <div className="preference-card">
+            <span>Posición del panel lateral</span>
+            <div className="preference-options">
+              <label>
+                <input
+                  type="radio"
+                  name="sidebar-position"
+                  value="left"
+                  checked={sidePanelPosition === 'left'}
+                  onChange={() => handlePositionChange('left')}
+                />
+                Izquierda
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="sidebar-position"
+                  value="right"
+                  checked={sidePanelPosition === 'right'}
+                  onChange={() => handlePositionChange('right')}
+                />
+                Derecha
+              </label>
+            </div>
+          </div>
+
+          <div className="preference-card">
+            <span>Ubicación de datos</span>
+            <p>{dataLocationSummary}</p>
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  const pluginSections: SettingsSectionDescriptor[] = settings.enabledPlugins.map(pluginId => {
+    const entry = pluginEntriesById.get(pluginId);
+    const manifest = entry?.manifest ?? null;
+    const credentials = settings.pluginSettings[pluginId]?.credentials ?? {};
+    return {
+      id: `plugin-${pluginId}`,
+      label: manifest?.name ?? `Plugin ${pluginId}`,
+      icon: '🔌',
+      render: () => (
+        <PluginSettingsSection
+          pluginId={pluginId}
+          manifest={manifest}
+          credentials={credentials}
+          onCredentialChange={(fieldId, value) => handlePluginCredentialChange(pluginId, fieldId, value)}
+        />
+      ),
+    };
+  });
+
+  const mcpSections: SettingsSectionDescriptor[] = settings.mcpProfiles.map(profile => {
+    const credentials = settings.mcpCredentials[profile.id];
+    return {
+      id: `mcp-${profile.id}`,
+      label: profile.label,
+      icon: '🌐',
+      render: () => (
+        <McpSettingsSection
+          profile={profile}
+          credentials={credentials}
+          onCredentialChange={(fieldId, type, patch) =>
+            handleMcpCredentialChange(profile.id, fieldId, type, patch)
+          }
+        />
+      ),
+    };
+  });
+
+  const allSections = [...sections, ...pluginSections, ...mcpSections];
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (!allSections.length) {
+      if (activeSectionId !== null) {
+        setActiveSectionId(null);
+      }
+      return;
+    }
+
+    if (!activeSectionId || !allSections.some(section => section.id === activeSectionId)) {
+      setActiveSectionId(allSections[0].id);
+    }
+  }, [activeSectionId, allSections, isOpen]);
+
+  const handleTabKey = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+      if (!['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) {
+        return;
+      }
+      event.preventDefault();
+      if (!allSections.length) {
+        return;
+      }
+
+      const lastIndex = allSections.length - 1;
+      let nextIndex = index;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+        nextIndex = index === lastIndex ? 0 : index + 1;
+      } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+        nextIndex = index === 0 ? lastIndex : index - 1;
+      } else if (event.key === 'Home') {
+        nextIndex = 0;
+      } else if (event.key === 'End') {
+        nextIndex = lastIndex;
+      }
+
+      const nextSection = allSections[nextIndex];
+      if (nextSection) {
+        setActiveSectionId(nextSection.id);
+        const ref = tabRefs.current[nextSection.id];
+        if (ref) {
+          ref.focus();
+        }
+      }
+    },
+    [allSections],
+  );
+
+  const activeSection = allSections.find(section => section.id === activeSectionId) ?? null;
+
   return (
     <OverlayModal title="Ajustes globales" isOpen={isOpen} onClose={onClose} width={880}>
       <div className="global-settings-dialog">
-        <nav className="global-settings-tabs" aria-label="Secciones de ajustes">
-          <button
-            type="button"
-            className={activeTab === 'providers' ? 'is-active' : ''}
-            onClick={() => setActiveTab('providers')}
-          >
-            🔑 Proveedores
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'models' ? 'is-active' : ''}
-            onClick={() => setActiveTab('models')}
-          >
-            💾 Preferencias de modelos
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'preferences' ? 'is-active' : ''}
-            onClick={() => setActiveTab('preferences')}
-          >
-            ⚙️ Preferencias
-          </button>
+        <nav
+          className="global-settings-tabs"
+          role="tablist"
+          aria-label="Secciones de ajustes"
+          aria-orientation="vertical"
+        >
+          {allSections.map((section, index) => {
+            const isActive = section.id === activeSectionId;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                role="tab"
+                id={`settings-tab-${section.id}`}
+                aria-selected={isActive}
+                aria-controls={`settings-panel-${section.id}`}
+                tabIndex={isActive ? 0 : -1}
+                className={isActive ? 'is-active' : ''}
+                ref={node => {
+                  tabRefs.current[section.id] = node;
+                }}
+                onClick={() => setActiveSectionId(section.id)}
+                onKeyDown={event => handleTabKey(event, index)}
+              >
+                {section.icon && (
+                  <span className="global-settings-tab-icon" aria-hidden="true">
+                    {section.icon}
+                  </span>
+                )}
+                <span className="global-settings-tab-label">{section.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         <div className="global-settings-content">
-          {activeTab === 'providers' && (
-            <div className="settings-section">
-              <h3>Conecta proveedores</h3>
-              <p>Guarda tus credenciales para habilitar canales en caliente.</p>
-              <div className="provider-form">
-                {PROVIDER_FIELDS.map(field => (
-                  <label key={field.id}>
-                    <span>{field.label}</span>
-                    <input
-                      type="password"
-                      value={apiKeys[field.id] ?? ''}
-                      placeholder={field.placeholder}
-                      onChange={event => onApiKeyChange(field.id, event.target.value)}
-                    />
-                  </label>
-                ))}
-
-                <div className="secure-provider">
-                  <label htmlFor="github-secret">
-                    GitHub <span className="badge">{githubStored ? 'guardado' : 'pendiente'}</span>
-                  </label>
-                  <div className="secure-input">
-                    <input
-                      id="github-secret"
-                      type="password"
-                      placeholder={githubStored ? 'token almacenado' : 'ghp_...'}
-                      value={githubInput}
-                      onChange={event => setGithubInput(event.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleSecretSave('github', githubInput)}
-                      disabled={!githubInput.trim() && !githubStored}
-                    >
-                      {githubInput.trim() || !githubStored ? 'Guardar' : 'Eliminar'}
-                    </button>
-                  </div>
-                  <label htmlFor="github-default-owner" className="github-default-owner">
-                    Usuario/organización por defecto
-                  </label>
-                  <input
-                    id="github-default-owner"
-                    type="text"
-                    value={settings.githubDefaultOwner ?? ''}
-                    placeholder="org"
-                    onChange={event => handleGithubDefaultOwnerChange(event.target.value)}
-                  />
-                </div>
-
-                <div className="secure-provider">
-                  <label htmlFor="gitlab-secret">
-                    GitLab <span className="badge">{gitlabStored ? 'guardado' : 'pendiente'}</span>
-                  </label>
-                  <div className="secure-input">
-                    <input
-                      id="gitlab-secret"
-                      type="password"
-                      placeholder={gitlabStored ? 'token almacenado' : 'glpat-...'}
-                      value={gitlabInput}
-                      onChange={event => setGitlabInput(event.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleSecretSave('gitlab', gitlabInput)}
-                      disabled={!gitlabInput.trim() && !gitlabStored}
-                    >
-                      {gitlabInput.trim() || !gitlabStored ? 'Guardar' : 'Eliminar'}
-                    </button>
-                  </div>
-                </div>
-
-                {secretError && <p className="settings-error">{secretError}</p>}
-                <p className="settings-hint">
-                  La administración de perfiles de proyecto ahora se realiza directamente desde Repo Studio.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'models' && (
-            <div className="settings-section">
-              <h3>Preferencias de modelos</h3>
-              <p>Ajusta el directorio local y la conexión con la galería de Hugging Face.</p>
-
-              <div className="model-preferences">
-                <div className="model-preferences__field">
-                  <label htmlFor="model-storage-dir">Directorio de modelos locales</label>
-                  <div className="model-preferences__input-row">
-                    <input
-                      id="model-storage-dir"
-                      type="text"
-                      value={modelStorageDir}
-                      placeholder="Usar directorio predeterminado"
-                      onChange={event => handleModelStorageDirChange(event.target.value)}
-                    />
-                    <button type="button" onClick={() => void handleModelStorageBrowse()}>
-                      Seleccionar…
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleModelStorageDirChange(null)}
-                      disabled={!modelStorageDir}
-                    >
-                      Restablecer
-                    </button>
-                  </div>
-                  <p className="model-preferences__hint">
-                    El gestor de modelos utilizará esta carpeta para guardar descargas locales.
-                  </p>
-                </div>
-
-                <div className="model-preferences__field">
-                  <label htmlFor="huggingface-api-base">URL base de la API de Hugging Face</label>
-                  <input
-                    id="huggingface-api-base"
-                    type="url"
-                    value={huggingFacePrefs.apiBaseUrl}
-                    onChange={event => handleHuggingFaceApiBaseChange(event.target.value)}
-                    placeholder="https://huggingface.co"
-                  />
-                </div>
-
-                <div className="model-preferences__field model-preferences__field--compact">
-                  <label htmlFor="huggingface-max-results">Máximo de resultados por búsqueda</label>
-                  <input
-                    id="huggingface-max-results"
-                    type="number"
-                    min={10}
-                    max={200}
-                    value={huggingFacePrefs.maxResults}
-                    onChange={event => handleHuggingFaceMaxResultsChange(Number(event.target.value))}
-                  />
-                  <p className="model-preferences__hint">
-                    Limita el tamaño de página utilizado en la galería para optimizar las peticiones.
-                  </p>
-                </div>
-
-                <div className="model-preferences__field model-preferences__token">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={huggingFacePrefs.useStoredToken && huggingFaceStored}
-                      onChange={event => handleUseStoredTokenChange(event.target.checked)}
-                      disabled={!huggingFaceStored}
-                    />
-                    <span>Usar token almacenado de Hugging Face</span>
-                  </label>
-                  <span
-                    className={`model-preferences__token-status ${huggingFaceStored ? 'is-available' : 'is-missing'}`}
-                  >
-                    {huggingFaceTokenStatus}
-                  </span>
-                  {!huggingFaceStored && (
-                    <p className="model-preferences__hint">
-                      Guarda tu token de Hugging Face en la pestaña de proveedores para activar esta opción.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'preferences' && (
-            <div className="settings-section">
-              <h3>Preferencias generales</h3>
-              <p>Personaliza la interfaz del estudio y revisa la configuración local.</p>
-
-              <div className="preference-card">
-                <span>Posición del panel lateral</span>
-                <div className="preference-options">
-                  <label>
-                    <input
-                      type="radio"
-                      name="sidebar-position"
-                      value="left"
-                      checked={sidePanelPosition === 'left'}
-                      onChange={() => handlePositionChange('left')}
-                    />
-                    Izquierda
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="sidebar-position"
-                      value="right"
-                      checked={sidePanelPosition === 'right'}
-                      onChange={() => handlePositionChange('right')}
-                    />
-                    Derecha
-                  </label>
-                </div>
-              </div>
-
-              <div className="preference-card">
-                <span>Ubicación de datos</span>
-                <p>{dataLocationSummary}</p>
-              </div>
-            </div>
+          {activeSection ? (
+            <section
+              role="tabpanel"
+              id={`settings-panel-${activeSection.id}`}
+              aria-labelledby={`settings-tab-${activeSection.id}`}
+            >
+              {activeSection.render()}
+            </section>
+          ) : (
+            <p className="global-settings-empty">No hay secciones disponibles.</p>
           )}
         </div>
       </div>

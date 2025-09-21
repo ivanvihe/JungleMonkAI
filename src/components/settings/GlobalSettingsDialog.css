@@ -21,11 +21,23 @@
   cursor: pointer;
   font-size: 14px;
   transition: background 0.2s ease, color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .global-settings-tabs button.is-active {
   background: linear-gradient(135deg, rgba(142, 141, 255, 0.6), rgba(255, 183, 77, 0.6));
   color: #fff;
+}
+
+.global-settings-tab-icon {
+  font-size: 16px;
+  display: inline-flex;
+}
+
+.global-settings-tab-label {
+  flex: 1 1 auto;
 }
 
 .global-settings-content {
@@ -34,6 +46,17 @@
   gap: 24px;
   overflow-y: auto;
   padding-right: 8px;
+}
+
+.global-settings-content > section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.global-settings-empty {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
 }
 
 .settings-section {
@@ -114,6 +137,83 @@
 .settings-error {
   color: #ff8a65;
   font-size: 12px;
+}
+
+.plugin-settings-section header,
+.mcp-settings-section header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugin-settings-fields,
+.mcp-settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.plugin-settings-field label,
+.mcp-settings-field label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.plugin-settings-field input,
+.mcp-settings-field input {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+}
+
+.plugin-settings-empty,
+.mcp-settings-empty {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.mcp-settings-endpoints,
+.mcp-settings-scopes,
+.mcp-settings-credentials {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-settings-endpoints ul,
+.mcp-settings-scopes ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-settings-endpoint-transport {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  margin-right: 6px;
+}
+
+.mcp-settings-endpoint-url {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+.mcp-settings-scopes ul li {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 .project-manager {

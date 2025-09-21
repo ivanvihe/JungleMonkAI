@@ -67,73 +67,6 @@ export const PluginManagerModal: React.FC<PluginManagerModalProps> = ({
     refresh();
   };
 
-  const handleCredentialChange = (pluginId: string, key: string, value: string) => {
-    onSettingsChange(prev => {
-      const entry = ensurePluginSettingsEntry(prev, pluginId);
-      return {
-        ...prev,
-        pluginSettings: {
-          ...prev.pluginSettings,
-          [pluginId]: {
-            ...entry,
-            credentials: {
-              ...entry.credentials,
-              [key]: value,
-            },
-          },
-        },
-      };
-    });
-  };
-
-  const handleRemoveCredential = (pluginId: string, key: string) => {
-    onSettingsChange(prev => {
-      const entry = ensurePluginSettingsEntry(prev, pluginId);
-      const credentials = { ...entry.credentials };
-      delete credentials[key];
-      return {
-        ...prev,
-        pluginSettings: {
-          ...prev.pluginSettings,
-          [pluginId]: {
-            ...entry,
-            credentials,
-          },
-        },
-      };
-    });
-  };
-
-  const handleAddCredential = (pluginId: string) => {
-    const key = window.prompt('Introduce un identificador para la credencial del plugin');
-    if (!key) {
-      return;
-    }
-    const trimmed = key.trim();
-    if (!trimmed) {
-      return;
-    }
-    onSettingsChange(prev => {
-      const entry = ensurePluginSettingsEntry(prev, pluginId);
-      if (entry.credentials[trimmed] !== undefined) {
-        return prev;
-      }
-      return {
-        ...prev,
-        pluginSettings: {
-          ...prev.pluginSettings,
-          [pluginId]: {
-            ...entry,
-            credentials: {
-              ...entry.credentials,
-              [trimmed]: '',
-            },
-          },
-        },
-      };
-    });
-  };
-
   if (!sortedPlugins.length) {
     return (
       <div className="plugin-manager__empty">
@@ -146,9 +79,6 @@ export const PluginManagerModal: React.FC<PluginManagerModalProps> = ({
   }
 
   const selectedPlugin = sortedPlugins.find(entry => entry.pluginId === selectedPluginId) ?? null;
-  const selectedSettings = selectedPlugin
-    ? ensurePluginSettingsEntry(settings, selectedPlugin.pluginId)
-    : null;
 
   return (
     <div className="plugin-manager">
@@ -207,7 +137,7 @@ export const PluginManagerModal: React.FC<PluginManagerModalProps> = ({
       </aside>
 
       <section className="plugin-manager__details" aria-live="polite">
-        {selectedPlugin && selectedSettings ? (
+        {selectedPlugin ? (
           <>
             <header>
               <h3>{selectedPlugin.manifest.name}</h3>
@@ -247,42 +177,15 @@ export const PluginManagerModal: React.FC<PluginManagerModalProps> = ({
 
             <section className="plugin-manager__details-block">
               <h4>Credenciales</h4>
-              {Object.keys(selectedSettings.credentials).length ? (
-                <ul className="plugin-manager__credentials">
-                  {Object.entries(selectedSettings.credentials).map(([key, value]) => (
-                    <li key={key} className="plugin-manager__credential">
-                      <label>
-                        <span>{key}</span>
-                        <input
-                          type="text"
-                          value={value}
-                          onChange={event => handleCredentialChange(selectedPlugin.pluginId, key, event.target.value)}
-                          placeholder="Introduce el valor"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="plugin-manager__credential-remove"
-                        onClick={() => handleRemoveCredential(selectedPlugin.pluginId, key)}
-                        aria-label={`Eliminar la credencial ${key}`}
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+              {selectedPlugin.manifest.credentials?.length ? (
+                <p className="plugin-manager__credentials-empty">
+                  Gestiona las credenciales desde Ajustes globales → {selectedPlugin.manifest.name}.
+                </p>
               ) : (
                 <p className="plugin-manager__credentials-empty">
-                  No hay credenciales configuradas todavía para este plugin.
+                  Este plugin no requiere credenciales configurables.
                 </p>
               )}
-              <button
-                type="button"
-                className="plugin-manager__add-credential"
-                onClick={() => handleAddCredential(selectedPlugin.pluginId)}
-              >
-                Añadir credencial
-              </button>
             </section>
           </>
         ) : (

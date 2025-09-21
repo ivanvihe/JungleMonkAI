@@ -11,6 +11,31 @@ import {
   storeProviderSecret,
 } from '../../../utils/secrets';
 
+const pluginHostMock = {
+  plugins: [] as Array<{
+    pluginId: string;
+    manifest: {
+      id: string;
+      name: string;
+      version: string;
+      description?: string;
+      capabilities: unknown[];
+      credentials?: Array<{ id: string; label: string; required?: boolean }>;
+      commands?: unknown[];
+    };
+    checksum: string;
+    commands: unknown[];
+  }>,
+  refresh: vi.fn(),
+  messageActions: [] as unknown[],
+  sidePanels: [] as unknown[],
+  updatePluginSettings: vi.fn(),
+};
+
+vi.mock('../../../core/plugins/PluginHostProvider', () => ({
+  usePluginHost: () => pluginHostMock,
+}));
+
 vi.mock('../../../utils/secrets', () => ({
   storeProviderSecret: vi.fn(),
   providerSecretExists: vi.fn(),
@@ -24,11 +49,15 @@ const revealProviderSecretMock = vi.mocked(revealProviderSecret);
 const createSettings = (): GlobalSettings =>
   JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)) as GlobalSettings;
 
-const renderDialog = () => {
+const renderDialog = (options?: { initialSettings?: GlobalSettings }) => {
+  const baseSettings = options?.initialSettings ?? createSettings();
+
   const Wrapper: React.FC = () => {
     const [isOpen, setIsOpen] = useState(true);
-    const [settings, setSettings] = useState<GlobalSettings>(createSettings());
-    const [apiKeys, setApiKeys] = useState<ApiKeySettings>({ ...settings.apiKeys });
+    const [settings, setSettings] = useState<GlobalSettings>(
+      () => JSON.parse(JSON.stringify(baseSettings)) as GlobalSettings,
+    );
+    const [apiKeys, setApiKeys] = useState<ApiKeySettings>({ ...baseSettings.apiKeys });
 
     const handleApiKeyChange = (provider: string, value: string) => {
       setApiKeys(prev => ({
@@ -51,6 +80,7 @@ const renderDialog = () => {
           Reabrir
         </button>
         <output data-testid="github-key">{apiKeys.github ?? ''}</output>
+        <output data-testid="plugin-settings">{JSON.stringify(settings.pluginSettings)}</output>
       </div>
     );
   };
@@ -67,6 +97,11 @@ describe('GlobalSettingsDialog – tokens seguros', () => {
     storeProviderSecretMock.mockReset();
     providerSecretExistsMock.mockReset();
     revealProviderSecretMock.mockReset();
+    pluginHostMock.plugins = [];
+    pluginHostMock.refresh.mockReset();
+    pluginHostMock.updatePluginSettings.mockReset();
+    pluginHostMock.messageActions.length = 0;
+    pluginHostMock.sidePanels.length = 0;
   });
 
   it('precarga el token almacenado y conserva el marcador seguro al cerrar', async () => {
@@ -183,5 +218,58 @@ describe('GlobalSettingsDialog – tokens seguros', () => {
     expect(screen.getByTestId('github-key').textContent).toBe('');
     expect(githubInput).toHaveValue('');
     expect(within(githubSection).getByText(/pendiente/)).toBeInTheDocument();
+  });
+
+  it('renderiza secciones dinámicas de plugins y valida credenciales requeridas', async () => {
+    const settingsWithPlugin = createSettings();
+    settingsWithPlugin.enabledPlugins = ['ableton-mixer'];
+    settingsWithPlugin.pluginSettings = {
+      ...settingsWithPlugin.pluginSettings,
+      'ableton-mixer': { enabled: true, credentials: { token: '' } },
+    };
+
+    pluginHostMock.plugins = [
+      {
+        pluginId: 'ableton-mixer',
+        manifest: {
+          id: 'ableton-mixer',
+          name: 'Ableton Mixer',
+          version: '0.1.0',
+          description: 'Control remoto de tu sesión.',
+          capabilities: [],
+          credentials: [{ id: 'token', label: 'Token API', required: true }],
+          commands: [],
+        },
+        checksum: 'checksum',
+        commands: [],
+      },
+    ];
+
+    renderDialog({ initialSettings: settingsWithPlugin });
+
+    const pluginTab = await screen.findByRole('tab', { name: 'Ableton Mixer' });
+    fireEvent.click(pluginTab);
+
+    const pluginSection = await screen.findByRole('heading', { name: 'Ableton Mixer' });
+    const pluginSectionContainer = pluginSection.closest('.plugin-settings-section');
+    if (!pluginSectionContainer) {
+      throw new Error('No se encontró el contenedor de la sección del plugin');
+    }
+    const pluginWithin = within(pluginSectionContainer);
+
+    const credentialInput = pluginWithin.getByLabelText('Token API');
+    fireEvent.blur(credentialInput);
+
+    await waitFor(() => {
+      expect(pluginWithin.getByText('Este campo es obligatorio.')).toBeInTheDocument();
+    });
+
+    fireEvent.change(credentialInput, { target: { value: 'ableton-secret' } });
+
+    await waitFor(() => {
+      const snapshot = screen.getByTestId('plugin-settings').textContent ?? '{}';
+      const parsed = JSON.parse(snapshot) as Record<string, { credentials: Record<string, string> }>;
+      expect(parsed['ableton-mixer'].credentials.token).toBe('ableton-secret');
+    });
   });
 });

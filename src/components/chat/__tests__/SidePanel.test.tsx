@@ -21,6 +21,16 @@ vi.mock('../../../core/agents/presence', () => ({
   useAgentPresence: (...args: unknown[]) => mockUseAgentPresence(...args),
 }));
 
+vi.mock('../../../core/plugins/PluginHostProvider', () => ({
+  usePluginHost: () => ({
+    plugins: [],
+    refresh: vi.fn(),
+    messageActions: [],
+    sidePanels: [],
+    updatePluginSettings: vi.fn(),
+  }),
+}));
+
 const ProjectProbe: React.FC = () => {
   const { activeProject, projects } = useProjects();
   return (

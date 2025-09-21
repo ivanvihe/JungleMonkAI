@@ -80,37 +80,7 @@ export const McpManagerModal: React.FC<McpManagerModalProps> = ({ settings, onSe
     });
   };
 
-  const handleCredentialChange = (
-    profile: PredefinedMcpProfile,
-    fieldId: string,
-    patch: Partial<Pick<McpCredentialEntry, 'value' | 'secretId'>>,
-  ) => {
-    onSettingsChange(prev => {
-      const entry = ensureCredentialRecord(profile, prev.mcpCredentials[profile.id]);
-      const current = entry[fieldId] ?? { id: fieldId, type: 'api-key' };
-      const updated: McpCredentialEntry = {
-        ...current,
-        id: fieldId,
-        type: current.type,
-        ...patch,
-      };
-      return {
-        ...prev,
-        mcpCredentials: {
-          ...prev.mcpCredentials,
-          [profile.id]: {
-            ...entry,
-            [fieldId]: updated,
-          },
-        },
-      };
-    });
-  };
-
   const selectedProfile = catalog.find(entry => entry.id === selectedProfileId) ?? null;
-  const selectedCredentialStore = selectedProfile
-    ? ensureCredentialRecord(selectedProfile, settings.mcpCredentials[selectedProfile.id])
-    : null;
 
   return (
     <div className="mcp-manager">
@@ -199,46 +169,9 @@ export const McpManagerModal: React.FC<McpManagerModalProps> = ({ settings, onSe
             {selectedProfile.credentialRequirements?.length ? (
               <section className="mcp-manager__details-block">
                 <h4>Credenciales</h4>
-                <ul className="mcp-manager__credentials">
-                  {selectedProfile.credentialRequirements.map(requirement => {
-                    const credential = selectedCredentialStore?.[requirement.id];
-                    const value = credential?.value ?? '';
-                    const secretId = credential?.secretId ?? '';
-                    return (
-                      <li key={requirement.id}>
-                        <label>
-                          <span>{requirement.label}</span>
-                          {requirement.type === 'api-key' ? (
-                            <input
-                              type="text"
-                              value={value}
-                              placeholder={requirement.placeholder ?? 'Introduce la API key'}
-                              onChange={event =>
-                                handleCredentialChange(selectedProfile, requirement.id, {
-                                  value: event.target.value,
-                                })
-                              }
-                            />
-                          ) : (
-                            <input
-                              type="text"
-                              value={secretId}
-                              placeholder={requirement.placeholder ?? 'Identificador en SecretManager'}
-                              onChange={event =>
-                                handleCredentialChange(selectedProfile, requirement.id, {
-                                  secretId: event.target.value,
-                                })
-                              }
-                            />
-                          )}
-                        </label>
-                        {requirement.helperText && (
-                          <p className="mcp-manager__helper">{requirement.helperText}</p>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <p className="mcp-manager__credentials-empty">
+                  Configura las credenciales desde Ajustes globales → {selectedProfile.label}.
+                </p>
               </section>
             ) : (
               <p className="mcp-manager__credentials-empty">

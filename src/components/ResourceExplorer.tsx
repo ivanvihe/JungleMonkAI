@@ -287,7 +287,7 @@ const ResourceExplorer: React.FC<ResourceExplorerProps> = ({
           )}
         </div>
         <div className="resource-explorer__hint">
-          Arrastra cualquier recurso al grid para asignarlo a un slot.
+          Arrastra cualquier recurso al grid para asignarlo a un slot. También puedes abrir el gestor de modelos con el botón 🤗 de la barra superior.
         </div>
       </div>
     </aside>

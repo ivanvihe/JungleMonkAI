@@ -567,18 +567,12 @@ function createWindow() {
   // Log console errors from the page
   /**
    * Maneja los mensajes de consola emitidos por el renderer.
-   * @param {Electron.Event} event
-   * @param {number} level
-   * @param {string} message
-   * @param {number} line
-   * @param {string} sourceId
+   * @param {Electron.ConsoleMessageEvent} details
    */
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    if (!event) {
-      return;
-    }
+  mainWindow.webContents.on('console-message', details => {
+    const params = details && typeof details === 'object' ? details.params : undefined;
 
-    logConsoleMessage(console, level, message, line, sourceId);
+    logConsoleMessage(console, params);
   });
 
   // Si el usuario sale del modo fullscreen manualmente, cerrar las ventanas

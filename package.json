@@ -16,6 +16,7 @@
   "dependencies": {
     "@tauri-apps/api": "^1.5.0",
     "@types/three": "^0.179.0",
+    "highlight.js": "^11.9.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simple-git": "^3.27.0",

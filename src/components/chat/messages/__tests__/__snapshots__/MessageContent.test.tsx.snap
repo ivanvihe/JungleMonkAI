@@ -15,40 +15,89 @@ exports[`MessageContent > renders fenced code blocks with actions 1`] = `
     <div
       class="message-code-toolbar"
     >
-      <span
-        class="message-code-language"
-      >
-        ts
-      </span>
       <div
-        aria-label="Acciones del bloque de código"
-        class="message-actions"
-        role="group"
+        class="message-code-meta"
+      >
+        <span
+          class="message-code-language"
+        >
+          ts
+        </span>
+        <span
+          class="message-code-lines"
+        >
+          2 líneas
+        </span>
+      </div>
+      <div
+        class="message-code-actions"
       >
         <button
-          class="message-action"
+          aria-label="Copiar bloque de código"
+          class="message-code-copy"
+          title="Copiar bloque de código"
           type="button"
         >
           Copiar
         </button>
-        <button
-          class="message-action"
-          type="button"
+        <div
+          aria-label="Acciones adicionales del bloque de código"
+          class="message-actions"
+          role="group"
         >
-          Añadir al compositor
-        </button>
-        <button
-          class="message-action"
-          type="button"
-        >
-          Enviar a Repo Studio
-        </button>
+          <button
+            aria-expanded="false"
+            aria-haspopup="true"
+            aria-label="Abrir menú de acciones"
+            class="message-action-trigger"
+            type="button"
+          >
+            ⋯
+          </button>
+        </div>
       </div>
     </div>
     <pre>
-      <code>
-        const saludo: string = 'hola';
-console.log(saludo);
+      <code
+        class="language-ts"
+      >
+        <span
+          class="hljs-keyword"
+        >
+          const
+        </span>
+         
+        <span
+          class="hljs-attr"
+        >
+          saludo
+        </span>
+        : 
+        <span
+          class="hljs-built_in"
+        >
+          string
+        </span>
+         = 
+        <span
+          class="hljs-string"
+        >
+          'hola'
+        </span>
+        ;
+
+        <span
+          class="hljs-variable language_"
+        >
+          console
+        </span>
+        .
+        <span
+          class="hljs-title function_"
+        >
+          log
+        </span>
+        (saludo);
       </code>
     </pre>
   </div>

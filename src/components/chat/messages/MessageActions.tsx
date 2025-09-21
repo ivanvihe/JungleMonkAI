@@ -22,29 +22,28 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { agents } = useAgents();
   const { queueRequest } = useRepoWorkflow();
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
   const { messageActions: pluginActions } = usePluginHost();
-
-  const handleCopy = useCallback(() => {
-    const clipboard = typeof window !== 'undefined' ? window.navigator?.clipboard : undefined;
-    if (clipboard?.writeText) {
-      clipboard.writeText(value).catch(() => {
-        // Silently ignore clipboard errors to avoid disrupting the UI
-      });
-    }
-  }, [value]);
 
   const handleAppend = useCallback(() => {
     if (onAppend) {
       onAppend(value);
     }
-  }, [onAppend, value]);
+    setIsMenuOpen(false);
+    setIsShareOpen(false);
+  }, [onAppend, setIsMenuOpen, setIsShareOpen, value]);
 
-  const handleTogglePicker = useCallback(() => {
+  const handleToggleMenu = useCallback(() => {
+    setIsMenuOpen(prev => !prev);
+    setIsShareOpen(false);
+  }, []);
+
+  const handleToggleShare = useCallback(() => {
     if (!onShare) {
       return;
     }
-    setIsPickerOpen(prev => !prev);
+    setIsShareOpen(prev => !prev);
   }, [onShare]);
 
   const shareableAgents = useMemo(() => agents.filter(agent => agent.active), [agents]);
@@ -74,9 +73,10 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
         return;
       }
       onShare(agentId, value);
-      setIsPickerOpen(false);
+      setIsShareOpen(false);
+      setIsMenuOpen(false);
     },
-    [onShare, value],
+    [onShare, setIsMenuOpen, setIsShareOpen, value],
   );
 
   const handleSendToRepoStudio = useCallback(() => {
@@ -84,17 +84,21 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
       return;
     }
     queueRequest({ messageId, canonicalCode: value });
-  }, [messageId, queueRequest, value]);
+    setIsMenuOpen(false);
+    setIsShareOpen(false);
+  }, [messageId, queueRequest, setIsMenuOpen, setIsShareOpen, value]);
 
   const handlePluginAction = useCallback(
     (action: (typeof pluginActions)[number]) => {
       void action.run({ messageId, value });
+      setIsMenuOpen(false);
+      setIsShareOpen(false);
     },
-    [messageId, value],
+    [messageId, setIsMenuOpen, setIsShareOpen, value],
   );
 
   useEffect(() => {
-    if (!isPickerOpen) {
+    if (!isMenuOpen && !isShareOpen) {
       return;
     }
 
@@ -103,7 +107,8 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
         return;
       }
       if (!containerRef.current.contains(event.target as Node)) {
-        setIsPickerOpen(false);
+        setIsMenuOpen(false);
+        setIsShareOpen(false);
       }
     };
 
@@ -111,51 +116,75 @@ export const MessageActions: React.FC<MessageActionsProps> = ({
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isPickerOpen]);
+  }, [isMenuOpen, isShareOpen]);
 
   return (
-    <div ref={containerRef} className="message-actions" role="group" aria-label="Acciones del bloque de código">
-      <button type="button" className="message-action" onClick={handleCopy}>
-        Copiar
+    <div
+      ref={containerRef}
+      className="message-actions"
+      role="group"
+      aria-label="Acciones adicionales del bloque de código"
+    >
+      <button
+        type="button"
+        className="message-action-trigger"
+        onClick={handleToggleMenu}
+        aria-expanded={isMenuOpen}
+        aria-haspopup="true"
+        aria-label="Abrir menú de acciones"
+      >
+        ⋯
       </button>
-      {onAppend ? (
-        <button type="button" className="message-action" onClick={handleAppend}>
-          Añadir al compositor
-        </button>
-      ) : null}
-      {onShare ? (
-        <button type="button" className="message-action" onClick={handleTogglePicker}>
-          Enviar a…
-        </button>
-      ) : null}
-      <button type="button" className="message-action" onClick={handleSendToRepoStudio}>
-        Enviar a Repo Studio
-      </button>
-      {pluginActions.map(action => (
-        <button
-          key={`${action.pluginId}-${action.id}`}
-          type="button"
-          className="message-action"
-          onClick={() => handlePluginAction(action)}
-          title={action.description}
-        >
-          {action.label}
-        </button>
-      ))}
-      {onShare && isPickerOpen ? (
-        <div className="message-action-popover" role="dialog" aria-label={`Compartir mensaje ${messageId}`}>
-          {shareableAgents.length === 0 ? (
-            <p className="message-action-empty">No hay agentes activos para compartir.</p>
-          ) : (
-            <AgentPresenceList
-              agents={shareableAgents}
-              presence={presenceMap}
-              onToggleAgent={noopToggleAgent}
-              onUpdateRole={noopUpdateRole}
-              selectionMode
-              onSelectAgent={handleShareWithAgent}
-            />
-          )}
+      {isMenuOpen ? (
+        <div className="message-action-popover" role="menu">
+          {onAppend ? (
+            <button type="button" className="message-action-item" onClick={handleAppend}>
+              Añadir al compositor
+            </button>
+          ) : null}
+          <button type="button" className="message-action-item" onClick={handleSendToRepoStudio}>
+            Enviar a Repo Studio
+          </button>
+          {pluginActions.map(action => (
+            <button
+              key={`${action.pluginId}-${action.id}`}
+              type="button"
+              className="message-action-item"
+              onClick={() => handlePluginAction(action)}
+              title={action.description}
+            >
+              {action.label}
+            </button>
+          ))}
+          {onShare ? (
+            <>
+              <button
+                type="button"
+                className={`message-action-item${isShareOpen ? ' is-active' : ''}`}
+                onClick={handleToggleShare}
+                aria-expanded={isShareOpen}
+                aria-haspopup="true"
+              >
+                Compartir con…
+              </button>
+              {isShareOpen ? (
+                <div className="message-action-submenu" role="menu">
+                  {shareableAgents.length === 0 ? (
+                    <p className="message-action-empty">No hay agentes activos para compartir.</p>
+                  ) : (
+                    <AgentPresenceList
+                      agents={shareableAgents}
+                      presence={presenceMap}
+                      onToggleAgent={noopToggleAgent}
+                      onUpdateRole={noopUpdateRole}
+                      selectionMode
+                      onSelectAgent={handleShareWithAgent}
+                    />
+                  )}
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

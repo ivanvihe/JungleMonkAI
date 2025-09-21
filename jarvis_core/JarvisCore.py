@@ -21,20 +21,30 @@ Logs are formatted as JSON objects to make downstream processing easier.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
+import shlex
 from collections import deque
 from pathlib import Path
-from typing import Any, Deque, Dict, Optional
+from typing import Any, AsyncGenerator, Deque, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, DirectoryPath, Field, PositiveInt, ValidationError, validator
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 import uvicorn
 
-from jarvis_core.models import ModelRegistry, ModelRegistryError
+from jarvis_core.llm import (
+    GenerationResult,
+    LLMManager,
+    ModelLoadError,
+    ModelNotLoadedError,
+    ModelRuntimeError,
+)
+from jarvis_core.models import ModelRegistry, ModelRegistryError, ModelState
 
 
 APP_NAME = "jarvis-core"
@@ -73,6 +83,48 @@ class DownloadModelRequest(BaseModel):
         return value
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatCompletionRequest(BaseModel):
+    prompt: str
+    system_prompt: Optional[str] = None
+    history: List[ChatMessage] = Field(default_factory=list)
+    stream: bool = False
+
+
+class ActionPathRequest(BaseModel):
+    path: str
+
+
+class ActionReadRequest(ActionPathRequest):
+    encoding: Optional[str] = "utf-8"
+    offset: int = Field(0, ge=0)
+    length: Optional[int] = Field(None, ge=0)
+    max_bytes: int = Field(65536, gt=0)
+
+
+class ActionRunRequest(BaseModel):
+    command: List[str] | str
+    cwd: Optional[str] = None
+    timeout: int = Field(60, ge=1)
+    shell: bool = False
+
+    @validator("command")
+    def validate_command(cls, value: List[str] | str) -> List[str] | str:  # noqa: D417
+        if isinstance(value, list):
+            if not value:
+                raise ValueError("command cannot be empty")
+            if not all(isinstance(item, str) and item for item in value):
+                raise ValueError("command entries must be non-empty strings")
+        else:
+            if not value or not value.strip():
+                raise ValueError("command cannot be empty")
+        return value
+
+
 class InMemoryLogHandler(logging.Handler):
     """Logging handler that stores structured log entries in memory."""
 
@@ -82,6 +134,37 @@ class InMemoryLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.records.append(structured_log_record(record))
+
+
+def _format_sse_event(payload: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _is_subpath(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_allowed_path(path_str: str, allowed_roots: List[Path]) -> Path:
+    if not allowed_roots:
+        raise HTTPException(status_code=500, detail="Path restrictions not configured")
+
+    candidate = Path(path_str)
+    if not candidate.is_absolute():
+        for root in allowed_roots:
+            resolved = (root / candidate).resolve()
+            if _is_subpath(resolved, root):
+                return resolved
+        resolved = (allowed_roots[0] / candidate).resolve()
+    else:
+        resolved = candidate.resolve()
+
+    if not any(_is_subpath(resolved, root) for root in allowed_roots):
+        raise HTTPException(status_code=403, detail="Path is outside of the allowed directories")
+    return resolved
 
 
 def structured_log_record(record: logging.LogRecord) -> Dict[str, Any]:
@@ -224,8 +307,12 @@ def resolve_config(cli_args: Optional[list[str]] = None) -> AppConfig:
 def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
     app = FastAPI(title="Jarvis Core", version="0.1.0")
     registry = ModelRegistry(Path(config.models_dir))
+    llm_manager = LLMManager()
+    allowed_roots = sorted({Path.cwd().resolve(), Path(config.models_dir).resolve()})
 
     app.state.model_registry = registry
+    app.state.llm_manager = llm_manager
+    app.state.allowed_paths = allowed_roots
 
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):  # type: ignore[override]
@@ -252,6 +339,46 @@ def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
     async def get_logs() -> JSONResponse:
         return JSONResponse(list(log_handler.records))
 
+    @app.post("/chat/completions")
+    async def chat_completions(payload: ChatCompletionRequest):
+        history_payload = [item.dict() for item in payload.history]
+        try:
+            if payload.stream:
+                generator = await llm_manager.generate(
+                    payload.prompt,
+                    system_prompt=payload.system_prompt,
+                    history=history_payload,
+                    stream=True,
+                )
+
+                async def event_stream() -> AsyncGenerator[str, None]:
+                    try:
+                        async for event in generator:
+                            yield _format_sse_event(event)
+                    except ModelRuntimeError as error:
+                        yield _format_sse_event(
+                            {"type": "error", "message": str(error)}
+                        )
+
+                return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+            result = await llm_manager.generate(
+                payload.prompt,
+                system_prompt=payload.system_prompt,
+                history=history_payload,
+                stream=False,
+            )
+        except ModelNotLoadedError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except ModelRuntimeError as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+
+        assert isinstance(result, GenerationResult)
+        response: Dict[str, Any] = {"message": result.message}
+        if result.actions:
+            response["actions"] = result.actions
+        return response
+
     @app.get("/models")
     async def list_models() -> list[Dict[str, Any]]:
         return await registry.list_models()
@@ -273,17 +400,41 @@ def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
     @app.post("/models/{model_id}/activate")
     async def activate_model(model_id: str) -> Dict[str, Any]:
         try:
-            metadata = await registry.activate_model(model_id)
+            metadata_obj = await registry.get_metadata(model_id)
         except ModelRegistryError as error:
             raise HTTPException(status_code=error.status_code, detail=error.message) from error
-        return metadata
+
+        if metadata_obj.state not in {ModelState.READY, ModelState.ACTIVE}:
+            raise HTTPException(status_code=409, detail="Model is not ready to be activated")
+
+        metadata_dict = metadata_obj.to_dict()
+
+        try:
+            runtime_info = await llm_manager.load_from_metadata(metadata_dict)
+            metadata = await registry.activate_model(model_id)
+        except ModelLoadError as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        except ModelRegistryError as error:
+            await llm_manager.unload_model()
+            raise HTTPException(status_code=error.status_code, detail=error.message) from error
+
+        enriched = dict(metadata)
+        enriched["runtime"] = runtime_info
+        return enriched
 
     @app.delete("/models/{model_id}", status_code=204)
     async def delete_model(model_id: str) -> Response:
+        metadata = None
+        try:
+            metadata = await registry.get_metadata(model_id)
+        except ModelRegistryError:
+            metadata = None
         try:
             await registry.remove_model(model_id)
         except ModelRegistryError as error:
             raise HTTPException(status_code=error.status_code, detail=error.message) from error
+        if metadata and metadata.state == ModelState.ACTIVE:
+            await llm_manager.unload_model()
         return Response(status_code=204)
 
     @app.get("/models/{model_id}/progress")
@@ -293,9 +444,145 @@ def create_app(config: AppConfig, log_handler: InMemoryLogHandler) -> FastAPI:
         except ModelRegistryError as error:
             raise HTTPException(status_code=error.status_code, detail=error.message) from error
 
+    @app.post("/actions/open")
+    async def action_open(payload: ActionPathRequest) -> Dict[str, Any]:
+        target = _resolve_allowed_path(payload.path, allowed_roots)
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="Path not found")
+        if target.is_dir():
+            children = []
+            for child in sorted(target.iterdir(), key=lambda item: item.name)[:200]:
+                child_type = "directory" if child.is_dir() else "file"
+                children.append({
+                    "name": child.name,
+                    "path": str(child),
+                    "type": child_type,
+                })
+            return {"path": str(target), "type": "directory", "children": children}
+        if target.is_file():
+            stat = target.stat()
+            return {
+                "path": str(target),
+                "type": "file",
+                "size": stat.st_size,
+                "modified": stat.st_mtime,
+            }
+        raise HTTPException(status_code=400, detail="Unsupported filesystem entry")
+
+    @app.post("/actions/read")
+    async def action_read(payload: ActionReadRequest) -> Dict[str, Any]:
+        target = _resolve_allowed_path(payload.path, allowed_roots)
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        read_length = payload.length if payload.length is not None else payload.max_bytes
+        read_length = min(read_length, payload.max_bytes)
+
+        try:
+            with target.open("rb") as handle:
+                if payload.offset:
+                    handle.seek(payload.offset)
+                data = handle.read(read_length)
+        except OSError as error:
+            raise HTTPException(status_code=400, detail=f"Unable to read file: {error}") from error
+
+        encoding = payload.encoding or "utf-8"
+        try:
+            content = data.decode(encoding, errors="replace")
+        except LookupError as error:
+            raise HTTPException(status_code=400, detail=f"Unknown encoding: {encoding}") from error
+
+        return {
+            "path": str(target),
+            "offset": payload.offset,
+            "length": len(data),
+            "content": content,
+            "encoding": encoding,
+        }
+
+    @app.post("/actions/run")
+    async def action_run(payload: ActionRunRequest) -> Dict[str, Any]:
+        cwd = (
+            _resolve_allowed_path(payload.cwd, allowed_roots)
+            if payload.cwd
+            else allowed_roots[0]
+        )
+        if not cwd.exists():
+            raise HTTPException(status_code=400, detail="Working directory does not exist")
+
+        command_repr: Any
+        try:
+            if isinstance(payload.command, list) and not payload.shell:
+                process = await asyncio.create_subprocess_exec(
+                    *payload.command,
+                    cwd=str(cwd),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                command_repr = payload.command
+            else:
+                if isinstance(payload.command, list):
+                    quoted = " ".join(shlex.quote(item) for item in payload.command)
+                    command_str = quoted
+                else:
+                    command_str = payload.command
+                process = await asyncio.create_subprocess_shell(
+                    command_str,
+                    cwd=str(cwd),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                command_repr = command_str
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=payload.timeout
+                )
+            except asyncio.TimeoutError as error:
+                process.kill()
+                await process.communicate()
+                raise HTTPException(status_code=504, detail="Command timed out") from error
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except OSError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        max_output = 65536
+        stdout_text = stdout.decode("utf-8", errors="replace")[:max_output]
+        stderr_text = stderr.decode("utf-8", errors="replace")[:max_output]
+
+        return {
+            "command": command_repr,
+            "cwd": str(cwd),
+            "returncode": process.returncode,
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+        }
+
+    @app.get("/status")
+    async def status() -> Dict[str, Any]:
+        metrics = llm_manager.get_status()
+        return {
+            "model": {
+                "active": metrics.get("active_model"),
+                "type": metrics.get("model_type"),
+                "loaded": llm_manager.is_loaded,
+            },
+            "memory": metrics.get("memory"),
+            "actions": {
+                "available": ["open", "read", "run"],
+                "roots": [str(path) for path in allowed_roots],
+            },
+        }
+
     @app.on_event("shutdown")
     async def shutdown_registry() -> None:
+        await llm_manager.shutdown()
         await registry.shutdown()
+
+    @app.on_event("startup")
+    async def startup_runtime() -> None:
+        await llm_manager.start()
 
     return app
 

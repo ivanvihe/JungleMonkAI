@@ -42,7 +42,7 @@ import {
   type SharedConversationSnapshot,
 } from '../orchestration';
 import { useProjects } from '../projects/ProjectContext';
-import { enqueueRepoWorkflowRequest, syncRepositoryViaWorkflow } from '../codex';
+import { enqueueRepoWorkflowRequest, syncRepositoryViaWorkflow } from '../codex/workflowBridge';
 import { isTauriEnvironment } from '../storage/userDataPathsClient';
 import { useJarvisCore } from '../jarvis/JarvisCoreContext';
 import type { JarvisActionKind } from '../../services/jarvisCoreClient';

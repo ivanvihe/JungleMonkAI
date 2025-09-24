@@ -21,7 +21,7 @@ vi.mock('../../utils/runtimeBridge', () => {
   };
 });
 
-vi.mock('../../codex', () => ({
+vi.mock('../../codex/workflowBridge', () => ({
   enqueueRepoWorkflowRequest: hoistedMocks.enqueue,
   syncRepositoryViaWorkflow: hoistedMocks.sync,
 }));

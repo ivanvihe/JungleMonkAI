@@ -1,3 +1,5 @@
+use crate::config::AppConfig; // New import
+
 /// Contiene el estado global de la aplicación.
 #[derive(Default)]
 pub struct AppState {
@@ -7,6 +9,8 @@ pub struct AppState {
     pub current_chat_input: String,
     /// Historial de mensajes del chat.
     pub chat_messages: Vec<ChatMessage>,
+    /// Configuración de la aplicación.
+    pub config: AppConfig, // New field
     // Aquí irían otros estados, como:
     // pub current_model: Option<String>,
     // pub active_chat: Vec<ChatMessage>,

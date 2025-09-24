@@ -1,0 +1,23 @@
+[package]
+name = "multimodal-agent-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# UI
+eframe = "0.27.2"
+egui_extras = { version = "0.27.2", features = ["image"] }
+
+# Async
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# HTTP & APIs
+reqwest = { version = "0.12", features = ["json"] }
+octocrab = "0.38"
+
+# Config & Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error Handling
+anyhow = "1.0"

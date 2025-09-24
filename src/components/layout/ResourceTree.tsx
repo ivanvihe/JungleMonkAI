@@ -15,6 +15,7 @@ import {
   SettingOutlined,
   ShareAltOutlined,
 } from '@ant-design/icons';
+import type { AgentPresenceSummary } from '../../core/agents/presence';
 import './ResourceTree.css';
 
 const { DirectoryTree } = Tree;
@@ -27,6 +28,8 @@ interface ResourceTreeProps {
   onNodeSelect?: (key: string) => void;
   onNodeAction?: (key: string, action: string) => void;
   variant?: 'default' | 'compact';
+  presenceSummary: AgentPresenceSummary;
+  pendingResponses: number;
 }
 
 type ResourceTreeMenuKey = 'open' | 'details' | 'refresh';
@@ -36,6 +39,7 @@ interface ResourceNode {
   title: string;
   icon: React.ReactNode;
   badge?: string;
+  badgeTone?: 'default' | 'success' | 'warning' | 'processing' | 'error';
   menu?: MenuProps['items'];
   children?: ResourceNode[];
 }
@@ -50,22 +54,27 @@ const agentMenu: MenuProps['items'] = [
   { key: 'refresh', label: 'Actualizar estado' },
 ];
 
-const treeSchema: ResourceNode[] = [
+const baseWorkspaceNodes = (
+  pendingResponses: number,
+): ResourceNode[] => [
   {
     key: 'workspace',
     title: 'Espacios de trabajo',
-    icon: <ClusterOutlined />, 
+    icon: <ClusterOutlined />,
     children: [
       {
         key: 'workspace-chat',
         title: 'Chat Operativo',
         icon: <MessageOutlined />,
-        badge: 'Live',
+        badge: pendingResponses > 0 ? `${pendingResponses}` : 'Live',
+        badgeTone: pendingResponses > 0 ? 'warning' : 'processing',
       },
       {
         key: 'workspace-feed',
         title: 'Feed de eventos',
         icon: <RadarChartOutlined />,
+        badge: pendingResponses > 0 ? `${pendingResponses}` : undefined,
+        badgeTone: pendingResponses > 0 ? 'processing' : undefined,
       },
       {
         key: 'workspace-details',
@@ -84,27 +93,40 @@ const treeSchema: ResourceNode[] = [
       },
     ],
   },
+];
+
+const baseAgentNodes = (summary: AgentPresenceSummary): ResourceNode[] => [
   {
     key: 'agents',
     title: 'Agentes orquestados',
     icon: <RobotOutlined />,
     menu: agentMenu,
+    badge: `${summary.totals.online + summary.totals.loading}/${
+      summary.totals.online + summary.totals.offline + summary.totals.error + summary.totals.loading
+    }`,
+    badgeTone: summary.totals.error > 0 ? 'error' : summary.totals.online > 0 ? 'success' : 'default',
     children: [
       {
         key: 'agents-active',
         title: 'Activos',
         icon: <RobotOutlined />,
-        badge: 'Auto',
+        badge: `${summary.totals.online}`,
+        badgeTone: 'success',
         menu: agentMenu,
       },
       {
         key: 'agents-archived',
         title: 'Archivados',
         icon: <RobotOutlined />,
+        badge: `${summary.totals.offline}`,
+        badgeTone: summary.totals.offline > 0 ? 'default' : undefined,
         menu: agentMenu,
       },
     ],
   },
+];
+
+const baseModelNodes = (): ResourceNode[] => [
   {
     key: 'models',
     title: 'Modelos',
@@ -122,6 +144,9 @@ const treeSchema: ResourceNode[] = [
       },
     ],
   },
+];
+
+const baseProjectNodes = (): ResourceNode[] => [
   {
     key: 'projects',
     title: 'Proyectos',
@@ -139,6 +164,9 @@ const treeSchema: ResourceNode[] = [
       },
     ],
   },
+];
+
+const basePreferenceNodes = (): ResourceNode[] => [
   {
     key: 'preferences',
     title: 'Preferencias',
@@ -156,6 +184,9 @@ const treeSchema: ResourceNode[] = [
       },
     ],
   },
+];
+
+const baseUtilityNodes = (): ResourceNode[] => [
   {
     key: 'plugins',
     title: 'Plugins y extensiones',
@@ -195,6 +226,8 @@ export const ResourceTree: React.FC<ResourceTreeProps> = ({
   onNodeSelect,
   onNodeAction,
   variant = 'default',
+  presenceSummary,
+  pendingResponses,
 }) => {
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(['workspace', 'agents', 'models']);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -219,6 +252,18 @@ export const ResourceTree: React.FC<ResourceTreeProps> = ({
     });
   }, [activeView, activeWorkspaceTab]);
 
+  const treeSchema = useMemo(
+    () => [
+      ...baseWorkspaceNodes(pendingResponses),
+      ...baseAgentNodes(presenceSummary),
+      ...baseModelNodes(),
+      ...baseProjectNodes(),
+      ...basePreferenceNodes(),
+      ...baseUtilityNodes(),
+    ],
+    [pendingResponses, presenceSummary],
+  );
+
   const decoratedTreeData = useMemo<DataNode[]>(() => {
     const selectedKeySet = new Set(selectedKeys.map(String));
 
@@ -226,6 +271,7 @@ export const ResourceTree: React.FC<ResourceTreeProps> = ({
       nodes.map(node => {
         const menuItems = node.menu ?? defaultMenu;
         const isActive = selectedKeySet.has(node.key);
+        const badgeTone = node.badgeTone ? ` resource-tree-item__badge--${node.badgeTone}` : '';
         const titleContent = (
           <Dropdown
             trigger={['contextMenu']}
@@ -237,7 +283,9 @@ export const ResourceTree: React.FC<ResourceTreeProps> = ({
             <span className={`resource-tree-item ${isActive ? 'is-active' : ''}`}>
               <span className="resource-tree-item__icon">{node.icon}</span>
               <span className="resource-tree-item__label">{node.title}</span>
-              {node.badge ? <span className="resource-tree-item__badge">{node.badge}</span> : null}
+              {node.badge ? (
+                <span className={`resource-tree-item__badge${badgeTone}`}>{node.badge}</span>
+              ) : null}
             </span>
           </Dropdown>
         );
@@ -251,7 +299,7 @@ export const ResourceTree: React.FC<ResourceTreeProps> = ({
       });
 
     return buildNodes(treeSchema);
-  }, [onNodeAction, selectedKeys]);
+  }, [onNodeAction, selectedKeys, treeSchema]);
 
   return (
     <div className={`resource-tree resource-tree--${variant}`}>

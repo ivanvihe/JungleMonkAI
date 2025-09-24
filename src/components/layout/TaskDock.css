@@ -1,0 +1,82 @@
+.task-dock {
+  position: relative;
+  width: 100%;
+  background: rgba(10, 11, 24, 0.94);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+
+.task-dock--collapsed {
+  min-height: 56px;
+}
+
+.task-dock__resize {
+  height: 6px;
+  cursor: row-resize;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.18) 50%, transparent 100%);
+}
+
+.task-dock__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-xs) var(--space-lg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--color-text-base);
+}
+
+.task-dock__header .ant-typography {
+  color: inherit;
+}
+
+.task-dock__presence {
+  flex-wrap: wrap;
+}
+
+.task-dock__tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm) var(--space-lg) var(--space-md);
+  overflow: hidden;
+}
+
+.task-dock__tabs .ant-tabs-content-holder {
+  flex: 1;
+  overflow: auto;
+}
+
+.task-dock__tabs .ant-list {
+  background: transparent;
+  color: var(--color-text-base);
+}
+
+.task-dock__tabs .ant-list-item {
+  border-color: rgba(255, 255, 255, 0.06);
+  padding: var(--space-xs) 0;
+}
+
+.task-dock__list-item {
+  width: 100%;
+}
+
+.task-dock__tabs .ant-empty-description {
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 768px) {
+  .task-dock__header {
+    padding-inline: var(--space-md);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+  }
+
+  .task-dock__tabs {
+    padding-inline: var(--space-md);
+  }
+}

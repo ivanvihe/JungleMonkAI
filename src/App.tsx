@@ -30,6 +30,10 @@ import { ModelManagerModal } from './components/models/ModelManagerModal';
 import { JarvisCoreProvider } from './core/jarvis/JarvisCoreContext';
 import { TaskActivityPanel } from './components/layout/TaskActivityPanel';
 import { ResourceTree } from './components/layout/ResourceTree';
+import { ProviderStatus } from './components/layout/ProviderStatus';
+import { QuickActions } from './components/layout/QuickActions';
+import { TaskDock } from './components/layout/TaskDock';
+import { useJarvisCore } from './core/jarvis/JarvisCoreContext';
 
 const { Content, Footer, Sider } = Layout;
 
@@ -49,8 +53,9 @@ const AppContent: React.FC<AppContentProps> = ({
   onSettingsChange,
 }) => {
   const { agents, activeAgents } = useAgents();
-  const { pendingResponses } = useMessages();
+  const { pendingResponses, pendingActions, sharedMessageLog, orchestrationTraces } = useMessages();
   const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
+  const { runtimeStatus, uptimeMs } = useJarvisCore();
   const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
   const [activeView, setActiveView] = useState<'chat' | 'repo' | 'canvas'>('chat');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTabKey>('chat');
@@ -199,6 +204,41 @@ const AppContent: React.FC<AppContentProps> = ({
     );
   }, [activeView, actorFilter, activeWorkspaceTab, onSettingsChange, presenceMap, settings]);
 
+  const renderNavigationContent = (variant: 'default' | 'compact' = 'default') => (
+    <div
+      className={`proxmox-sider__content proxmox-sider__content--${variant}`}
+      style={variant === 'compact' ? { maxHeight: '100%', overflowY: 'auto' } : undefined}
+    >
+      <ProviderStatus
+        summary={presenceSummary}
+        presenceMap={presenceMap}
+        pendingResponses={pendingResponses}
+        runtimeStatus={runtimeStatus}
+        uptimeMs={uptimeMs}
+        onRefresh={() => void refresh()}
+      />
+      <QuickActions
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenPlugins={() => setPluginsOpen(true)}
+        onOpenMcp={() => setMcpOpen(true)}
+        onOpenModelManager={() => setModelManagerOpen(true)}
+        onOpenStats={() => setStatsOpen(true)}
+        onRefreshPresence={() => void refresh()}
+      />
+      <div className="proxmox-sider__tree">
+        <ResourceTree
+          activeView={activeView}
+          activeWorkspaceTab={activeWorkspaceTab}
+          onNodeSelect={handleTreeSelection}
+          onNodeAction={handleTreeAction}
+          variant={variant}
+          presenceSummary={presenceSummary}
+          pendingResponses={pendingResponses}
+        />
+      </div>
+    </div>
+  );
+
   const infoPanelContent = (
     <div className="proxmox-info-panel" role="complementary" aria-label="Monitor de actividad">
       <TaskActivityPanel pendingResponses={pendingResponses} presenceSummary={presenceSummary} />
@@ -228,12 +268,7 @@ const AppContent: React.FC<AppContentProps> = ({
               <Typography.Title level={4}>JungleMonk Cluster</Typography.Title>
               <Typography.Text type="secondary">Recursos coordinados</Typography.Text>
             </div>
-            <ResourceTree
-              activeView={activeView}
-              activeWorkspaceTab={activeWorkspaceTab}
-              onNodeSelect={handleTreeSelection}
-              onNodeAction={handleTreeAction}
-            />
+            {renderNavigationContent()}
           </Sider>
         ) : (
           <Drawer
@@ -245,13 +280,7 @@ const AppContent: React.FC<AppContentProps> = ({
             className="proxmox-nav-drawer"
             destroyOnClose={false}
           >
-            <ResourceTree
-              activeView={activeView}
-              activeWorkspaceTab={activeWorkspaceTab}
-              onNodeSelect={handleTreeSelection}
-              onNodeAction={handleTreeAction}
-              variant="compact"
-            />
+            {renderNavigationContent('compact')}
           </Drawer>
         )}
 
@@ -292,10 +321,20 @@ const AppContent: React.FC<AppContentProps> = ({
           </Content>
 
           <Footer className="proxmox-footer">
-            <Space size="large">
-              <span>JungleMonk.AI · Panel inspirado en Proxmox</span>
-              <span>Sesión sincronizada · {footerTimestamp}</span>
-            </Space>
+            <TaskDock
+              pendingResponses={pendingResponses}
+              pendingActions={pendingActions}
+              sharedMessageLog={sharedMessageLog}
+              orchestrationTraces={orchestrationTraces}
+              presenceSummary={presenceSummary}
+              agents={agents}
+            />
+            <div className="proxmox-footer__meta">
+              <Space size="large">
+                <span>JungleMonk.AI · Panel inspirado en Proxmox</span>
+                <span>Sesión sincronizada · {footerTimestamp}</span>
+              </Space>
+            </div>
           </Footer>
         </Layout>
       </Layout>

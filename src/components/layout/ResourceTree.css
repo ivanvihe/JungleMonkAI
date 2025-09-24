@@ -66,6 +66,26 @@
   text-transform: uppercase;
 }
 
+.resource-tree-item__badge--success {
+  background: rgba(82, 196, 26, 0.2);
+  color: #52c41a;
+}
+
+.resource-tree-item__badge--warning {
+  background: rgba(250, 140, 22, 0.18);
+  color: #fa8c16;
+}
+
+.resource-tree-item__badge--processing {
+  background: rgba(47, 84, 235, 0.22);
+  color: #2f54eb;
+}
+
+.resource-tree-item__badge--error {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
 .resource-tree-item.is-active .resource-tree-item__icon {
   color: var(--color-primary);
 }

@@ -76,6 +76,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   onSettingsChange,
   presenceMap,
   onActorFilterChange,
+  activeTab,
+  onTabChange,
 }) => {
   const { agents, agentMap } = useAgents();
   const {

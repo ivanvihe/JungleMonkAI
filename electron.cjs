@@ -290,9 +290,11 @@ const resolveDevServerUrl = () => {
   return 'http://localhost:5173';
 };
 
-const startUrl = isDev
-  ? resolveDevServerUrl()
-  : `file://${path.join(__dirname, 'dist', 'index.html')}`;
+const distIndexPath = path.join(__dirname, 'dist', 'index.html');
+
+const startTarget = isDev
+  ? { type: 'url', value: resolveDevServerUrl() }
+  : { type: 'file', value: distIndexPath };
 
 let pluginManagerInstance = null;
 let pluginManagerReadyPromise = null;
@@ -666,9 +668,15 @@ function createWindow() {
     },
   });
 
-  console.log('Loading URL:', startUrl);
-
-  mainWindow.loadURL(startUrl);
+  if (startTarget.type === 'url') {
+    console.log('Loading URL:', startTarget.value);
+    mainWindow.loadURL(startTarget.value);
+  } else {
+    console.log('Loading file:', startTarget.value);
+    mainWindow.loadFile(startTarget.value).catch(error => {
+      console.error('❌ Failed to load local file:', startTarget.value, error);
+    });
+  }
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();

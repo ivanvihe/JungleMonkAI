@@ -93,20 +93,20 @@ export type JungleThemeTokens = {
 };
 
 export const colorTokens: ColorTokenSet = {
-  primary: '#6E6BFF',
-  primaryHover: '#7F7CFF',
-  primaryActive: '#5753D9',
-  success: '#6DD3A4',
-  warning: '#FFB74D',
+  primary: '#F18F01',
+  primaryHover: '#FF9F1C',
+  primaryActive: '#C26A00',
+  success: '#6FCF8F',
+  warning: '#FFC24B',
   danger: '#FF6B6B',
-  info: '#3DB5FF',
-  bgBase: '#0B1017',
-  bgElevated: '#111927',
-  bgSpotlight: '#1B2535',
-  textBase: '#F5F7FA',
-  textMuted: '#A0AEC0',
-  textOnPrimary: '#F7FAFF',
-  borderSubtle: 'rgba(255, 255, 255, 0.12)',
+  info: '#7AA5FF',
+  bgBase: '#101215',
+  bgElevated: '#191C21',
+  bgSpotlight: '#21252B',
+  textBase: '#F3F5F6',
+  textMuted: '#8D939E',
+  textOnPrimary: '#1A1C20',
+  borderSubtle: 'rgba(255, 255, 255, 0.08)',
 };
 
 export const typographyTokens: TypographyTokenSet = {
@@ -141,9 +141,9 @@ export const radiusTokens: RadiusTokenSet = {
 };
 
 export const shadowTokens: ShadowTokenSet = {
-  soft: '0 12px 32px rgba(5, 12, 23, 0.35)',
-  medium: '0 18px 45px rgba(5, 12, 23, 0.45)',
-  strong: '0 28px 64px rgba(5, 12, 23, 0.6)',
+  soft: '0 14px 28px rgba(6, 7, 11, 0.38)',
+  medium: '0 22px 54px rgba(3, 4, 8, 0.48)',
+  strong: '0 32px 72px rgba(2, 3, 6, 0.62)',
 };
 
 export const motionTokens: MotionTokenSet = {

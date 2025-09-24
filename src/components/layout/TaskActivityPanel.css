@@ -1,0 +1,76 @@
+.task-activity-panel {
+  position: relative;
+  border-radius: var(--radius-lg);
+  background: var(--shell-taskbar-bg);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-soft);
+  padding: var(--space-md) var(--space-lg);
+  overflow: hidden;
+}
+
+.task-activity-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(65% 90% at 20% 20%, rgba(255, 193, 92, 0.16), transparent),
+    radial-gradient(60% 80% at 90% 15%, rgba(104, 117, 255, 0.08), transparent 65%);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.task-activity-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.task-activity-panel__header .ant-typography {
+  margin: 0;
+}
+
+.task-activity-panel__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-md);
+}
+
+.task-activity-panel__status-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.task-activity-panel__status-list .ant-tag {
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.task-activity-panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--shell-divider);
+}
+
+.task-activity-panel__footer .ant-typography {
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .task-activity-panel {
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+  }
+
+  .task-activity-panel__footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+}

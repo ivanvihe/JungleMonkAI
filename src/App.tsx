@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Flex, Grid, Layout } from 'antd';
+import { Flex, Grid } from 'antd';
+import { PageContainer, ProLayout } from '@ant-design/pro-components';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
@@ -29,6 +30,7 @@ import { McpManagerModal } from './components/settings/McpManagerModal';
 import { ProjectProvider } from './core/projects/ProjectContext';
 import { ModelManagerModal } from './components/models/ModelManagerModal';
 import { JarvisCoreProvider } from './core/jarvis/JarvisCoreContext';
+import { TaskActivityPanel } from './components/layout/TaskActivityPanel';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -36,8 +38,6 @@ interface AppContentProps {
   onApiKeyChange: (provider: string, value: string) => void;
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
 }
-
-const { Header, Content } = Layout;
 
 const AppContent: React.FC<AppContentProps> = ({
   apiKeys,
@@ -75,47 +75,85 @@ const AppContent: React.FC<AppContentProps> = ({
   const siderWidth = Math.max(settings.workspacePreferences.sidePanel.width, 280);
 
   return (
-    <Layout className={`app-container sidebar-${sidePanelPosition} ${showDesktopSidebar ? '' : 'is-mobile'}`}>
-      <Header className="app-header" role="banner">
-        <ChatTopBar
-          agents={agents}
-          presenceSummary={presenceSummary}
-          presenceMap={presenceMap}
-          activeAgents={activeAgents.length}
-          totalAgents={agents.length}
-          pendingResponses={pendingResponses}
-          activeFilter={actorFilter}
-          onFilterChange={setActorFilter}
-          onRefreshPresence={() => void refresh()}
-          onOpenStats={() => setStatsOpen(true)}
-          onOpenGlobalSettings={() => setSettingsOpen(true)}
-          onOpenPlugins={() => setPluginsOpen(true)}
-          onOpenMcp={() => setMcpOpen(true)}
-          onOpenModelManager={() => setModelManagerOpen(true)}
-          activeView={activeView}
-          onChangeView={setActiveView}
-        />
-      </Header>
-
-      <Content className="app-content" role="main">
-        {activeView === 'chat' && (
-          <>
-            <Layout
-              className={`app-body sidebar-${sidePanelPosition}`}
-              hasSider={showDesktopSidebar}
-            >
-              {sidePanelPosition === 'left' && showDesktopSidebar && (
-                <SidePanel
-                  position="left"
-                  width={siderWidth}
-                  variant="desktop"
-                  onOpenGlobalSettings={() => setSettingsOpen(true)}
-                  onOpenModelManager={() => setModelManagerOpen(true)}
-                />
-              )}
-
-              <Content className="chat-main-container">
-                <Flex vertical className="chat-main" gap="large">
+    <div className={`app-pro-shell sidebar-${sidePanelPosition} ${showDesktopSidebar ? '' : 'is-mobile'}`}>
+      <ProLayout
+        className="app-pro-layout"
+        layout="mix"
+        contentWidth="Fluid"
+        fixedHeader
+        fixSiderbar
+        siderWidth={showDesktopSidebar ? siderWidth : 0}
+        logo={false}
+        title={false}
+        location={{ pathname: '/' }}
+        route={{ routes: [] }}
+        menuDataRender={() => []}
+        menuFooterRender={false}
+        menuHeaderRender={false}
+        suppressSiderWhenMenuEmpty
+        breadcrumbRender={false}
+        footerRender={false}
+        token={{
+          header: {
+            colorBgHeader: 'var(--shell-header-bg)',
+            colorTextMenu: 'var(--color-text-base)',
+            colorTextMenuSecondary: 'var(--color-text-muted)',
+            colorBgMenuItemHover: 'transparent',
+          },
+          sider: {
+            colorBgCollapsedButton: 'var(--shell-header-bg)',
+            colorMenuBackground: 'transparent',
+            colorBgMenuItemSelected: 'rgba(255, 255, 255, 0.08)',
+            colorTextMenu: 'var(--color-text-muted)',
+            colorTextMenuSelected: 'var(--color-primary)',
+          },
+          pageContainer: {
+            colorBgPageContainer: 'transparent',
+            paddingInlinePageContainerContent: 0,
+            paddingBlockPageContainerContent: 0,
+          },
+        }}
+        headerRender={() => (
+          <div className="app-header-shell" role="banner">
+            <ChatTopBar
+              agents={agents}
+              presenceSummary={presenceSummary}
+              presenceMap={presenceMap}
+              activeAgents={activeAgents.length}
+              totalAgents={agents.length}
+              pendingResponses={pendingResponses}
+              activeFilter={actorFilter}
+              onFilterChange={setActorFilter}
+              onRefreshPresence={() => void refresh()}
+              onOpenStats={() => setStatsOpen(true)}
+              onOpenGlobalSettings={() => setSettingsOpen(true)}
+              onOpenPlugins={() => setPluginsOpen(true)}
+              onOpenMcp={() => setMcpOpen(true)}
+              onOpenModelManager={() => setModelManagerOpen(true)}
+              activeView={activeView}
+              onChangeView={setActiveView}
+            />
+          </div>
+        )}
+        menuRender={() =>
+          showDesktopSidebar ? (
+            <div className="app-sider-shell" role="complementary" aria-label="Panel de agentes">
+              <SidePanel
+                position={sidePanelPosition}
+                width={siderWidth}
+                variant="desktop"
+                onOpenGlobalSettings={() => setSettingsOpen(true)}
+                onOpenModelManager={() => setModelManagerOpen(true)}
+              />
+            </div>
+          ) : null
+        }
+      >
+        <PageContainer className="app-page-container" header={false}>
+          <div className="app-main-content" role="main">
+            {activeView === 'chat' && (
+              <div className="app-surface-card" role="region" aria-label="Área de conversación">
+                <Flex vertical gap="large">
                   <ChatWorkspace
                     actorFilter={actorFilter}
                     settings={settings}
@@ -124,49 +162,50 @@ const AppContent: React.FC<AppContentProps> = ({
                     onActorFilterChange={setActorFilter}
                   />
                 </Flex>
-              </Content>
-
-              {sidePanelPosition === 'right' && showDesktopSidebar && (
-                <SidePanel
-                  position="right"
-                  width={siderWidth}
-                  variant="desktop"
-                  onOpenGlobalSettings={() => setSettingsOpen(true)}
-                  onOpenModelManager={() => setModelManagerOpen(true)}
-                />
-              )}
-            </Layout>
-
-            {!showDesktopSidebar && (
-              <div className="app-sidebar-mobile" role="complementary" aria-label="Agent configuration">
-                <SidePanel
-                  position={sidePanelPosition}
-                  width={siderWidth}
-                  variant="mobile"
-                  onOpenGlobalSettings={() => setSettingsOpen(true)}
-                  onOpenModelManager={() => setModelManagerOpen(true)}
-                />
               </div>
             )}
-          </>
-        )}
 
-        {activeView === 'repo' && (
-          <div className="app-body">
-            <Flex vertical className="repo-main" gap="large">
-              <RepoStudio />
-            </Flex>
-          </div>
-        )}
+            {activeView === 'repo' && (
+              <div className="app-surface-card" role="region" aria-label="Explorador de repositorio">
+                <Flex vertical gap="large">
+                  <RepoStudio />
+                </Flex>
+              </div>
+            )}
 
-        {activeView === 'canvas' && (
-          <div className="app-body">
-            <Flex vertical className="canvas-main" gap="large">
-              <CodeCanvas />
-            </Flex>
+            {activeView === 'canvas' && (
+              <div className="app-surface-card" role="region" aria-label="Code canvas">
+                <Flex vertical gap="large">
+                  <CodeCanvas />
+                </Flex>
+              </div>
+            )}
           </div>
-        )}
-      </Content>
+
+          <div className="task-panel-wrapper">
+            <TaskActivityPanel
+              pendingResponses={pendingResponses}
+              presenceSummary={presenceSummary}
+            />
+          </div>
+
+          {!showDesktopSidebar && (
+            <div
+              className="app-mobile-sidebar-container"
+              role="complementary"
+              aria-label="Configuración de agentes"
+            >
+              <SidePanel
+                position={sidePanelPosition}
+                width={siderWidth}
+                variant="mobile"
+                onOpenGlobalSettings={() => setSettingsOpen(true)}
+                onOpenModelManager={() => setModelManagerOpen(true)}
+              />
+            </div>
+          )}
+        </PageContainer>
+      </ProLayout>
 
       <GlobalSettingsDialog
         isOpen={isSettingsOpen}
@@ -203,7 +242,7 @@ const AppContent: React.FC<AppContentProps> = ({
       </OverlayModal>
 
       <ConversationStatsModal isOpen={isStatsOpen} onClose={() => setStatsOpen(false)} />
-    </Layout>
+    </div>
   );
 };
 

@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppState, PreferenceSection};
 use eframe::egui;
 
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
@@ -22,9 +22,21 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                 .default_open(true)
                                 .show(ui, |ui| {
                                     ui.indent("preferences_system_items", |ui| {
-                                        ui.label("GitHub for Projects");
-                                        ui.label("Cache");
-                                        ui.label("System resources");
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::SystemGithub,
+                                            "GitHub for Projects",
+                                        );
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::SystemCache,
+                                            "Cache",
+                                        );
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::SystemResources,
+                                            "System resources",
+                                        );
                                     });
                                 });
 
@@ -32,10 +44,26 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                 .default_open(true)
                                 .show(ui, |ui| {
                                     ui.indent("preferences_customization_items", |ui| {
-                                        ui.label("Custom commands");
-                                        ui.label("Memory");
-                                        ui.label("Profiles");
-                                        ui.label("Projects");
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::CustomizationCommands,
+                                            "Custom commands",
+                                        );
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::CustomizationMemory,
+                                            "Memory",
+                                        );
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::CustomizationProfiles,
+                                            "Profiles",
+                                        );
+                                        ui.selectable_value(
+                                            &mut state.selected_section,
+                                            PreferenceSection::CustomizationProjects,
+                                            "Projects",
+                                        );
                                     });
                                 });
 
@@ -47,8 +75,16 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                             .default_open(true)
                                             .show(ui, |ui| {
                                                 ui.indent("preferences_models_local", |ui| {
-                                                    ui.label("HuggingFace (explore and install)");
-                                                    ui.label("Settings");
+                                                    ui.selectable_value(
+                                                        &mut state.selected_section,
+                                                        PreferenceSection::ModelsLocalHuggingFace,
+                                                        "HuggingFace (explore and install)",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut state.selected_section,
+                                                        PreferenceSection::ModelsLocalSettings,
+                                                        "Settings",
+                                                    );
                                                 });
                                             });
 
@@ -56,9 +92,21 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                             .default_open(true)
                                             .show(ui, |ui| {
                                                 ui.indent("preferences_models_providers", |ui| {
-                                                    ui.label("Anthropic");
-                                                    ui.label("OpenAI");
-                                                    ui.label("Groq");
+                                                    ui.selectable_value(
+                                                        &mut state.selected_section,
+                                                        PreferenceSection::ModelsProviderAnthropic,
+                                                        "Anthropic",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut state.selected_section,
+                                                        PreferenceSection::ModelsProviderOpenAi,
+                                                        "OpenAI",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut state.selected_section,
+                                                        PreferenceSection::ModelsProviderGroq,
+                                                        "Groq",
+                                                    );
                                                 });
                                             });
                                     });
@@ -76,7 +124,7 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
         });
 }
 
-pub fn draw_right_sidebar(ctx: &egui::Context, _state: &mut AppState) {
+pub fn draw_right_sidebar(ctx: &egui::Context, state: &mut AppState) {
     egui::SidePanel::right("right_sidebar")
         .resizable(true)
         .default_width(200.0)
@@ -85,14 +133,30 @@ pub fn draw_right_sidebar(ctx: &egui::Context, _state: &mut AppState) {
             ui.heading("Providers & Local Model");
             ui.separator();
             ui.label("Loaded Providers:");
-            // TODO: Display loaded remote models here
-            ui.label("OpenAI");
-            ui.label("Claude");
-            ui.label("Groq");
-            ui.label("HuggingFace");
+            ui.label(format!("OpenAI · model {}", state.openai_default_model));
+            ui.label(format!("Claude · model {}", state.claude_default_model));
+            ui.label(format!("Groq · model {}", state.groq_default_model));
+
+            if let Some(status) = &state.openai_test_status {
+                ui.colored_label(ui.visuals().weak_text_color(), status);
+            }
+            if let Some(status) = &state.anthropic_test_status {
+                ui.colored_label(ui.visuals().weak_text_color(), status);
+            }
+            if let Some(status) = &state.groq_test_status {
+                ui.colored_label(ui.visuals().weak_text_color(), status);
+            }
+
             ui.separator();
             ui.label("Local Model (Jarvis):");
-            // TODO: Display local Jarvis model status here
-            ui.label("Status: Loaded");
+            ui.label(format!("Path: {}", state.jarvis_model_path));
+            ui.label(if state.jarvis_auto_start {
+                "Auto start: enabled"
+            } else {
+                "Auto start: disabled"
+            });
+            if let Some(status) = &state.jarvis_status {
+                ui.colored_label(ui.visuals().weak_text_color(), status);
+            }
         });
 }

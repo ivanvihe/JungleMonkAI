@@ -142,8 +142,9 @@ fn submit_chat_message(state: &mut AppState) {
     } else {
         state.chat_messages.push(ChatMessage {
             sender: "User".to_string(),
-            text: input,
+            text: input.clone(),
         });
+        state.try_route_provider_message(&input);
     }
 }
 
@@ -166,7 +167,9 @@ fn draw_selected_section(ui: &mut egui::Ui, state: &mut AppState) {
 
 fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Personal access token");
-    ui.text_edit_singleline(&mut state.github_token);
+    if ui.text_edit_singleline(&mut state.github_token).changed() {
+        state.persist_config();
+    }
 
     if ui.button("Connect & sync").clicked() {
         if state.github_token.trim().is_empty() {
@@ -232,6 +235,7 @@ fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
             }
         };
         state.github_connection_status = Some(message);
+        state.persist_config();
     }
 
     if let Some(status) = &state.github_connection_status {
@@ -243,26 +247,47 @@ fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_system_cache(ui: &mut egui::Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
         ui.label("Cache directory");
-        ui.text_edit_singleline(&mut state.cache_directory);
+        if ui
+            .text_edit_singleline(&mut state.cache_directory)
+            .changed()
+        {
+            state.persist_config();
+        }
     });
 
-    ui.add(
-        egui::Slider::new(&mut state.cache_size_limit_gb, 1.0..=256.0)
-            .text("Cache size limit (GB)"),
-    );
+    if ui
+        .add(
+            egui::Slider::new(&mut state.cache_size_limit_gb, 1.0..=256.0)
+                .text("Cache size limit (GB)"),
+        )
+        .changed()
+    {
+        state.persist_config();
+    }
 
-    ui.checkbox(&mut state.enable_auto_cleanup, "Enable automatic cleanup");
+    if ui
+        .checkbox(&mut state.enable_auto_cleanup, "Enable automatic cleanup")
+        .changed()
+    {
+        state.persist_config();
+    }
 
-    ui.add(
-        egui::Slider::new(&mut state.cache_cleanup_interval_hours, 1..=168)
-            .text("Cleanup interval (hours)"),
-    );
+    if ui
+        .add(
+            egui::Slider::new(&mut state.cache_cleanup_interval_hours, 1..=168)
+                .text("Cleanup interval (hours)"),
+        )
+        .changed()
+    {
+        state.persist_config();
+    }
 
     if ui.button("Run cleanup now").clicked() {
         state.last_cache_cleanup = Some(format!(
             "Manual cleanup triggered. Next automatic run in {} hours.",
             state.cache_cleanup_interval_hours
         ));
+        state.persist_config();
     }
 
     if let Some(status) = &state.last_cache_cleanup {
@@ -273,10 +298,20 @@ fn draw_system_cache(ui: &mut egui::Ui, state: &mut AppState) {
 
 fn draw_system_resources(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Memory limit for cache");
-    ui.add(egui::Slider::new(&mut state.resource_memory_limit_gb, 1.0..=512.0).suffix(" GB"));
+    if ui
+        .add(egui::Slider::new(&mut state.resource_memory_limit_gb, 1.0..=512.0).suffix(" GB"))
+        .changed()
+    {
+        state.persist_config();
+    }
 
     ui.label("Disk limit for cache");
-    ui.add(egui::Slider::new(&mut state.resource_disk_limit_gb, 8.0..=4096.0).suffix(" GB"));
+    if ui
+        .add(egui::Slider::new(&mut state.resource_disk_limit_gb, 8.0..=4096.0).suffix(" GB"))
+        .changed()
+    {
+        state.persist_config();
+    }
 
     ui.colored_label(
         ui.visuals().weak_text_color(),
@@ -314,6 +349,7 @@ fn draw_custom_commands(ui: &mut egui::Ui, state: &mut AppState) {
                 command.trigger,
                 command.action.label()
             ));
+            state.persist_config();
         }
     }
 
@@ -367,6 +403,7 @@ fn draw_custom_commands(ui: &mut egui::Ui, state: &mut AppState) {
                         action.label()
                     ));
                     state.new_custom_command.clear();
+                    state.persist_config();
                 }
             }
         }
@@ -388,12 +425,22 @@ fn draw_custom_commands(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.checkbox(
-        &mut state.enable_memory_tracking,
-        "Enable contextual memory",
-    );
+    if ui
+        .checkbox(
+            &mut state.enable_memory_tracking,
+            "Enable contextual memory",
+        )
+        .changed()
+    {
+        state.persist_config();
+    }
 
-    ui.add(egui::Slider::new(&mut state.memory_retention_days, 1..=365).text("Retention (days)"));
+    if ui
+        .add(egui::Slider::new(&mut state.memory_retention_days, 1..=365).text("Retention (days)"))
+        .changed()
+    {
+        state.persist_config();
+    }
 
     ui.colored_label(
         ui.visuals().weak_text_color(),
@@ -405,6 +452,7 @@ fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
+    let mut selected_profile = state.selected_profile;
     egui::ComboBox::from_label("Active profile")
         .selected_text(
             state
@@ -415,9 +463,14 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
         )
         .show_ui(ui, |ui| {
             for (idx, profile) in state.profiles.iter().enumerate() {
-                ui.selectable_value(&mut state.selected_profile, Some(idx), profile);
+                ui.selectable_value(&mut selected_profile, Some(idx), profile);
             }
         });
+
+    if selected_profile != state.selected_profile {
+        state.selected_profile = selected_profile;
+        state.persist_config();
+    }
 
     ui.add_space(6.0);
     ui.horizontal(|ui| {
@@ -425,6 +478,8 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
             if let Some(idx) = state.selected_profile {
                 let new_profile = format!("{} (copy)", state.profiles[idx]);
                 state.profiles.push(new_profile);
+                state.selected_profile = Some(state.profiles.len() - 1);
+                state.persist_config();
             }
         }
         if ui.button("Delete profile").clicked() {
@@ -436,6 +491,7 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
                     } else if idx >= state.profiles.len() {
                         state.selected_profile = Some(state.profiles.len() - 1);
                     }
+                    state.persist_config();
                 }
             }
         }
@@ -448,6 +504,7 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_customization_projects(ui: &mut egui::Ui, state: &mut AppState) {
+    let mut selected_project = state.selected_project;
     egui::ComboBox::from_label("Active project")
         .selected_text(
             state
@@ -458,14 +515,21 @@ fn draw_customization_projects(ui: &mut egui::Ui, state: &mut AppState) {
         )
         .show_ui(ui, |ui| {
             for (idx, project) in state.projects.iter().enumerate() {
-                ui.selectable_value(&mut state.selected_project, Some(idx), project);
+                ui.selectable_value(&mut selected_project, Some(idx), project);
             }
         });
+
+    if selected_project != state.selected_project {
+        state.selected_project = selected_project;
+        state.persist_config();
+    }
 
     ui.add_space(6.0);
     if ui.button("Create placeholder project").clicked() {
         let new_project = format!("New Project {}", state.projects.len() + 1);
         state.projects.push(new_project);
+        state.selected_project = Some(state.projects.len() - 1);
+        state.persist_config();
     }
 
     ui.colored_label(
@@ -475,36 +539,70 @@ fn draw_customization_projects(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.label("Hugging Face access token (optional)");
+    if ui
+        .text_edit_singleline(
+            state
+                .huggingface_access_token
+                .get_or_insert_with(String::new),
+        )
+        .changed()
+    {
+        if state
+            .huggingface_access_token
+            .as_ref()
+            .is_some_and(|token| token.trim().is_empty())
+        {
+            state.huggingface_access_token = None;
+        }
+        state.persist_config();
+    }
+
+    ui.add_space(6.0);
     ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut state.huggingface_search_query)
-                .hint_text("Search models, e.g. whisper"),
-        );
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut state.huggingface_search_query)
+                    .hint_text("Search models, e.g. whisper"),
+            )
+            .changed()
+        {
+            state.persist_config();
+        }
         if ui.button("Search").clicked() {
-            // Placeholder search that filters the static list.
-            let query = state.huggingface_search_query.to_lowercase();
-            if query.is_empty() {
-                state.huggingface_models = vec![
-                    "sentence-transformers/all-MiniLM-L6-v2".to_string(),
-                    "openai/whisper-small".to_string(),
-                    "stabilityai/stable-diffusion-xl".to_string(),
-                ];
-            } else {
+            match crate::api::huggingface::search_models(
+                &state.huggingface_search_query,
                 state
-                    .huggingface_models
-                    .retain(|model| model.to_lowercase().contains(&query));
+                    .huggingface_access_token
+                    .as_ref()
+                    .map(|token| token.as_str()),
+            ) {
+                Ok(models) => {
+                    state.huggingface_models = models;
+                    state.huggingface_install_status = Some(format!(
+                        "Found {} models for query '{}'.",
+                        state.huggingface_models.len(),
+                        state.huggingface_search_query
+                    ));
+                    state.selected_huggingface_model = None;
+                    state.persist_config();
+                }
+                Err(err) => {
+                    state.huggingface_install_status =
+                        Some(format!("Failed to search models: {}", err));
+                }
             }
         }
     });
 
+    let combo_label = state
+        .selected_huggingface_model
+        .and_then(|idx| state.huggingface_models.get(idx))
+        .cloned()
+        .unwrap_or_else(|| "Select a model".to_string());
+
     egui::ComboBox::from_label("Available models")
-        .selected_text(
-            state
-                .selected_huggingface_model
-                .and_then(|idx| state.huggingface_models.get(idx))
-                .cloned()
-                .unwrap_or_else(|| "Select a model".to_string()),
-        )
+        .selected_text(combo_label)
         .show_ui(ui, |ui| {
             for (idx, model) in state.huggingface_models.iter().enumerate() {
                 ui.selectable_value(&mut state.selected_huggingface_model, Some(idx), model);
@@ -512,12 +610,45 @@ fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
         });
 
     if ui.button("Install model").clicked() {
-        let status = state
-            .selected_huggingface_model
-            .and_then(|idx| state.huggingface_models.get(idx))
-            .map(|model| format!("Model '{}' added to the local Jarvis registry.", model))
-            .unwrap_or_else(|| "Select a model to install.".to_string());
+        let status = if let Some(idx) = state.selected_huggingface_model {
+            if let Some(model) = state.huggingface_models.get(idx).cloned() {
+                let install_dir = std::path::Path::new(&state.jarvis_install_dir);
+                let token = state
+                    .huggingface_access_token
+                    .as_ref()
+                    .map(|token| token.as_str());
+                match crate::api::huggingface::download_model(&model, install_dir, token) {
+                    Ok(path) => {
+                        if !state.installed_jarvis_models.contains(&model) {
+                            state.installed_jarvis_models.push(model.clone());
+                        }
+                        state.persist_config();
+                        format!("Model '{}' installed at {}.", model, path.display())
+                    }
+                    Err(err) => format!("Failed to install '{}': {}", model, err),
+                }
+            } else {
+                "Select a model to install.".to_string()
+            }
+        } else {
+            "Select a model to install.".to_string()
+        };
+
         state.huggingface_install_status = Some(status);
+    }
+
+    if state.installed_jarvis_models.is_empty() {
+        ui.add_space(6.0);
+        ui.colored_label(
+            ui.visuals().weak_text_color(),
+            "No Hugging Face models installed for Jarvis yet.",
+        );
+    } else {
+        ui.add_space(6.0);
+        ui.label("Installed models:");
+        for model in &state.installed_jarvis_models {
+            ui.label(format!("• {}", model));
+        }
     }
 
     if let Some(status) = &state.huggingface_install_status {
@@ -528,8 +659,27 @@ fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
 
 fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Model path");
-    ui.text_edit_singleline(&mut state.jarvis_model_path);
-    ui.checkbox(&mut state.jarvis_auto_start, "Start Jarvis automatically");
+    if ui
+        .text_edit_singleline(&mut state.jarvis_model_path)
+        .changed()
+    {
+        state.persist_config();
+    }
+
+    ui.label("Model install directory");
+    if ui
+        .text_edit_singleline(&mut state.jarvis_install_dir)
+        .changed()
+    {
+        state.persist_config();
+    }
+
+    if ui
+        .checkbox(&mut state.jarvis_auto_start, "Start Jarvis automatically")
+        .changed()
+    {
+        state.persist_config();
+    }
 
     if ui.button("Apply settings").clicked() {
         state.jarvis_status = Some(format!(
@@ -541,6 +691,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             },
             state.jarvis_model_path
         ));
+        state.persist_config();
     }
 
     if let Some(status) = &state.jarvis_status {
@@ -550,22 +701,56 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
-    let key = state.config.claude_api_key.get_or_insert_with(String::new);
+    ui.label("Chat alias");
+    if ui.text_edit_singleline(&mut state.claude_alias).changed() {
+        state.persist_config();
+    }
 
     ui.label("Anthropic API key");
-    ui.text_edit_singleline(key);
+    let mut key_changed = false;
+    {
+        let key = state
+            .config
+            .anthropic
+            .api_key
+            .get_or_insert_with(String::new);
+        if ui.text_edit_singleline(key).changed() {
+            key_changed = true;
+        }
+    }
+    if key_changed {
+        state.persist_config();
+    }
 
     ui.label("Default Claude model");
-    ui.text_edit_singleline(&mut state.claude_default_model);
+    if ui
+        .text_edit_singleline(&mut state.claude_default_model)
+        .changed()
+    {
+        state.persist_config();
+    }
+
+    let anthropic_key = state.config.anthropic.api_key.clone().unwrap_or_default();
 
     if ui.button("Test connection").clicked() {
-        if key.trim().is_empty() {
+        if anthropic_key.trim().is_empty() {
             state.anthropic_test_status = Some("Enter an API key before testing.".to_string());
         } else {
-            state.anthropic_test_status = Some(format!(
-                "Successfully validated token against model {} (simulated).",
-                state.claude_default_model
-            ));
+            match crate::api::claude::send_message(
+                anthropic_key.trim(),
+                &state.claude_default_model,
+                "Responde únicamente con la palabra 'pong'.",
+            ) {
+                Ok(response) => {
+                    let snippet: String = response.chars().take(60).collect();
+                    state.anthropic_test_status =
+                        Some(format!("API reachable. Sample response: {}", snippet));
+                }
+                Err(err) => {
+                    state.anthropic_test_status = Some(format!("Anthropic test failed: {}", err));
+                }
+            }
+            state.persist_config();
         }
     }
 
@@ -576,22 +761,52 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_provider_openai(ui: &mut egui::Ui, state: &mut AppState) {
-    let key = state.config.openai_api_key.get_or_insert_with(String::new);
+    ui.label("Chat alias");
+    if ui.text_edit_singleline(&mut state.openai_alias).changed() {
+        state.persist_config();
+    }
 
     ui.label("OpenAI API key");
-    ui.text_edit_singleline(key);
+    let mut key_changed = false;
+    {
+        let key = state.config.openai.api_key.get_or_insert_with(String::new);
+        if ui.text_edit_singleline(key).changed() {
+            key_changed = true;
+        }
+    }
+    if key_changed {
+        state.persist_config();
+    }
 
     ui.label("Default OpenAI model");
-    ui.text_edit_singleline(&mut state.openai_default_model);
+    if ui
+        .text_edit_singleline(&mut state.openai_default_model)
+        .changed()
+    {
+        state.persist_config();
+    }
+
+    let openai_key = state.config.openai.api_key.clone().unwrap_or_default();
 
     if ui.button("Test connection").clicked() {
-        if key.trim().is_empty() {
+        if openai_key.trim().is_empty() {
             state.openai_test_status = Some("Enter an API key before testing.".to_string());
         } else {
-            state.openai_test_status = Some(format!(
-                "Test request accepted for model {} (simulated).",
-                state.openai_default_model
-            ));
+            match crate::api::openai::send_message(
+                openai_key.trim(),
+                &state.openai_default_model,
+                "Responde con la palabra 'pong'.",
+            ) {
+                Ok(response) => {
+                    let snippet: String = response.chars().take(60).collect();
+                    state.openai_test_status =
+                        Some(format!("API reachable. Sample response: {}", snippet));
+                }
+                Err(err) => {
+                    state.openai_test_status = Some(format!("OpenAI test failed: {}", err));
+                }
+            }
+            state.persist_config();
         }
     }
 
@@ -602,22 +817,52 @@ fn draw_provider_openai(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_provider_groq(ui: &mut egui::Ui, state: &mut AppState) {
-    let key = state.config.groq_api_key.get_or_insert_with(String::new);
+    ui.label("Chat alias");
+    if ui.text_edit_singleline(&mut state.groq_alias).changed() {
+        state.persist_config();
+    }
 
     ui.label("Groq API key");
-    ui.text_edit_singleline(key);
+    let mut key_changed = false;
+    {
+        let key = state.config.groq.api_key.get_or_insert_with(String::new);
+        if ui.text_edit_singleline(key).changed() {
+            key_changed = true;
+        }
+    }
+    if key_changed {
+        state.persist_config();
+    }
 
     ui.label("Default Groq model");
-    ui.text_edit_singleline(&mut state.groq_default_model);
+    if ui
+        .text_edit_singleline(&mut state.groq_default_model)
+        .changed()
+    {
+        state.persist_config();
+    }
+
+    let groq_key = state.config.groq.api_key.clone().unwrap_or_default();
 
     if ui.button("Test connection").clicked() {
-        if key.trim().is_empty() {
+        if groq_key.trim().is_empty() {
             state.groq_test_status = Some("Enter an API key before testing.".to_string());
         } else {
-            state.groq_test_status = Some(format!(
-                "Latency check successful for model {} (simulated).",
-                state.groq_default_model
-            ));
+            match crate::api::groq::send_message(
+                groq_key.trim(),
+                &state.groq_default_model,
+                "Contesta con la palabra 'pong'.",
+            ) {
+                Ok(response) => {
+                    let snippet: String = response.chars().take(60).collect();
+                    state.groq_test_status =
+                        Some(format!("API reachable. Sample response: {}", snippet));
+                }
+                Err(err) => {
+                    state.groq_test_status = Some(format!("Groq test failed: {}", err));
+                }
+            }
+            state.persist_config();
         }
     }
 

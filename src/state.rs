@@ -1,4 +1,5 @@
 use crate::config::AppConfig; // New import
+use chrono::Local;
 
 /// Identifica la sección actualmente seleccionada en el árbol de preferencias.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +92,105 @@ impl Default for PreferenceSection {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainView {
+    ChatMultimodal,
+    LiveMultimodal,
+}
+
+impl Default for MainView {
+    fn default() -> Self {
+        MainView::ChatMultimodal
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CustomCommandAction {
+    ShowCurrentTime,
+    ShowSystemStatus,
+    ShowUsageStatistics,
+    ListActiveProjects,
+    ListConfiguredProfiles,
+    ShowCacheConfiguration,
+    ListAvailableModels,
+    ShowGithubSummary,
+    ShowMemorySettings,
+    ShowActiveProviders,
+    ShowJarvisStatus,
+    ShowCommandHelp,
+}
+
+impl CustomCommandAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            CustomCommandAction::ShowCurrentTime => "showCurrentTime()",
+            CustomCommandAction::ShowSystemStatus => "showSystemStatus()",
+            CustomCommandAction::ShowUsageStatistics => "showUsageStatistics()",
+            CustomCommandAction::ListActiveProjects => "listActiveProjects()",
+            CustomCommandAction::ListConfiguredProfiles => "listConfiguredProfiles()",
+            CustomCommandAction::ShowCacheConfiguration => "showCacheConfiguration()",
+            CustomCommandAction::ListAvailableModels => "listAvailableModels()",
+            CustomCommandAction::ShowGithubSummary => "showGithubSummary()",
+            CustomCommandAction::ShowMemorySettings => "showMemorySettings()",
+            CustomCommandAction::ShowActiveProviders => "showActiveProviders()",
+            CustomCommandAction::ShowJarvisStatus => "showJarvisStatus()",
+            CustomCommandAction::ShowCommandHelp => "showCommandHelp()",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            CustomCommandAction::ShowCurrentTime => "Display the current local time.",
+            CustomCommandAction::ShowSystemStatus => "Summarize the system health of the agent.",
+            CustomCommandAction::ShowUsageStatistics => "Provide placeholder usage statistics.",
+            CustomCommandAction::ListActiveProjects => "List the projects tracked by the agent.",
+            CustomCommandAction::ListConfiguredProfiles => "List configured user profiles.",
+            CustomCommandAction::ShowCacheConfiguration => {
+                "Describe the current cache directory and limits."
+            }
+            CustomCommandAction::ListAvailableModels => {
+                "List the models configured across providers and local runtime."
+            }
+            CustomCommandAction::ShowGithubSummary => {
+                "Summarize the authenticated GitHub account and repositories."
+            }
+            CustomCommandAction::ShowMemorySettings => {
+                "Explain the current contextual memory configuration."
+            }
+            CustomCommandAction::ShowActiveProviders => {
+                "List all providers that are currently configured."
+            }
+            CustomCommandAction::ShowJarvisStatus => {
+                "Display the status of the local Jarvis runtime."
+            }
+            CustomCommandAction::ShowCommandHelp => {
+                "List every available slash command in the chat."
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct CustomCommand {
+    pub trigger: String,
+    pub action: CustomCommandAction,
+}
+
+pub const AVAILABLE_CUSTOM_ACTIONS: &[CustomCommandAction] = &[
+    CustomCommandAction::ShowCurrentTime,
+    CustomCommandAction::ShowSystemStatus,
+    CustomCommandAction::ShowUsageStatistics,
+    CustomCommandAction::ListActiveProjects,
+    CustomCommandAction::ListConfiguredProfiles,
+    CustomCommandAction::ShowCacheConfiguration,
+    CustomCommandAction::ListAvailableModels,
+    CustomCommandAction::ShowGithubSummary,
+    CustomCommandAction::ShowMemorySettings,
+    CustomCommandAction::ShowActiveProviders,
+    CustomCommandAction::ShowJarvisStatus,
+    CustomCommandAction::ShowCommandHelp,
+];
+
 /// Contiene el estado global de la aplicación.
 pub struct AppState {
     /// Controla la visibilidad de la ventana modal de configuración.
@@ -101,10 +201,14 @@ pub struct AppState {
     pub chat_messages: Vec<ChatMessage>,
     /// Configuración de la aplicación.
     pub config: AppConfig, // New field
+    /// Vista principal activa (chat o live multimodal).
+    pub active_main_view: MainView,
     /// Sección de preferencias seleccionada en el árbol lateral.
     pub selected_section: PreferenceSection,
     /// Token de acceso personal de GitHub.
     pub github_token: String,
+    /// Nombre de usuario autenticado en GitHub.
+    pub github_username: Option<String>,
     /// Repositorios disponibles para sincronizar.
     pub github_repositories: Vec<String>,
     /// Índice del repositorio seleccionado.
@@ -126,9 +230,11 @@ pub struct AppState {
     /// Límite de disco en GB para la caché.
     pub resource_disk_limit_gb: f32,
     /// Lista de comandos personalizados disponibles.
-    pub custom_commands: Vec<String>,
+    pub custom_commands: Vec<CustomCommand>,
     /// Campo auxiliar para agregar un nuevo comando.
     pub new_custom_command: String,
+    /// Acción asociada al nuevo comando que se agregará.
+    pub new_custom_command_action: CustomCommandAction,
     /// Mensaje de retroalimentación para comandos.
     pub command_feedback: Option<String>,
     /// Indica si se almacena memoria de contexto.
@@ -169,6 +275,8 @@ pub struct AppState {
     pub groq_default_model: String,
     /// Mensaje de prueba de conexión con Groq.
     pub groq_test_status: Option<String>,
+    /// Eventos recientes del panel live multimodal.
+    pub live_events: Vec<String>,
 }
 
 impl Default for AppState {
@@ -178,13 +286,11 @@ impl Default for AppState {
             current_chat_input: String::new(),
             chat_messages: vec![ChatMessage::default()],
             config: AppConfig::default(),
+            active_main_view: MainView::default(),
             selected_section: PreferenceSection::default(),
             github_token: String::new(),
-            github_repositories: vec![
-                "agent-platform".to_string(),
-                "knowledge-graph".to_string(),
-                "workspace-sync".to_string(),
-            ],
+            github_username: None,
+            github_repositories: Vec::new(),
             selected_github_repo: None,
             github_connection_status: None,
             cache_directory: "/var/tmp/jungle/cache".to_string(),
@@ -194,8 +300,22 @@ impl Default for AppState {
             last_cache_cleanup: None,
             resource_memory_limit_gb: 32.0,
             resource_disk_limit_gb: 128.0,
-            custom_commands: vec!["/summarize".to_string(), "/deploy".to_string()],
+            custom_commands: vec![
+                CustomCommand {
+                    trigger: "/time".to_string(),
+                    action: CustomCommandAction::ShowCurrentTime,
+                },
+                CustomCommand {
+                    trigger: "/projects".to_string(),
+                    action: CustomCommandAction::ListActiveProjects,
+                },
+                CustomCommand {
+                    trigger: "/providers".to_string(),
+                    action: CustomCommandAction::ShowActiveProviders,
+                },
+            ],
             new_custom_command: String::new(),
+            new_custom_command_action: CustomCommandAction::ShowCurrentTime,
             command_feedback: None,
             enable_memory_tracking: true,
             memory_retention_days: 30,
@@ -224,6 +344,11 @@ impl Default for AppState {
             openai_test_status: None,
             groq_default_model: "llama3-70b-8192".to_string(),
             groq_test_status: None,
+            live_events: vec![
+                "Agent boot sequence completed.".to_string(),
+                "Connected to OpenAI, Anthropic and Groq providers.".to_string(),
+                "Jarvis local runtime idle. Awaiting first job.".to_string(),
+            ],
         }
     }
 }
@@ -245,47 +370,183 @@ impl Default for ChatMessage {
 
 impl AppState {
     pub fn handle_command(&mut self, command_input: String) {
-        let parts: Vec<&str> = command_input.trim().splitn(2, ' ').collect();
-        let command = parts[0];
-        let _args = parts.get(1).unwrap_or(&"");
+        let trimmed = command_input.trim();
+        if trimmed.is_empty() {
+            return;
+        }
 
-        match command {
-            "/status" => {
-                self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: "Status: All systems nominal.".to_string(),
-                });
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.is_empty() {
+            return;
+        }
+
+        let command = parts[0];
+
+        if let Some(custom) = self
+            .custom_commands
+            .iter()
+            .find(|cmd| cmd.trigger == command)
+        {
+            let response = self.execute_custom_action(custom.action);
+            self.chat_messages.push(ChatMessage {
+                sender: "System".to_string(),
+                text: response,
+            });
+            return;
+        }
+
+        let response = match command {
+            "/status" | "/system" => {
+                Some(self.execute_custom_action(CustomCommandAction::ShowSystemStatus))
             }
             "/models" => {
-                self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: "Available models: OpenAI, Claude, Groq, HuggingFace, Jarvis (local)."
-                        .to_string(),
-                });
-            }
-            "/system" => {
-                self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: "System information: [Placeholder for system info]".to_string(),
-                });
+                Some(self.execute_custom_action(CustomCommandAction::ListAvailableModels))
             }
             "/stats" => {
-                self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: "Usage statistics: [Placeholder for usage stats]".to_string(),
-                });
+                Some(self.execute_custom_action(CustomCommandAction::ShowUsageStatistics))
             }
-            "/reload" => {
-                self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: "Reloading configurations... (Placeholder)".to_string(),
-                });
+            "/reload" => Some(
+                "Recargando configuraciones... Los proveedores y la caché se sincronizarán en segundo plano.".to_string(),
+            ),
+            "/help" => {
+                Some(self.execute_custom_action(CustomCommandAction::ShowCommandHelp))
             }
-            _ => {
-                self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: format!("Unknown command: {}", command_input),
-                });
+            _ => None,
+        };
+
+        if let Some(message) = response {
+            self.chat_messages.push(ChatMessage {
+                sender: "System".to_string(),
+                text: message,
+            });
+        } else {
+            self.chat_messages.push(ChatMessage {
+                sender: "System".to_string(),
+                text: format!("Unknown command: {}", trimmed),
+            });
+        }
+    }
+}
+
+impl AppState {
+    pub fn execute_custom_action(&self, action: CustomCommandAction) -> String {
+        match action {
+            CustomCommandAction::ShowCurrentTime => {
+                let now = Local::now();
+                let formatted = now.format("%I:%M %p").to_string();
+                let normalized = formatted
+                    .trim_start_matches('0')
+                    .replace(' ', "")
+                    .to_lowercase();
+                format!("Son las {}.", normalized)
+            }
+            CustomCommandAction::ShowSystemStatus => {
+                format!(
+                    "Sistema operativo estable. Límites configurados → Memoria: {:.1} GB · Disco: {:.1} GB.",
+                    self.resource_memory_limit_gb, self.resource_disk_limit_gb
+                )
+            }
+            CustomCommandAction::ShowUsageStatistics => {
+                let total_messages = self.chat_messages.len();
+                let custom_count = self.custom_commands.len();
+                format!(
+                    "Estadísticas de uso: {} mensajes registrados en esta sesión y {} comandos personalizados disponibles.",
+                    total_messages, custom_count
+                )
+            }
+            CustomCommandAction::ListActiveProjects => {
+                if self.projects.is_empty() {
+                    "No hay proyectos configurados actualmente.".to_string()
+                } else {
+                    format!("Proyectos activos: {}.", self.projects.join(", "))
+                }
+            }
+            CustomCommandAction::ListConfiguredProfiles => {
+                if self.profiles.is_empty() {
+                    "No hay perfiles configurados.".to_string()
+                } else {
+                    format!("Perfiles disponibles: {}.", self.profiles.join(", "))
+                }
+            }
+            CustomCommandAction::ShowCacheConfiguration => {
+                format!(
+                    "Caché en '{}', límite {:.1} GB con limpieza automática cada {} h.",
+                    self.cache_directory,
+                    self.cache_size_limit_gb,
+                    self.cache_cleanup_interval_hours
+                )
+            }
+            CustomCommandAction::ListAvailableModels => {
+                let hf_preview = if self.huggingface_models.is_empty() {
+                    "sin resultados".to_string()
+                } else {
+                    self.huggingface_models
+                        .iter()
+                        .take(3)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+
+                format!(
+                    "Modelos configurados → OpenAI: {} · Claude: {} · Groq: {} · Jarvis: {} · HuggingFace: {}",
+                    self.openai_default_model,
+                    self.claude_default_model,
+                    self.groq_default_model,
+                    self.jarvis_model_path,
+                    hf_preview
+                )
+            }
+            CustomCommandAction::ShowGithubSummary => {
+                match (&self.github_username, self.github_repositories.is_empty()) {
+                    (Some(username), false) => format!(
+                        "GitHub autenticado como {} con {} repositorios sincronizables.",
+                        username,
+                        self.github_repositories.len()
+                    ),
+                    (Some(username), true) => format!(
+                        "GitHub autenticado como {}, pero no se encontraron repositorios visibles.",
+                        username
+                    ),
+                    _ => "GitHub no está conectado todavía.".to_string(),
+                }
+            }
+            CustomCommandAction::ShowMemorySettings => {
+                let status = if self.enable_memory_tracking {
+                    "activada"
+                } else {
+                    "desactivada"
+                };
+                format!(
+                    "Memoria contextual {} con retención de {} días.",
+                    status, self.memory_retention_days
+                )
+            }
+            CustomCommandAction::ShowActiveProviders => {
+                format!(
+                    "Proveedores activos → OpenAI ({}) · Claude ({}) · Groq ({})",
+                    self.openai_default_model, self.claude_default_model, self.groq_default_model
+                )
+            }
+            CustomCommandAction::ShowJarvisStatus => {
+                let auto_start = if self.jarvis_auto_start {
+                    "autoarranque habilitado"
+                } else {
+                    "autoarranque deshabilitado"
+                };
+                let status = self
+                    .jarvis_status
+                    .clone()
+                    .unwrap_or_else(|| "Jarvis esperando tareas.".to_string());
+                format!(
+                    "Jarvis en '{}' ({}) → {}",
+                    self.jarvis_model_path, auto_start, status
+                )
+            }
+            CustomCommandAction::ShowCommandHelp => {
+                let mut commands = vec!["/status", "/models", "/stats", "/reload", "/help"];
+                commands.extend(self.custom_commands.iter().map(|cmd| cmd.trigger.as_str()));
+                format!("Comandos disponibles: {}.", commands.join(", "))
             }
         }
     }

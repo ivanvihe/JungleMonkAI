@@ -1,4 +1,5 @@
 pub mod claude;
+pub mod github;
 pub mod groq;
 pub mod huggingface;
 pub mod local;

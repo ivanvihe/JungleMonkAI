@@ -10,6 +10,12 @@ import {
   AutoComplete,
   Input,
   Spin,
+  Tabs,
+  Descriptions,
+  Divider,
+  Statistic,
+  Timeline,
+  Empty,
   message as antdMessage,
 } from 'antd';
 import type { RadioChangeEvent } from 'antd';
@@ -21,7 +27,7 @@ import { useMessages } from '../../core/messages/MessageContext';
 import { useConversationSuggestions } from '../../core/messages/useConversationSuggestions';
 import { AttachmentPicker } from './composer/AttachmentPicker';
 import { AudioRecorder } from './composer/AudioRecorder';
-import { ChatAttachment, ChatTranscription } from '../../core/messages/messageTypes';
+import { ChatAttachment, ChatContentPart, ChatMessage, ChatTranscription } from '../../core/messages/messageTypes';
 import { ChatActorFilter } from '../../types/chat';
 import { AgentKind } from '../../core/agents/agentRegistry';
 import type { AgentDefinition } from '../../core/agents/agentRegistry';
@@ -31,12 +37,15 @@ import type { GlobalSettings, CommandPreset } from '../../types/globalSettings';
 import type { AgentPresenceEntry } from '../../core/agents/presence';
 
 const { TextArea } = Input;
+type WorkspaceTabKey = 'chat' | 'feed' | 'details';
 interface ChatWorkspaceProps {
   actorFilter: ChatActorFilter;
   settings: GlobalSettings;
   onSettingsChange: (updater: (previous: GlobalSettings) => GlobalSettings) => void;
   presenceMap: Map<string, AgentPresenceEntry>;
   onActorFilterChange?: (next: ChatActorFilter) => void;
+  activeTab?: WorkspaceTabKey;
+  onTabChange?: (next: WorkspaceTabKey) => void;
 }
 
 const COST_HINTS: Record<string, { badge: string; title: string }> = {
@@ -96,6 +105,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   } = useMessages();
   const { dynamicSuggestions, recentCommands } = useConversationSuggestions();
 
+  const [activeTabKey, setActiveTabKey] = useState<WorkspaceTabKey>(activeTab ?? 'chat');
   const [messageTypeFilter, setMessageTypeFilter] = useState<'all' | 'public' | 'internal'>('public');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'sent'>('all');
   const [visibleCount, setVisibleCount] = useState(40);
@@ -107,6 +117,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const feedContainerRef = useRef<HTMLDivElement | null>(null);
   const listOuterRef = useRef<HTMLDivElement | null>(null);
   const [feedSize, setFeedSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (activeTab && activeTab !== activeTabKey) {
+      setActiveTabKey(activeTab);
+    }
+  }, [activeTab, activeTabKey]);
 
   useLayoutEffect(() => {
     const node = feedContainerRef.current;
@@ -322,6 +338,105 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       })
       .filter((entry): entry is { agent: AgentDefinition; presence?: AgentPresenceEntry } => Boolean(entry));
   }, [agentMap, filteredMessages, presenceMap]);
+
+  const presenceCounters = useMemo(() => {
+    const counters: Record<AgentPresenceEntry['status'], number> = {
+      online: 0,
+      offline: 0,
+      loading: 0,
+      error: 0,
+    };
+    presenceMap.forEach(entry => {
+      counters[entry.status] += 1;
+    });
+    return counters;
+  }, [presenceMap]);
+
+  const activeAgentsCount = useMemo(
+    () => agents.filter(agent => agent.active).length,
+    [agents],
+  );
+
+  const actorFilterSummary = useMemo(() => {
+    if (actorFilter === 'all') {
+      return 'Todos los actores';
+    }
+    if (actorFilter === 'user') {
+      return 'Usuario';
+    }
+    if (actorFilter === 'system') {
+      return 'Control Hub';
+    }
+    if (actorFilter.startsWith('kind:')) {
+      const kind = actorFilter.slice('kind:'.length);
+      return kind === 'cloud' ? 'Agentes en nube' : 'Agentes locales';
+    }
+    if (actorFilter.startsWith('agent:')) {
+      const target = agentMap.get(actorFilter.slice('agent:'.length));
+      return target ? getAgentDisplayName(target) : 'Agente seleccionado';
+    }
+    return 'Filtro personalizado';
+  }, [actorFilter, agentMap]);
+
+  const getMessagePreview = useCallback((message: ChatMessage) => {
+    const { content } = message;
+    if (typeof content === 'string') {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (typeof part === 'string') {
+          return part;
+        }
+        const typed = part as ChatContentPart;
+        if (typed.type === 'text' && 'text' in typed) {
+          return typed.text;
+        }
+      }
+    }
+    return '[Contenido enriquecido]';
+  }, []);
+
+  const feedTimelineItems = useMemo(() => {
+    return messages
+      .slice(-8)
+      .reverse()
+      .map(message => {
+        const timestampLabel = formatTimestamp(message.timestamp);
+        let authorLabel: string;
+        if (message.author === 'user') {
+          authorLabel = 'Usuario';
+        } else if (message.author === 'system') {
+          authorLabel = 'Control Hub';
+        } else {
+          const agent = message.agentId ? agentMap.get(message.agentId) : undefined;
+          authorLabel = agent ? getAgentDisplayName(agent) : 'Agente';
+        }
+        const preview = formatChipLabel(getMessagePreview(message), 120);
+        const visibilityTag = message.visibility === 'internal' ? 'Interno' : 'Público';
+
+        return {
+          key: message.id,
+          color: message.visibility === 'internal' ? 'gray' : 'blue',
+          label: timestampLabel,
+          children: (
+            <div className="feed-timeline-entry">
+              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                <Space size="small" align="center">
+                  <Typography.Text strong>{authorLabel}</Typography.Text>
+                  <Tag bordered={false} color={message.status === 'pending' ? 'orange' : 'geekblue'}>
+                    {visibilityTag}
+                  </Tag>
+                </Space>
+                <Typography.Paragraph style={{ margin: 0 }} type="secondary">
+                  {preview || 'Sin contenido visible'}
+                </Typography.Paragraph>
+              </Space>
+            </div>
+          ),
+        };
+      });
+  }, [agentMap, formatChipLabel, formatTimestamp, getMessagePreview, messages]);
 
   const [autoCompleteOptions, setAutoCompleteOptions] = useState<
     Array<{ value: string; label: React.ReactNode; commandText: string }>
@@ -677,6 +792,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     [],
   );
 
+  const handleWorkspaceTabChange = useCallback(
+    (key: string) => {
+      const nextKey = (key as WorkspaceTabKey) ?? 'chat';
+      setActiveTabKey(nextKey);
+      onTabChange?.(nextKey);
+    },
+    [onTabChange],
+  );
+
   const handleActorFilterSelect = useCallback(
     (value: ChatActorFilter) => {
       onActorFilterChange?.(value);
@@ -1001,8 +1125,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     [addAttachment, upsertTranscription],
   );
 
-  return (
-    <div className="chat-workspace">
+  const chatTabContent = (
+    <div className="chat-tab-panel">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Space wrap align="center" size="middle" className="workspace-filter-bar">
           <Select
@@ -1261,6 +1385,88 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </Space>
         </Space>
       </Space>
+    </div>
+  );
+
+  const feedTabContent = (
+    <div className="chat-feed-tab">
+      {feedTimelineItems.length === 0 ? (
+        <Empty description="Sin actividad reciente en el feed" />
+      ) : (
+        <Timeline mode="left" items={feedTimelineItems} />
+      )}
+    </div>
+  );
+
+  const detailsTabContent = (
+    <div className="chat-details-tab">
+      <Typography.Title level={5}>Diagnóstico rápido</Typography.Title>
+      <Descriptions size="small" column={2} colon={false} className="chat-details-descriptions">
+        <Descriptions.Item label="Mensajes públicos">{messageCounts.public}</Descriptions.Item>
+        <Descriptions.Item label="Notas internas">{messageCounts.internal}</Descriptions.Item>
+        <Descriptions.Item label="Confirmados">{messageCounts.sent}</Descriptions.Item>
+        <Descriptions.Item label="Pendientes">{messageCounts.pending}</Descriptions.Item>
+      </Descriptions>
+      <Divider />
+      <Space wrap size="small">
+        <Tag color="blue">Adjuntos: {composerAttachments.length}</Tag>
+        <Tag color="magenta">Comandos recientes: {recentCommands.length}</Tag>
+        <Tag color="geekblue">Sugerencias activas: {dynamicSuggestions.length}</Tag>
+        {composerModalities.length > 0 ? (
+          <Tag color="cyan">Modalidades: {composerModalities.join(', ')}</Tag>
+        ) : (
+          <Tag color="default">Modalidades: texto</Tag>
+        )}
+      </Space>
+    </div>
+  );
+
+  const summaryPanel = (
+    <div className="chat-summary-panel">
+      <Typography.Title level={5}>Resumen de la sesión</Typography.Title>
+      <Space size="large" className="chat-summary-metrics">
+        <Statistic title="Mensajes" value={messages.length} />
+        <Statistic title="Pendientes" value={messageCounts.pending} />
+        <Statistic title="Agentes" value={activeAgentsCount} suffix={` / ${agents.length}`} />
+      </Space>
+      <Divider />
+      <Descriptions size="small" column={1} colon={false} labelStyle={{ minWidth: 160 }}>
+        <Descriptions.Item label="Último mensaje">
+          {lastUserMessage ? formatTimestamp(lastUserMessage.timestamp) : 'Sin actividad reciente'}
+        </Descriptions.Item>
+        <Descriptions.Item label="Filtro aplicado">{actorFilterSummary}</Descriptions.Item>
+        <Descriptions.Item label="Modo de envío">
+          {composerTargetMode === 'broadcast' ? 'Broadcast simultáneo' : 'Independiente por agente'}
+        </Descriptions.Item>
+        <Descriptions.Item label="Destinatarios seleccionados">
+          {composerTargetAgentIds.length > 0 ? composerTargetAgentIds.length : 'Automático'}
+        </Descriptions.Item>
+      </Descriptions>
+      <Divider />
+      <Space wrap size="small" className="chat-summary-status">
+        <Tag color="success">Online: {presenceCounters.online}</Tag>
+        <Tag color="processing">Calibrando: {presenceCounters.loading}</Tag>
+        <Tag color="default">En espera: {presenceCounters.offline}</Tag>
+        <Tag color="error">Incidencias: {presenceCounters.error}</Tag>
+      </Space>
+    </div>
+  );
+
+  return (
+    <div className="chat-workspace-shell">
+      <div className="chat-workspace-main">
+        <Tabs
+          className="chat-workspace-tabs"
+          activeKey={activeTabKey}
+          onChange={handleWorkspaceTabChange}
+          items={[
+            { key: 'chat', label: 'Chat', children: chatTabContent },
+            { key: 'feed', label: 'Feed', children: feedTabContent },
+            { key: 'details', label: 'Detalles', children: detailsTabContent },
+          ]}
+        />
+      </div>
+      <aside className="chat-workspace-sideinfo">{summaryPanel}</aside>
     </div>
   );
 };

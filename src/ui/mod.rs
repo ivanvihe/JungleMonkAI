@@ -1,5 +1,5 @@
-use eframe::egui;
 use crate::state::AppState;
+use eframe::egui;
 
 pub mod chat;
 pub mod modals;

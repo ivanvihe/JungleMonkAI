@@ -1,5 +1,6 @@
-use crate::config::AppConfig; // New import
+use crate::config::AppConfig;
 use chrono::Local;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Identifica la sección actualmente seleccionada en el árbol de preferencias.
@@ -105,7 +106,7 @@ impl Default for MainView {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CustomCommandAction {
     ShowCurrentTime,
     ShowSystemStatus,
@@ -171,7 +172,7 @@ impl CustomCommandAction {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CustomCommand {
     pub trigger: String,
     pub action: CustomCommandAction,
@@ -191,6 +192,23 @@ pub const AVAILABLE_CUSTOM_ACTIONS: &[CustomCommandAction] = &[
     CustomCommandAction::ShowJarvisStatus,
     CustomCommandAction::ShowCommandHelp,
 ];
+
+pub fn default_custom_commands() -> Vec<CustomCommand> {
+    vec![
+        CustomCommand {
+            trigger: "/time".to_string(),
+            action: CustomCommandAction::ShowCurrentTime,
+        },
+        CustomCommand {
+            trigger: "/projects".to_string(),
+            action: CustomCommandAction::ListActiveProjects,
+        },
+        CustomCommand {
+            trigger: "/providers".to_string(),
+            action: CustomCommandAction::ShowActiveProviders,
+        },
+    ]
+}
 
 /// Contiene el estado global de la aplicación.
 pub struct AppState {
@@ -256,95 +274,165 @@ pub struct AppState {
     pub huggingface_search_query: String,
     /// Resultados disponibles en HuggingFace.
     pub huggingface_models: Vec<String>,
+    /// Token opcional para acceder a la API de Hugging Face.
+    pub huggingface_access_token: Option<String>,
     /// Modelo seleccionado dentro de HuggingFace.
     pub selected_huggingface_model: Option<usize>,
     /// Mensaje de estado tras intentar instalar un modelo local.
     pub huggingface_install_status: Option<String>,
     /// Ruta del modelo local de Jarvis.
     pub jarvis_model_path: String,
+    /// Directorio donde se instalarán los modelos locales de Jarvis.
+    pub jarvis_install_dir: String,
     /// Determina si Jarvis inicia automáticamente.
     pub jarvis_auto_start: bool,
     /// Mensaje de estado sobre la configuración local de Jarvis.
     pub jarvis_status: Option<String>,
+    /// Modelos instalados para Jarvis.
+    pub installed_jarvis_models: Vec<String>,
     /// Modelo por defecto de Anthropic/Claude.
     pub claude_default_model: String,
+    /// Alias configurado para invocar a Claude desde el chat.
+    pub claude_alias: String,
     /// Mensaje de prueba de conexión con Anthropic.
     pub anthropic_test_status: Option<String>,
     /// Modelo por defecto de OpenAI.
     pub openai_default_model: String,
+    /// Alias configurado para invocar a OpenAI desde el chat.
+    pub openai_alias: String,
     /// Mensaje de prueba de conexión con OpenAI.
     pub openai_test_status: Option<String>,
     /// Modelo por defecto de Groq.
     pub groq_default_model: String,
+    /// Alias configurado para invocar a Groq desde el chat.
+    pub groq_alias: String,
     /// Mensaje de prueba de conexión con Groq.
     pub groq_test_status: Option<String>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let config = AppConfig::load_or_default();
+
+        let mut profiles = if config.profiles.is_empty() {
+            vec![
+                "Default".to_string(),
+                "Research".to_string(),
+                "Operations".to_string(),
+            ]
+        } else {
+            config.profiles.clone()
+        };
+
+        if profiles.is_empty() {
+            profiles.push("Default".to_string());
+        }
+
+        let mut projects = if config.projects.is_empty() {
+            vec!["Autonomous Agent".to_string(), "RAG Pipeline".to_string()]
+        } else {
+            config.projects.clone()
+        };
+
+        if projects.is_empty() {
+            projects.push("Autonomous Agent".to_string());
+        }
+
+        let default_hf_models = if config.huggingface.last_search_query.is_empty() {
+            vec![
+                "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+                "openai/whisper-small".to_string(),
+                "stabilityai/stable-diffusion-xl".to_string(),
+            ]
+        } else {
+            Vec::new()
+        };
+
+        let selected_profile = config
+            .selected_profile
+            .filter(|idx| profiles.get(*idx).is_some())
+            .or(Some(0));
+        let selected_project = config
+            .selected_project
+            .filter(|idx| projects.get(*idx).is_some())
+            .or(Some(0));
+
         Self {
             show_settings_modal: false,
             current_chat_input: String::new(),
             chat_messages: vec![ChatMessage::default()],
-            config: AppConfig::default(),
+            config: config.clone(),
             active_main_view: MainView::default(),
             selected_section: PreferenceSection::default(),
-            github_token: String::new(),
+            github_token: config.github_token.unwrap_or_default(),
             github_username: None,
             github_repositories: Vec::new(),
             selected_github_repo: None,
             github_connection_status: None,
-            cache_directory: "/var/tmp/jungle/cache".to_string(),
-            cache_size_limit_gb: 8.0,
-            enable_auto_cleanup: true,
-            cache_cleanup_interval_hours: 24,
+            cache_directory: config.cache_directory.clone(),
+            cache_size_limit_gb: config.cache_size_limit_gb,
+            enable_auto_cleanup: config.enable_auto_cleanup,
+            cache_cleanup_interval_hours: config.cache_cleanup_interval_hours,
             last_cache_cleanup: None,
-            resource_memory_limit_gb: 32.0,
-            resource_disk_limit_gb: 128.0,
-            custom_commands: vec![
-                CustomCommand {
-                    trigger: "/time".to_string(),
-                    action: CustomCommandAction::ShowCurrentTime,
-                },
-                CustomCommand {
-                    trigger: "/projects".to_string(),
-                    action: CustomCommandAction::ListActiveProjects,
-                },
-                CustomCommand {
-                    trigger: "/providers".to_string(),
-                    action: CustomCommandAction::ShowActiveProviders,
-                },
-            ],
+            resource_memory_limit_gb: config.resource_memory_limit_gb,
+            resource_disk_limit_gb: config.resource_disk_limit_gb,
+            custom_commands: if config.custom_commands.is_empty() {
+                default_custom_commands()
+            } else {
+                config.custom_commands.clone()
+            },
             new_custom_command: String::new(),
             new_custom_command_action: CustomCommandAction::ShowCurrentTime,
             command_feedback: None,
             show_functions_modal: false,
-            enable_memory_tracking: true,
-            memory_retention_days: 30,
-            profiles: vec![
-                "Default".to_string(),
-                "Research".to_string(),
-                "Operations".to_string(),
-            ],
-            selected_profile: Some(0),
-            projects: vec!["Autonomous Agent".to_string(), "RAG Pipeline".to_string()],
-            selected_project: Some(0),
-            huggingface_search_query: String::new(),
-            huggingface_models: vec![
-                "sentence-transformers/all-MiniLM-L6-v2".to_string(),
-                "openai/whisper-small".to_string(),
-                "stabilityai/stable-diffusion-xl".to_string(),
-            ],
+            enable_memory_tracking: config.enable_memory_tracking,
+            memory_retention_days: config.memory_retention_days,
+            profiles,
+            selected_profile,
+            projects,
+            selected_project,
+            huggingface_search_query: config.huggingface.last_search_query.clone(),
+            huggingface_models: default_hf_models,
+            huggingface_access_token: config.huggingface.access_token.clone(),
             selected_huggingface_model: None,
             huggingface_install_status: None,
-            jarvis_model_path: "/models/jarvis/latest.bin".to_string(),
-            jarvis_auto_start: true,
+            jarvis_model_path: config.jarvis.model_path.clone(),
+            jarvis_install_dir: config.jarvis.install_dir.clone(),
+            jarvis_auto_start: config.jarvis.auto_start,
             jarvis_status: None,
-            claude_default_model: "claude-3-opus".to_string(),
+            installed_jarvis_models: config.jarvis.installed_models.clone(),
+            claude_default_model: if config.anthropic.default_model.is_empty() {
+                "claude-3-opus".to_string()
+            } else {
+                config.anthropic.default_model.clone()
+            },
+            claude_alias: if config.anthropic.alias.is_empty() {
+                "claude".to_string()
+            } else {
+                config.anthropic.alias.clone()
+            },
             anthropic_test_status: None,
-            openai_default_model: "gpt-4.1-mini".to_string(),
+            openai_default_model: if config.openai.default_model.is_empty() {
+                "gpt-4.1-mini".to_string()
+            } else {
+                config.openai.default_model.clone()
+            },
+            openai_alias: if config.openai.alias.is_empty() {
+                "gpt".to_string()
+            } else {
+                config.openai.alias.clone()
+            },
             openai_test_status: None,
-            groq_default_model: "llama3-70b-8192".to_string(),
+            groq_default_model: if config.groq.default_model.is_empty() {
+                "llama3-70b-8192".to_string()
+            } else {
+                config.groq.default_model.clone()
+            },
+            groq_alias: if config.groq.alias.is_empty() {
+                "groq".to_string()
+            } else {
+                config.groq.alias.clone()
+            },
             groq_test_status: None,
         }
     }
@@ -522,6 +610,220 @@ impl CustomCommandAction {
 }
 
 impl AppState {
+    fn normalize_string_option(value: &mut Option<String>) {
+        if let Some(existing) = value.as_mut() {
+            let trimmed = existing.trim();
+            if trimmed.is_empty() {
+                *value = None;
+            } else if trimmed.len() != existing.len() {
+                *existing = trimmed.to_string();
+            }
+        }
+    }
+
+    fn sync_config_from_state(&mut self) {
+        self.config.github_token = if self.github_token.trim().is_empty() {
+            None
+        } else {
+            Some(self.github_token.trim().to_string())
+        };
+        self.config.cache_directory = self.cache_directory.clone();
+        self.config.cache_size_limit_gb = self.cache_size_limit_gb;
+        self.config.enable_auto_cleanup = self.enable_auto_cleanup;
+        self.config.cache_cleanup_interval_hours = self.cache_cleanup_interval_hours;
+        self.config.resource_memory_limit_gb = self.resource_memory_limit_gb;
+        self.config.resource_disk_limit_gb = self.resource_disk_limit_gb;
+        self.config.custom_commands = self.custom_commands.clone();
+        self.config.enable_memory_tracking = self.enable_memory_tracking;
+        self.config.memory_retention_days = self.memory_retention_days;
+        self.config.profiles = self.profiles.clone();
+        self.config.selected_profile = self.selected_profile;
+        self.config.projects = self.projects.clone();
+        self.config.selected_project = self.selected_project;
+        self.config.huggingface.last_search_query = self.huggingface_search_query.clone();
+        self.config.huggingface.access_token = self.huggingface_access_token.clone();
+        self.config.jarvis.model_path = self.jarvis_model_path.clone();
+        self.config.jarvis.install_dir = self.jarvis_install_dir.clone();
+        self.config.jarvis.auto_start = self.jarvis_auto_start;
+        self.config.jarvis.installed_models = self.installed_jarvis_models.clone();
+        self.config.anthropic.default_model = self.claude_default_model.clone();
+        self.config.anthropic.alias = self.claude_alias.clone();
+        self.config.openai.default_model = self.openai_default_model.clone();
+        self.config.openai.alias = self.openai_alias.clone();
+        self.config.groq.default_model = self.groq_default_model.clone();
+        self.config.groq.alias = self.groq_alias.clone();
+
+        Self::normalize_string_option(&mut self.config.anthropic.api_key);
+        Self::normalize_string_option(&mut self.config.openai.api_key);
+        Self::normalize_string_option(&mut self.config.groq.api_key);
+        Self::normalize_string_option(&mut self.config.github_token);
+        Self::normalize_string_option(&mut self.config.huggingface.access_token);
+    }
+
+    pub fn persist_config(&mut self) {
+        self.sync_config_from_state();
+        if let Err(err) = self.config.save() {
+            self.chat_messages.push(ChatMessage {
+                sender: "System".to_string(),
+                text: format!("No se pudo guardar la configuración: {}", err),
+            });
+        }
+    }
+
+    fn provider_alias_display(alias: &str, fallback: &str) -> String {
+        let trimmed = alias.trim();
+        if trimmed.is_empty() {
+            fallback.to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    fn extract_alias_prompt(alias: &str, input: &str) -> Option<String> {
+        let alias_trimmed = alias.trim();
+        if alias_trimmed.is_empty() {
+            return None;
+        }
+
+        let input_trimmed = input.trim_start();
+        let alias_chars: Vec<char> = alias_trimmed.chars().collect();
+        let mut input_iter = input_trimmed.chars();
+
+        for alias_ch in &alias_chars {
+            match input_iter.next() {
+                Some(user_ch) if user_ch.eq_ignore_ascii_case(alias_ch) => {}
+                _ => return None,
+            }
+        }
+
+        let alias_bytes: usize = alias_chars.iter().map(|c| c.len_utf8()).sum();
+        if input_trimmed.len() < alias_bytes {
+            return None;
+        }
+
+        let mut remainder = input_trimmed[alias_bytes..].trim_start();
+        remainder = remainder.trim_start_matches(|c: char| matches!(c, ':' | ','));
+        remainder = remainder.trim_start();
+
+        if remainder.is_empty() {
+            None
+        } else {
+            Some(remainder.to_string())
+        }
+    }
+
+    fn handle_provider_call<F>(
+        &mut self,
+        alias: String,
+        provider_name: &str,
+        prompt: String,
+        api_key: Option<String>,
+        model: String,
+        caller: F,
+    ) where
+        F: Fn(&str, &str, &str) -> anyhow::Result<String>,
+    {
+        if let Some(key) = api_key {
+            match caller(&key, &model, &prompt) {
+                Ok(response) => self.chat_messages.push(ChatMessage {
+                    sender: alias.clone(),
+                    text: response,
+                }),
+                Err(err) => self.chat_messages.push(ChatMessage {
+                    sender: "System".to_string(),
+                    text: format!("{}: error al solicitar respuesta: {}", alias, err),
+                }),
+            }
+        } else {
+            self.chat_messages.push(ChatMessage {
+                sender: "System".to_string(),
+                text: format!(
+                    "Configura la API key de {} antes de usar el alias '{}'.",
+                    provider_name, alias
+                ),
+            });
+        }
+    }
+
+    fn invoke_anthropic(&mut self, prompt: String) {
+        let alias = Self::provider_alias_display(&self.claude_alias, "claude");
+        let key = self.config.anthropic.api_key.clone().and_then(|k| {
+            let trimmed = k.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        self.handle_provider_call(
+            alias,
+            "Anthropic",
+            prompt,
+            key,
+            self.claude_default_model.clone(),
+            |api_key, model, content| crate::api::claude::send_message(api_key, model, content),
+        );
+    }
+
+    fn invoke_openai(&mut self, prompt: String) {
+        let alias = Self::provider_alias_display(&self.openai_alias, "openai");
+        let key = self.config.openai.api_key.clone().and_then(|k| {
+            let trimmed = k.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        self.handle_provider_call(
+            alias,
+            "OpenAI",
+            prompt,
+            key,
+            self.openai_default_model.clone(),
+            |api_key, model, content| crate::api::openai::send_message(api_key, model, content),
+        );
+    }
+
+    fn invoke_groq(&mut self, prompt: String) {
+        let alias = Self::provider_alias_display(&self.groq_alias, "groq");
+        let key = self.config.groq.api_key.clone().and_then(|k| {
+            let trimmed = k.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        self.handle_provider_call(
+            alias,
+            "Groq",
+            prompt,
+            key,
+            self.groq_default_model.clone(),
+            |api_key, model, content| crate::api::groq::send_message(api_key, model, content),
+        );
+    }
+
+    pub fn try_route_provider_message(&mut self, input: &str) -> bool {
+        if let Some(prompt) = Self::extract_alias_prompt(&self.claude_alias, input) {
+            self.invoke_anthropic(prompt);
+            return true;
+        }
+
+        if let Some(prompt) = Self::extract_alias_prompt(&self.openai_alias, input) {
+            self.invoke_openai(prompt);
+            return true;
+        }
+
+        if let Some(prompt) = Self::extract_alias_prompt(&self.groq_alias, input) {
+            self.invoke_groq(prompt);
+            return true;
+        }
+
+        false
+    }
+
     pub fn handle_command(&mut self, command_input: String) {
         let trimmed = command_input.trim();
         if trimmed.is_empty() {

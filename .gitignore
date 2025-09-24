@@ -1,9 +1,0 @@
-node_modules
-.DS_Store
-target
-src-tauri/target
-src-tauri/Cargo.lock
-dist
-*.log
-package-lock.json
-package-lock.json

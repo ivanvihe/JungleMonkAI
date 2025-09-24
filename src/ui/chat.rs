@@ -1,4 +1,5 @@
-use crate::state::{AppState, ChatMessage, PreferenceSection};
+use crate::api::github;
+use crate::state::{AppState, ChatMessage, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
 use eframe::egui;
 
 pub fn draw_chat_panel(ctx: &egui::Context, state: &mut AppState) {
@@ -122,6 +123,10 @@ fn submit_chat_message(state: &mut AppState) {
     state.current_chat_input.clear();
 
     if input.starts_with('/') {
+        state.chat_messages.push(ChatMessage {
+            sender: "User".to_string(),
+            text: input.clone(),
+        });
         state.handle_command(input);
     } else {
         state.chat_messages.push(ChatMessage {
@@ -156,27 +161,56 @@ fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Personal access token");
     ui.text_edit_singleline(&mut state.github_token);
 
-    if ui.button("Save token").clicked() {
-        state.github_connection_status = if state.github_token.trim().is_empty() {
-            Some("Please enter a valid GitHub token before saving.".to_string())
+    if ui.button("Connect & sync").clicked() {
+        if state.github_token.trim().is_empty() {
+            state.github_username = None;
+            state.github_repositories.clear();
+            state.selected_github_repo = None;
+            state.github_connection_status =
+                Some("Please enter a valid GitHub token before syncing.".to_string());
         } else {
-            Some("GitHub token stored locally for future sessions.".to_string())
-        };
+            match github::fetch_user_and_repositories(&state.github_token) {
+                Ok(data) => {
+                    state.github_username = Some(data.username.clone());
+                    state.github_repositories = data.repositories;
+                    state.selected_github_repo = None;
+                    state.github_connection_status =
+                        Some(format!("GitHub data loaded for {}.", data.username));
+                }
+                Err(err) => {
+                    state.github_connection_status =
+                        Some(format!("Failed to sync GitHub: {}", err));
+                }
+            }
+        }
     }
 
-    egui::ComboBox::from_label("Select repository")
-        .selected_text(
-            state
-                .selected_github_repo
-                .and_then(|idx| state.github_repositories.get(idx))
-                .cloned()
-                .unwrap_or_else(|| "Choose a repository".to_string()),
-        )
-        .show_ui(ui, |ui| {
-            for (idx, repo) in state.github_repositories.iter().enumerate() {
-                ui.selectable_value(&mut state.selected_github_repo, Some(idx), repo);
-            }
-        });
+    if let Some(username) = &state.github_username {
+        ui.colored_label(
+            ui.visuals().weak_text_color(),
+            format!("Authenticated as: {}", username),
+        );
+    }
+
+    let combo_label = state
+        .selected_github_repo
+        .and_then(|idx| state.github_repositories.get(idx))
+        .cloned()
+        .unwrap_or_else(|| "Choose a repository".to_string());
+
+    ui.add_enabled_ui(!state.github_repositories.is_empty(), |ui| {
+        egui::ComboBox::from_label("Select repository")
+            .selected_text(combo_label)
+            .show_ui(ui, |ui| {
+                for (idx, repo) in state.github_repositories.iter().enumerate() {
+                    ui.selectable_value(&mut state.selected_github_repo, Some(idx), repo);
+                }
+            });
+    });
+
+    if state.github_repositories.is_empty() {
+        ui.label("No repositories found yet. Connect with a token to load them.");
+    }
 
     if ui.button("Sync repository").clicked() {
         let message = match (
@@ -247,41 +281,86 @@ fn draw_system_resources(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_custom_commands(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.label("Available commands");
+    ui.heading("Command palette");
+    ui.label("Link slash commands with built-in automation functions.");
 
     let mut remove_index = None;
     for (idx, command) in state.custom_commands.iter().enumerate() {
-        ui.horizontal(|ui| {
-            ui.label(command);
-            if ui.button("Remove").clicked() {
-                remove_index = Some(idx);
-            }
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.strong(&command.trigger);
+                ui.label(format!("→ {}", command.action.label()));
+                if ui.button(egui::RichText::new("Remove").small()).clicked() {
+                    remove_index = Some(idx);
+                }
+            });
+            ui.colored_label(ui.visuals().weak_text_color(), command.action.description());
         });
+        ui.add_space(4.0);
     }
 
     if let Some(idx) = remove_index {
         if let Some(command) = state.custom_commands.get(idx).cloned() {
             state.custom_commands.remove(idx);
-            state.command_feedback = Some(format!("Removed custom command '{}'.", command));
+            state.command_feedback = Some(format!(
+                "Removed custom command '{}' ({})",
+                command.trigger,
+                command.action.label()
+            ));
         }
     }
 
     ui.add_space(8.0);
+    ui.label("Create a new command");
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.new_custom_command)
-                .hint_text("Add new command (e.g. /deploy-staging)"),
+                .hint_text("Trigger (e.g. /time)"),
         );
+
+        egui::ComboBox::from_id_source("new_custom_command_action")
+            .selected_text(state.new_custom_command_action.label())
+            .show_ui(ui, |ui| {
+                for action in AVAILABLE_CUSTOM_ACTIONS {
+                    ui.selectable_value(
+                        &mut state.new_custom_command_action,
+                        *action,
+                        format!("{} — {}", action.label(), action.description()),
+                    );
+                }
+            });
+
         if ui.button("Add").clicked() {
             let trimmed = state.new_custom_command.trim();
             if trimmed.is_empty() {
                 state.command_feedback = Some("Command cannot be empty.".to_string());
-            } else if state.custom_commands.iter().any(|cmd| cmd == trimmed) {
-                state.command_feedback = Some(format!("Command '{}' already exists.", trimmed));
             } else {
-                state.custom_commands.push(trimmed.to_string());
-                state.command_feedback = Some(format!("Added custom command '{}'.", trimmed));
-                state.new_custom_command.clear();
+                let normalized = if trimmed.starts_with('/') {
+                    trimmed.to_string()
+                } else {
+                    format!("/{}", trimmed)
+                };
+
+                if state
+                    .custom_commands
+                    .iter()
+                    .any(|cmd| cmd.trigger == normalized)
+                {
+                    state.command_feedback =
+                        Some(format!("Command '{}' already exists.", normalized));
+                } else {
+                    let action = state.new_custom_command_action;
+                    state.custom_commands.push(crate::state::CustomCommand {
+                        trigger: normalized.clone(),
+                        action,
+                    });
+                    state.command_feedback = Some(format!(
+                        "Added '{}' linked to {}.",
+                        normalized,
+                        action.label()
+                    ));
+                    state.new_custom_command.clear();
+                }
             }
         }
     });
@@ -290,6 +369,15 @@ fn draw_custom_commands(ui: &mut egui::Ui, state: &mut AppState) {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), feedback);
     }
+
+    ui.add_space(8.0);
+    egui::CollapsingHeader::new("Available functions")
+        .default_open(false)
+        .show(ui, |ui| {
+            for action in AVAILABLE_CUSTOM_ACTIONS {
+                ui.label(format!("{} — {}", action.label(), action.description()));
+            }
+        });
 }
 
 fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {

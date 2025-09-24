@@ -1,4 +1,4 @@
-use crate::state::{AppState, PreferenceSection};
+use crate::state::{AppState, MainView, PreferenceSection};
 use eframe::egui;
 
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
@@ -11,7 +11,16 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
             ui.separator();
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.label("Live Multimodal");
+                ui.selectable_value(
+                    &mut state.active_main_view,
+                    MainView::ChatMultimodal,
+                    "Chat Multimodal",
+                );
+                ui.selectable_value(
+                    &mut state.active_main_view,
+                    MainView::LiveMultimodal,
+                    "Live Multimodal",
+                );
                 ui.add_space(8.0);
 
                 egui::CollapsingHeader::new("Preferences")

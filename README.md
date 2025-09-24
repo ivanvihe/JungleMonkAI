@@ -1,5 +1,26 @@
 # JungleMonkAI
 
+## Arquitectura de layout responsivo
+
+- El shell principal replica la experiencia de Proxmox con un `Sider` plegable para escritorio y un **Drawer** automático en tablet/móvil. El colapso se sincroniza con `workspacePreferences.sidePanel` para mantener la preferencia por usuario.
+- El área de contenido adapta la distribución mediante breakpoints `xl` y `lg`. En pantallas amplias se muestran simultáneamente el workspace, el monitor de actividad y la barra inferior; en resoluciones reducidas se apilan para priorizar el flujo conversacional.
+- La cabecera incorpora **breadcrumbs dinámicos** y un *context switcher* (workspace/cluster/insights) que guía la navegación según el ámbito activo.
+- Se añadieron paneles flotantes (`Drawer`) para configurar agentes y modelos sin abandonar el contexto principal. Desde escritorio los accesos aparecen en el Sider colapsable; en móvil se integran en el Drawer lateral.
+
+## Biblioteca de componentes reutilizables
+
+- `ProSectionCard`: envoltorio de `ProCard` con estilos consistentes para superficies principales, información complementaria y paneles secundarios.
+- `ProDataTable`: tabla con paginación compacta, controles desactivados por defecto y `rowKey="id"` para simplificar listados operativos.
+- `ProListPanel`: combina `ProCard` + `ProList` para configuraciones rápidas (por ejemplo, agentes). Acepta `metas` personalizados y mantiene estilo Ant Design Pro.
+- Los componentes anteriores se ubican en `src/components/pro` y deben reutilizarse en nuevos módulos para garantizar consistencia visual.
+
+## Atajos, drawers y feedback visual
+
+- Atajos soportados (Ctrl/Cmd + Shift): `A` abre la configuración rápida de agentes, `M` la de modelos, `S` los ajustes globales, `P` el gestor de plugins y `B` alterna el menú lateral.
+- Cada atajo genera una notificación (Ant Design) en la esquina inferior derecha para confirmar la acción y orientar al usuario.
+- El Drawer de agentes (`AgentQuickConfigDrawer`) permite activar/desactivar instancias al instante; el Drawer de modelos (`ModelQuickConfigDrawer`) habilita cambios básicos de almacenamiento y Hugging Face.
+- `QuickActions` adopta la librería pro-component para mostrar accesos coherentes y destacar las rutas de configuración rápida.
+
 ## Flujo de compartición entre agentes
 
 El panel de conversación ahora permite reenviar respuestas entre agentes para acelerar revisiones y hand-offs técnicos.
@@ -61,3 +82,7 @@ Los tests de la API de Jarvis Core se ejecutan con `pytest`:
 ```bash
 pytest
 ```
+
+## Checklist para nuevos módulos
+
+Consulta [docs/extension-checklist.md](docs/extension-checklist.md) antes de añadir pantallas o paneles. Resume los pasos mínimos para mantener la coherencia visual, UX y las validaciones automáticas.

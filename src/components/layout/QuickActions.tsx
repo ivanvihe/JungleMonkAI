@@ -1,13 +1,16 @@
 import React from 'react';
-import { Button, Divider, Tooltip, Typography } from 'antd';
+import { Button, Divider, Space, Tooltip, Typography } from 'antd';
 import {
   ApiOutlined,
   AppstoreOutlined,
   BarChartOutlined,
+  ClusterOutlined,
+  ControlOutlined,
   PlusCircleOutlined,
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import { ProSectionCard } from '../pro';
 import './QuickActions.css';
 
 export interface QuickActionsProps {
@@ -17,6 +20,8 @@ export interface QuickActionsProps {
   onOpenModelManager: () => void;
   onOpenStats: () => void;
   onRefreshPresence: () => void;
+  onOpenAgentQuickConfig: () => void;
+  onOpenModelQuickConfig: () => void;
 }
 
 export const QuickActions: React.FC<QuickActionsProps> = ({
@@ -26,11 +31,19 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
   onOpenModelManager,
   onOpenStats,
   onRefreshPresence,
+  onOpenAgentQuickConfig,
+  onOpenModelQuickConfig,
 }) => {
   return (
-    <section className="quick-actions" aria-label="Accesos rápidos">
-      <header className="quick-actions__header">
-        <Typography.Text type="secondary">Acciones rápidas</Typography.Text>
+    <ProSectionCard
+      className="quick-actions"
+      title={
+        <Space align="center" size={6} className="quick-actions__title">
+          <ControlOutlined />
+          <Typography.Text strong>Acciones rápidas</Typography.Text>
+        </Space>
+      }
+      extra={
         <Tooltip title="Refrescar estado de agentes">
           <Button
             type="text"
@@ -40,8 +53,10 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
             aria-label="Refrescar estado"
           />
         </Tooltip>
-      </header>
-
+      }
+      bordered
+      aria-label="Accesos rápidos"
+    >
       <div className="quick-actions__grid">
         <Button block icon={<PlusCircleOutlined />} onClick={onOpenStats}>
           Task history
@@ -52,8 +67,14 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
         <Button block icon={<ApiOutlined />} onClick={onOpenMcp}>
           Perfiles MCP
         </Button>
-        <Button block icon={<BarChartOutlined />} onClick={onOpenModelManager}>
-          Modelos
+        <Button block icon={<ClusterOutlined />} onClick={onOpenAgentQuickConfig}>
+          Agentes
+        </Button>
+        <Button block icon={<BarChartOutlined />} onClick={onOpenModelQuickConfig}>
+          Modelos rápidos
+        </Button>
+        <Button block icon={<SettingOutlined />} onClick={onOpenModelManager}>
+          Gestor avanzado
         </Button>
       </div>
 
@@ -62,7 +83,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
       <Button block type="primary" icon={<SettingOutlined />} onClick={onOpenSettings}>
         Preferencias globales
       </Button>
-    </section>
+    </ProSectionCard>
   );
 };
 

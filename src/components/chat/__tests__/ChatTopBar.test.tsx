@@ -79,6 +79,13 @@ const renderComponent = (
       onOpenModelManager={vi.fn()}
       activeView="chat"
       onChangeView={vi.fn()}
+      breadcrumbs={[{ key: 'home', title: 'Inicio' }]}
+      contextOptions={[{ value: 'workspace', label: 'Workspace' }]}
+      activeContext="workspace"
+      onContextChange={vi.fn()}
+      canToggleSider
+      isSiderCollapsed={false}
+      onToggleSider={vi.fn()}
     />,
   );
 };

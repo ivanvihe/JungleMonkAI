@@ -187,6 +187,23 @@
   align-items: stretch;
 }
 
+.topbar-breadcrumbs {
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topbar-breadcrumbs .ant-breadcrumb,
+.topbar-breadcrumbs .ant-breadcrumb a,
+.topbar-breadcrumbs .ant-breadcrumb-separator {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.context-switcher {
+  min-width: 200px;
+}
+
 .presence-card {
   flex: 1 1 240px;
   display: flex;
@@ -308,6 +325,11 @@
 
   .topbar-presence {
     flex-direction: column;
+  }
+
+  .topbar-breadcrumbs {
+    width: 100%;
+    min-width: 0;
   }
 }
 

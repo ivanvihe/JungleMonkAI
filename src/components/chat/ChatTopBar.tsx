@@ -11,6 +11,7 @@ import {
   Button,
   Select,
   Tag,
+  Breadcrumb,
 } from 'antd';
 import type { BadgeProps } from 'antd';
 import {
@@ -19,6 +20,7 @@ import {
   CloudOutlined,
   FieldTimeOutlined,
   GlobalOutlined,
+  MenuFoldOutlined,
   MenuUnfoldOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -36,6 +38,19 @@ import { ChatActorFilter } from '../../types/chat';
 import { getAgentDisplayName } from '../../utils/agentDisplay';
 import { useProjects } from '../../core/projects/ProjectContext';
 import { useJarvisCore, type JarvisRuntimeStatus } from '../../core/jarvis/JarvisCoreContext';
+
+export interface TopbarBreadcrumb {
+  key: string;
+  title: React.ReactNode;
+  href?: string;
+  onClick?: () => void;
+}
+
+export interface TopbarContextOption {
+  value: string;
+  label: React.ReactNode;
+  description?: string;
+}
 
 interface ChatTopBarProps {
   agents: AgentDefinition[];
@@ -56,6 +71,13 @@ interface ChatTopBarProps {
   onChangeView: (view: 'chat' | 'repo' | 'canvas') => void;
   showNavigationToggle?: boolean;
   onToggleNavigation?: () => void;
+  breadcrumbs: TopbarBreadcrumb[];
+  contextOptions: TopbarContextOption[];
+  activeContext: string;
+  onContextChange: (value: string) => void;
+  canToggleSider?: boolean;
+  isSiderCollapsed?: boolean;
+  onToggleSider?: () => void;
 }
 
 const STATUS_LABELS: Record<AgentPresenceStatus, string> = {
@@ -109,6 +131,13 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   onChangeView,
   showNavigationToggle = false,
   onToggleNavigation,
+  breadcrumbs,
+  contextOptions,
+  activeContext,
+  onContextChange,
+  canToggleSider = false,
+  isSiderCollapsed = false,
+  onToggleSider,
 }) => {
   const hasPending = pendingResponses > 0;
   const overallStatus = resolveStatus(presenceSummary);
@@ -395,9 +424,39 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
     }
   }, []);
 
+  const breadcrumbItems = useMemo(
+    () =>
+      breadcrumbs.map((breadcrumb, index) => ({
+        key: breadcrumb.key ?? `${index}`,
+        title: breadcrumb.href ? (
+          <a
+            href={breadcrumb.href}
+            onClick={event => {
+              event.preventDefault();
+              breadcrumb.onClick?.();
+            }}
+          >
+            {breadcrumb.title}
+          </a>
+        ) : (
+          breadcrumb.title
+        ),
+        onClick: breadcrumb.onClick,
+      })),
+    [breadcrumbs],
+  );
+
   return (
     <Layout.Header className="chat-top-bar">
       <Space className="topbar-left" align="center" size="large">
+        {canToggleSider && (
+          <Button
+            type="text"
+            icon={isSiderCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            aria-label={isSiderCollapsed ? 'Expandir navegación' : 'Contraer navegación'}
+            onClick={onToggleSider}
+          />
+        )}
         {showNavigationToggle && (
           <Button
             type="text"
@@ -419,6 +478,18 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
               <Typography.Text type="secondary">{STATUS_LABELS[overallStatus]}</Typography.Text>
             </Space>
           </div>
+        </Space>
+
+        <Space direction="vertical" size={2} className="topbar-breadcrumbs">
+          <Breadcrumb items={breadcrumbItems} />
+          <Select
+            className="context-switcher"
+            value={activeContext}
+            options={contextOptions.map(option => ({ label: option.label, value: option.value }))}
+            onChange={value => onContextChange(value as string)}
+            aria-label="Cambiar contexto de trabajo"
+            size="small"
+          />
         </Space>
 
         <AnimatePresence mode="wait">

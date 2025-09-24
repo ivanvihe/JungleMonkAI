@@ -335,18 +335,27 @@ describe('Resumen de proveedores en SidePanel', () => {
         <ChatTopBar
           agents={[] as AgentDefinition[]}
           presenceSummary={presenceSummary}
+          presenceMap={new Map<string, AgentPresenceEntry>()}
           activeAgents={0}
           totalAgents={0}
           pendingResponses={0}
           activeFilter="all"
           onFilterChange={vi.fn()}
           onRefreshPresence={vi.fn()}
+          onOpenStats={vi.fn()}
           onOpenGlobalSettings={vi.fn()}
           onOpenPlugins={vi.fn()}
           onOpenMcp={vi.fn()}
           onOpenModelManager={vi.fn()}
           activeView="chat"
           onChangeView={vi.fn()}
+          breadcrumbs={[{ key: 'home', title: 'Inicio' }]}
+          contextOptions={[{ value: 'workspace', label: 'Workspace' }]}
+          activeContext="workspace"
+          onContextChange={vi.fn()}
+          canToggleSider
+          isSiderCollapsed={false}
+          onToggleSider={vi.fn()}
         />
       ),
     });

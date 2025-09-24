@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Drawer, Grid, Layout, Space, Typography } from 'antd';
+import { Drawer, Grid, Layout, Space, Typography, notification } from 'antd';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
-import { ChatTopBar } from './components/chat/ChatTopBar';
+import { ChatTopBar, TopbarBreadcrumb, TopbarContextOption } from './components/chat/ChatTopBar';
 import { ChatWorkspace } from './components/chat/ChatWorkspace';
 import { ConversationStatsModal } from './components/chat/ConversationStatsModal';
 import { RepoStudio } from './components/repo/RepoStudio';
@@ -12,7 +12,7 @@ import { AgentProvider, useAgents } from './core/agents/AgentContext';
 import { useAgentPresence } from './core/agents/presence';
 import { MessageProvider, useMessages } from './core/messages/MessageContext';
 import { RepoWorkflowProvider } from './core/codex';
-import { ApiKeySettings, GlobalSettings } from './types/globalSettings';
+import { ApiKeySettings, GlobalSettings, ModelPreferences } from './types/globalSettings';
 import {
   DEFAULT_GLOBAL_SETTINGS,
   loadGlobalSettings,
@@ -34,10 +34,19 @@ import { ProviderStatus } from './components/layout/ProviderStatus';
 import { QuickActions } from './components/layout/QuickActions';
 import { TaskDock } from './components/layout/TaskDock';
 import { useJarvisCore } from './core/jarvis/JarvisCoreContext';
+import { ProSectionCard } from './components/pro';
+import { AgentQuickConfigDrawer } from './components/agents/AgentQuickConfigDrawer';
+import { ModelQuickConfigDrawer } from './components/models/ModelQuickConfigDrawer';
 
 const { Content, Footer, Sider } = Layout;
 
 type WorkspaceTabKey = 'chat' | 'feed' | 'details';
+
+const WORKSPACE_TAB_LABELS: Record<WorkspaceTabKey, string> = {
+  chat: 'Conversación',
+  feed: 'Actividad',
+  details: 'Detalles',
+};
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -64,7 +73,14 @@ const AppContent: React.FC<AppContentProps> = ({
   const [isMcpOpen, setMcpOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
   const [isModelManagerOpen, setModelManagerOpen] = useState(false);
+  const [isAgentDrawerOpen, setAgentDrawerOpen] = useState(false);
+  const [isModelQuickOpen, setModelQuickOpen] = useState(false);
   const [isNavDrawerOpen, setNavDrawerOpen] = useState(false);
+  const [isSiderCollapsed, setSiderCollapsed] = useState(
+    settings.workspacePreferences.sidePanel.collapsed,
+  );
+  const [activeContext, setActiveContext] = useState<string>('workspace');
+  const [notificationApi, contextHolder] = notification.useNotification();
   const screens = Grid.useBreakpoint();
 
   const handleModelStorageDirChange = useCallback(
@@ -80,13 +96,245 @@ const AppContent: React.FC<AppContentProps> = ({
     [onSettingsChange],
   );
 
+  useEffect(() => {
+    setSiderCollapsed(settings.workspacePreferences.sidePanel.collapsed);
+  }, [settings.workspacePreferences.sidePanel.collapsed]);
+
   const sidePanelPosition = settings.workspacePreferences.sidePanel.position;
-  const showDesktopSidebar = Boolean(screens.lg);
+  const showDesktopSidebar = Boolean(screens.xl);
   const siderWidth = Math.max(settings.workspacePreferences.sidePanel.width, 280);
 
   const shellClassName = useMemo(() => {
-    return `proxmox-shell sidebar-${sidePanelPosition} ${showDesktopSidebar ? 'is-desktop' : 'is-mobile'}`;
-  }, [showDesktopSidebar, sidePanelPosition]);
+    const mode = showDesktopSidebar ? 'is-desktop' : 'is-mobile';
+    const collapseState = isSiderCollapsed ? 'sider-collapsed' : 'sider-expanded';
+    return `proxmox-shell sidebar-${sidePanelPosition} ${mode} ${collapseState}`;
+  }, [showDesktopSidebar, sidePanelPosition, isSiderCollapsed]);
+
+  useEffect(() => {
+    if (showDesktopSidebar) {
+      setNavDrawerOpen(false);
+    }
+  }, [showDesktopSidebar]);
+
+  const contextOptions = useMemo<TopbarContextOption[]>(
+    () => [
+      {
+        value: 'workspace',
+        label: 'Workspace · Operaciones',
+        description: 'Flujos de conversación y coordinación de tareas.',
+      },
+      {
+        value: 'cluster',
+        label: 'Cluster · JungleMonk',
+        description: 'Supervisión del clúster y estado de agentes.',
+      },
+      {
+        value: 'analytics',
+        label: 'Insights · Observabilidad',
+        description: 'Panel de métricas y registros de actividad.',
+      },
+    ],
+    [],
+  );
+
+  const handleContextChange = useCallback(
+    (value: string) => {
+      setActiveContext(value);
+      const selected = contextOptions.find(option => option.value === value);
+      notificationApi.info({
+        message: 'Contexto actualizado',
+        description:
+          selected?.description ?? `Contexto ${selected?.label ?? value} en uso`,
+        placement: 'bottomRight',
+      });
+    },
+    [contextOptions, notificationApi],
+  );
+
+  const breadcrumbs = useMemo<TopbarBreadcrumb[]>(() => {
+    const contextLabel =
+      contextOptions.find(option => option.value === activeContext)?.label ?? activeContext;
+    const items: TopbarBreadcrumb[] = [
+      { key: 'home', title: 'JungleMonk.AI' },
+      { key: `context-${activeContext}`, title: contextLabel },
+    ];
+
+    switch (activeView) {
+      case 'chat':
+        items.push({ key: 'view-chat', title: 'Workspace colaborativo' });
+        items.push({ key: `workspace-tab-${activeWorkspaceTab}`, title: WORKSPACE_TAB_LABELS[activeWorkspaceTab] });
+        break;
+      case 'repo':
+        items.push({ key: 'view-repo', title: 'Repositorio' });
+        break;
+      case 'canvas':
+        items.push({ key: 'view-canvas', title: 'Code canvas' });
+        break;
+      default:
+        break;
+    }
+
+    return items;
+  }, [activeContext, activeView, activeWorkspaceTab, contextOptions]);
+
+  const handleSiderCollapse = useCallback(
+    (collapsed: boolean, type: 'clickTrigger' | 'responsive' = 'clickTrigger') => {
+      setSiderCollapsed(collapsed);
+      onSettingsChange(prev => ({
+        ...prev,
+        workspacePreferences: {
+          ...prev.workspacePreferences,
+          sidePanel: {
+            ...prev.workspacePreferences.sidePanel,
+            collapsed,
+          },
+        },
+      }));
+
+      if (type !== 'responsive') {
+        notificationApi.info({
+          message: collapsed ? 'Panel de navegación colapsado' : 'Panel de navegación expandido',
+          description: 'Puedes alternar con Ctrl+Shift+B en cualquier momento.',
+          placement: 'bottomRight',
+        });
+      }
+    },
+    [notificationApi, onSettingsChange],
+  );
+
+  const handleToggleSider = useCallback(() => {
+    handleSiderCollapse(!isSiderCollapsed);
+  }, [handleSiderCollapse, isSiderCollapsed]);
+
+  const handleOpenAgentDrawer = useCallback(
+    (source: 'shortcut' | 'ui' = 'ui') => {
+      setAgentDrawerOpen(true);
+      notificationApi.success({
+        message: 'Panel de agentes',
+        description:
+          source === 'shortcut'
+            ? 'Atajo Ctrl+Shift+A ejecutado correctamente.'
+            : 'Configuración rápida disponible.',
+        placement: 'bottomRight',
+      });
+    },
+    [notificationApi],
+  );
+
+  const handleOpenModelQuick = useCallback(
+    (source: 'shortcut' | 'ui' = 'ui') => {
+      setModelQuickOpen(true);
+      notificationApi.success({
+        message: 'Modelos disponibles',
+        description:
+          source === 'shortcut'
+            ? 'Atajo Ctrl+Shift+M ejecutado correctamente.'
+            : 'Acceso rápido al panel de modelos.',
+        placement: 'bottomRight',
+      });
+    },
+    [notificationApi],
+  );
+
+  const handleOpenSettingsModal = useCallback(
+    (source: 'shortcut' | 'ui' = 'ui') => {
+      setSettingsOpen(true);
+      notificationApi.info({
+        message: 'Ajustes globales',
+        description:
+          source === 'shortcut'
+            ? 'Atajo Ctrl+Shift+S activado.'
+            : 'Preferencias disponibles para ajustar.',
+        placement: 'bottomRight',
+      });
+    },
+    [notificationApi],
+  );
+
+  const handleOpenPluginsModal = useCallback(
+    (source: 'shortcut' | 'ui' = 'ui') => {
+      setPluginsOpen(true);
+      notificationApi.info({
+        message: 'Gestor de plugins',
+        description:
+          source === 'shortcut'
+            ? 'Atajo Ctrl+Shift+P activado.'
+            : 'Panel de plugins abierto.',
+        placement: 'bottomRight',
+      });
+    },
+    [notificationApi],
+  );
+
+  const handleModelPreferencesQuickUpdate = useCallback(
+    (next: ModelPreferences) => {
+      onSettingsChange(prev => ({
+        ...prev,
+        modelPreferences: next,
+      }));
+    },
+    [onSettingsChange],
+  );
+
+  const handleKeyboardShortcuts = useCallback(
+    (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      switch (key) {
+        case 'a':
+          event.preventDefault();
+          handleOpenAgentDrawer('shortcut');
+          break;
+        case 'm':
+          event.preventDefault();
+          handleOpenModelQuick('shortcut');
+          break;
+        case 's':
+          event.preventDefault();
+          handleOpenSettingsModal('shortcut');
+          break;
+        case 'p':
+          event.preventDefault();
+          handleOpenPluginsModal('shortcut');
+          break;
+        case 'b':
+          event.preventDefault();
+          if (showDesktopSidebar) {
+            handleToggleSider();
+          } else {
+            setNavDrawerOpen(prev => !prev);
+          }
+          notificationApi.info({
+            message: 'Navegación',
+            description: 'Menú lateral alternado (Ctrl+Shift+B).',
+            placement: 'bottomRight',
+          });
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      handleOpenAgentDrawer,
+      handleOpenModelQuick,
+      handleOpenPluginsModal,
+      handleOpenSettingsModal,
+      handleToggleSider,
+      notificationApi,
+      showDesktopSidebar,
+    ],
+  );
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => handleKeyboardShortcuts(event);
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+    };
+  }, [handleKeyboardShortcuts]);
 
   const handleTreeSelection = useCallback(
     (key: string) => {
@@ -175,22 +423,26 @@ const AppContent: React.FC<AppContentProps> = ({
   const renderActiveSurface = useCallback(() => {
     if (activeView === 'repo') {
       return (
-        <div className="proxmox-surface-card" role="region" aria-label="Explorador de repositorio">
+        <ProSectionCard
+          className="proxmox-surface-card"
+          title="Explorador de repositorio"
+          aria-label="Explorador de repositorio"
+        >
           <RepoStudio />
-        </div>
+        </ProSectionCard>
       );
     }
 
     if (activeView === 'canvas') {
       return (
-        <div className="proxmox-surface-card" role="region" aria-label="Code canvas">
+        <ProSectionCard className="proxmox-surface-card" title="Code canvas" aria-label="Code canvas">
           <CodeCanvas />
-        </div>
+        </ProSectionCard>
       );
     }
 
     return (
-      <div className="proxmox-surface-card" role="region" aria-label="Área de conversación">
+      <ProSectionCard className="proxmox-surface-card" title="Área de conversación" aria-label="Área de conversación">
         <ChatWorkspace
           actorFilter={actorFilter}
           settings={settings}
@@ -200,7 +452,7 @@ const AppContent: React.FC<AppContentProps> = ({
           activeTab={activeWorkspaceTab}
           onTabChange={nextTab => setActiveWorkspaceTab(nextTab)}
         />
-      </div>
+      </ProSectionCard>
     );
   }, [activeView, actorFilter, activeWorkspaceTab, onSettingsChange, presenceMap, settings]);
 
@@ -218,12 +470,14 @@ const AppContent: React.FC<AppContentProps> = ({
         onRefresh={() => void refresh()}
       />
       <QuickActions
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenPlugins={() => setPluginsOpen(true)}
+        onOpenSettings={() => handleOpenSettingsModal('ui')}
+        onOpenPlugins={() => handleOpenPluginsModal('ui')}
         onOpenMcp={() => setMcpOpen(true)}
         onOpenModelManager={() => setModelManagerOpen(true)}
         onOpenStats={() => setStatsOpen(true)}
         onRefreshPresence={() => void refresh()}
+        onOpenAgentQuickConfig={() => handleOpenAgentDrawer('ui')}
+        onOpenModelQuickConfig={() => handleOpenModelQuick('ui')}
       />
       <div className="proxmox-sider__tree">
         <ResourceTree
@@ -240,9 +494,9 @@ const AppContent: React.FC<AppContentProps> = ({
   );
 
   const infoPanelContent = (
-    <div className="proxmox-info-panel" role="complementary" aria-label="Monitor de actividad">
+    <ProSectionCard className="proxmox-info-panel" title="Monitor de actividad" aria-label="Monitor de actividad">
       <TaskActivityPanel pendingResponses={pendingResponses} presenceSummary={presenceSummary} />
-    </div>
+    </ProSectionCard>
   );
 
   const footerTimestamp = useMemo(() => {
@@ -254,13 +508,24 @@ const AppContent: React.FC<AppContentProps> = ({
 
   return (
     <div className={shellClassName}>
+      {contextHolder}
       <Layout hasSider className="proxmox-layout">
         {showDesktopSidebar ? (
           <Sider
             width={siderWidth}
             className="proxmox-sider"
             theme="dark"
-            collapsible={false}
+            collapsible
+            collapsed={isSiderCollapsed}
+            collapsedWidth={0}
+            breakpoint="xl"
+            trigger={null}
+            onCollapse={(collapsed, type) => handleSiderCollapse(collapsed, type)}
+            onBreakpoint={broken => {
+              if (broken) {
+                handleSiderCollapse(true, 'responsive');
+              }
+            }}
             role="navigation"
             aria-label="Árbol de recursos"
           >
@@ -310,6 +575,13 @@ const AppContent: React.FC<AppContentProps> = ({
               }}
               showNavigationToggle={!showDesktopSidebar}
               onToggleNavigation={() => setNavDrawerOpen(true)}
+              breadcrumbs={breadcrumbs}
+              contextOptions={contextOptions}
+              activeContext={activeContext}
+              onContextChange={handleContextChange}
+              canToggleSider={showDesktopSidebar}
+              isSiderCollapsed={isSiderCollapsed}
+              onToggleSider={handleToggleSider}
             />
           </div>
 
@@ -355,6 +627,15 @@ const AppContent: React.FC<AppContentProps> = ({
         huggingFacePreferences={settings.modelPreferences.huggingFace}
         onStorageDirChange={handleModelStorageDirChange}
         huggingFaceToken={apiKeys['huggingface']}
+      />
+
+      <AgentQuickConfigDrawer open={isAgentDrawerOpen} onClose={() => setAgentDrawerOpen(false)} />
+
+      <ModelQuickConfigDrawer
+        open={isModelQuickOpen}
+        onClose={() => setModelQuickOpen(false)}
+        preferences={settings.modelPreferences}
+        onPreferencesChange={handleModelPreferencesQuickUpdate}
       />
 
       <OverlayModal

@@ -23,6 +23,12 @@ import { useMessages } from '../messages/MessageContext';
 import { CodexEngine } from './CodexEngine';
 import { CodexOrchestrator } from './CodexOrchestrator';
 import { buildRepoWorkflowSubmission, type RepoWorkflowSubmission } from './bridge';
+import {
+  registerRepoWorkflowHandlers,
+  unregisterRepoWorkflowHandlers,
+  type RepoWorkflowQueuePayload,
+  type RepoWorkflowSyncOptions,
+} from './workflowBridge';
 import { useProjects } from '../projects/ProjectContext';
 import { canUseDesktopGit, gitInvoke, isGitBackendUnavailableError } from '../../utils/runtimeBridge';
 import { useAgents } from '../agents/AgentContext';
@@ -60,55 +66,20 @@ export interface RepoWorkflowRequest {
   repositorySnapshot?: CodexRepositorySnapshot;
 }
 
-interface QueuePayload {
-  messageId: string;
-  canonicalCode?: string;
-  repositoryPath?: string;
-  branch?: string;
-  riskLevel?: RepoWorkflowSubmission['request']['context']['riskLevel'];
-}
-
-interface RepoSyncOptions {
-  repositoryPath: string;
-  remote?: string | null;
-  branch?: string | null;
-}
-
 interface RepoWorkflowContextValue {
   pendingRequest: RepoWorkflowRequest | null;
-  queueRequest: (payload: QueuePayload) => void;
+  queueRequest: (payload: RepoWorkflowQueuePayload) => void;
   clearPendingRequest: () => void;
-  syncRepository: (options: RepoSyncOptions) => Promise<string | null>;
+  syncRepository: (options: RepoWorkflowSyncOptions) => Promise<string | null>;
 }
 
 const RepoWorkflowContext = createContext<RepoWorkflowContextValue | undefined>(undefined);
-
-let externalQueueRequest: ((payload: QueuePayload) => void) | null = null;
-let externalSyncRepository: ((options: RepoSyncOptions) => Promise<string | null>) | null = null;
 
 interface ResolvedAgentSelection {
   primary: AgentDefinition | null;
   fallback: AgentDefinition | null;
   preferences: ProjectOrchestratorPreferences;
 }
-
-export const enqueueRepoWorkflowRequest = (payload: QueuePayload): void => {
-  if (!externalQueueRequest) {
-    console.warn('No hay proveedor activo de Repo Studio para procesar la solicitud.');
-    return;
-  }
-  externalQueueRequest(payload);
-};
-
-export const syncRepositoryViaWorkflow = async (
-  options: RepoSyncOptions,
-): Promise<string | null> => {
-  if (!externalSyncRepository) {
-    console.warn('No hay proveedor activo de Repo Studio para sincronizar el repositorio.');
-    return null;
-  }
-  return externalSyncRepository(options);
-};
 
 const generateRequestId = (): string => {
   return `repo-request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -339,7 +310,7 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
     invokeChat,
   ]);
 
-  const syncRepository = useCallback(async (options: RepoSyncOptions) => {
+  const syncRepository = useCallback(async (options: RepoWorkflowSyncOptions) => {
     const { repositoryPath, remote, branch } = options;
     if (!repositoryPath) {
       return null;
@@ -365,7 +336,7 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   const queueRequest = useCallback(
-    (payload: QueuePayload) => {
+    (payload: RepoWorkflowQueuePayload) => {
       const { messageId, canonicalCode, repositoryPath, branch, riskLevel } = payload;
       const originalMessage =
         findMessageById(messages, messageId) ?? buildFallbackMessage(messageId, canonicalCode);
@@ -583,15 +554,10 @@ export const RepoWorkflowProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   useEffect(() => {
-    externalQueueRequest = queueRequest;
-    externalSyncRepository = syncRepository;
+    const handlers = { queueRequest, syncRepository } as const;
+    registerRepoWorkflowHandlers(handlers);
     return () => {
-      if (externalQueueRequest === queueRequest) {
-        externalQueueRequest = null;
-      }
-      if (externalSyncRepository === syncRepository) {
-        externalSyncRepository = null;
-      }
+      unregisterRepoWorkflowHandlers(handlers);
     };
   }, [queueRequest, syncRepository]);
 

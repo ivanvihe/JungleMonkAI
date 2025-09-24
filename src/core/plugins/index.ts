@@ -146,11 +146,20 @@ const hexFromBuffer = (buffer: ArrayBuffer | Uint8Array): string => {
     .join('');
 };
 
-const loadNodeCrypto = async (): Promise<typeof import('node:crypto') | null> => {
+const loadNodeCrypto = async (): Promise<(typeof import('node:crypto') & {
+  createHash?: typeof import('node:crypto')['createHash'];
+}) | null> => {
   try {
     // `node:crypto` is only available in Node.js environments.
     const cryptoModule = await import('node:crypto');
-    return cryptoModule;
+
+    if (typeof cryptoModule?.createHash === 'function') {
+      return cryptoModule;
+    }
+
+    // When bundling for browsers Vite replaces the import with an empty module,
+    // so we explicitly return null to avoid runtime `createHash` access errors.
+    return null;
   } catch (error) {
     console.warn('Node.js crypto module not available for SHA-256 fallback.', error);
     return null;
@@ -167,7 +176,7 @@ const computeSha256 = async (payload: string): Promise<string> => {
 
   if (typeof process !== 'undefined' && process.versions?.node) {
     const nodeCrypto = await loadNodeCrypto();
-    if (nodeCrypto) {
+    if (nodeCrypto?.createHash) {
       return nodeCrypto.createHash('sha256').update(data).digest('hex');
     }
   }

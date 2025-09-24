@@ -15,10 +15,15 @@ import {
 import type { BadgeProps } from 'antd';
 import {
   DownOutlined,
+  AlertOutlined,
+  CloudOutlined,
+  FieldTimeOutlined,
+  GlobalOutlined,
   MenuUnfoldOutlined,
   ReloadOutlined,
   RobotOutlined,
   SettingOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AgentDefinition, AgentKind } from '../../core/agents/agentRegistry';
@@ -110,8 +115,11 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   const { projects, activeProjectId, activeProject, selectProject } = useProjects();
   const { runtimeStatus, ensureOnline, uptimeMs, lastError, lastHealthMessage } = useJarvisCore();
   const [isEnsuring, setEnsuring] = useState(false);
+  const [activeRegion, setActiveRegion] = useState('global');
+  const [sessionState, setSessionState] = useState<'operativa' | 'bloqueada'>('operativa');
   const projectSelectLabelId = useId();
   const filterSelectLabelId = useId();
+  const regionSelectLabelId = useId();
   const activeAgentsMessage = useMemo(() => {
     const base = `${activeAgents} agente${activeAgents === 1 ? '' : 's'}`;
     return `${base} coordinando la conversación`;
@@ -133,6 +141,16 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
         label: project.name,
       })),
     [projects],
+  );
+
+  const regionOptions = useMemo(
+    () => [
+      { value: 'global', label: 'Global Control' },
+      { value: 'eu-west', label: 'EU-West · Madrid' },
+      { value: 'us-east', label: 'US-East · Virginia' },
+      { value: 'latam', label: 'LATAM · São Paulo' },
+    ],
+    [],
   );
 
   const filterOptions = useMemo(() => {
@@ -347,6 +365,36 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
     [onOpenGlobalSettings, onOpenMcp, onOpenModelManager, onOpenPlugins, onOpenStats],
   );
 
+  const sessionMenuItems = useMemo(
+    () => [
+      { key: 'switch', label: 'Cambiar operador' },
+      { key: 'unlock', label: 'Reactivar sesión' },
+      { key: 'lock', label: 'Bloquear sesión' },
+      { type: 'divider' as const },
+      { key: 'logout', label: 'Cerrar sesión' },
+    ],
+    [],
+  );
+
+  const sessionLabel = sessionState === 'operativa' ? 'Activa' : 'Bloqueada';
+
+  const handleSessionMenuClick = useCallback(({ key }: { key: string }) => {
+    switch (key) {
+      case 'lock':
+        setSessionState('bloqueada');
+        break;
+      case 'unlock':
+      case 'switch':
+        setSessionState('operativa');
+        break;
+      case 'logout':
+        setSessionState('operativa');
+        break;
+      default:
+        break;
+    }
+  }, []);
+
   return (
     <Layout.Header className="chat-top-bar">
       <Space className="topbar-left" align="center" size="large">
@@ -393,13 +441,36 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
       <Space className="topbar-center" align="center" size="large">
         <Space size="middle" align="center">
           <Tooltip title="Agentes activos en la sesión">
-            <Tag color="blue" bordered={false}>
+            <Tag icon={<RobotOutlined />} color="geekblue" bordered={false}>
               Activos: {activeAgents}/{totalAgents}
             </Tag>
           </Tooltip>
           <Tooltip title="Respuestas pendientes">
-            <Tag color={hasPending ? 'orange' : 'default'} bordered={false}>
+            <Tag icon={<FieldTimeOutlined />} color={hasPending ? 'orange' : 'default'} bordered={false}>
               Pendientes: {pendingResponses}
+            </Tag>
+          </Tooltip>
+          <Tooltip title="Agentes con incidencias">
+            <Tag
+              icon={<AlertOutlined />}
+              color={presenceSummary.totals.error > 0 ? 'error' : 'default'}
+              bordered={false}
+            >
+              Incidencias: {presenceSummary.totals.error}
+            </Tag>
+          </Tooltip>
+          <Tooltip title="Estado del clúster">
+            <Tag
+              icon={<CloudOutlined />}
+              color={runtimeStatus === 'ready' ? 'success' : runtimeStatus === 'starting' ? 'warning' : 'default'}
+              bordered={false}
+            >
+              {jarvisStatusLabels[runtimeStatus]}
+            </Tag>
+          </Tooltip>
+          <Tooltip title="Estado de la sesión">
+            <Tag icon={<UserOutlined />} color={sessionState === 'operativa' ? 'success' : 'warning'} bordered={false}>
+              Sesión {sessionLabel}
             </Tag>
           </Tooltip>
           <Typography.Text type="secondary" aria-live="polite">
@@ -463,10 +534,31 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
           />
         </Space>
 
+        <Space direction="vertical" size={2} className="region-select">
+          <Typography.Text id={regionSelectLabelId} type="secondary">
+            <Space size={4} align="center">
+              <GlobalOutlined /> Data center activo
+            </Space>
+          </Typography.Text>
+          <Select
+            value={activeRegion}
+            onChange={value => setActiveRegion(value as string)}
+            style={{ minWidth: 200 }}
+            options={regionOptions}
+            aria-label="Seleccionar data center activo"
+            aria-labelledby={regionSelectLabelId}
+          />
+        </Space>
+
         {presenceAvatars}
       </Space>
 
       <Space className="topbar-actions" align="center">
+        <Dropdown menu={{ items: sessionMenuItems, onClick: handleSessionMenuClick }} trigger={['click']}>
+          <Button type="text" icon={<UserOutlined />} aria-label="Controles de sesión">
+            Sesión {sessionLabel}
+          </Button>
+        </Dropdown>
         <Dropdown menu={{ items: actionItems, onClick: handleMenuClick }} trigger={['click']}>
           <Button type="text" icon={<DownOutlined />} aria-label="Más acciones" />
         </Dropdown>

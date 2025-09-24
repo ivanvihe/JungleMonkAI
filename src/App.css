@@ -14,7 +14,6 @@
   border-inline-end: 1px solid var(--color-border-strong);
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
   padding: var(--space-lg) var(--space-md);
   box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.25);
 }
@@ -37,6 +36,36 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 1px;
+}
+
+.proxmox-sider__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  flex: 1;
+  overflow: hidden;
+  padding-top: var(--space-md);
+}
+
+.proxmox-sider__content--compact {
+  gap: var(--space-sm);
+  padding-top: var(--space-sm);
+}
+
+.proxmox-sider__tree {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.proxmox-sider__tree .resource-tree {
+  height: 100%;
+  padding-block: 0;
+}
+
+.proxmox-sider__tree .ant-tree {
+  overflow: auto;
+  max-height: 100%;
 }
 
 .proxmox-main {
@@ -113,14 +142,22 @@
 }
 
 .proxmox-footer {
-  background: rgba(12, 14, 28, 0.85);
+  background: rgba(12, 14, 28, 0.92);
   border-top: 1px solid var(--color-border-strong);
-  padding: var(--space-md) var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+
+.proxmox-footer__meta {
+  width: 100%;
+  padding: var(--space-sm) var(--space-xl);
   color: var(--color-text-muted);
   font-size: 12px;
   letter-spacing: 0.8px;
-  display: flex;
-  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 11, 24, 0.88);
 }
 
 .proxmox-nav-drawer .ant-drawer-body {
@@ -150,6 +187,10 @@
   .proxmox-info-panel {
     width: 100%;
   }
+
+  .proxmox-footer__meta {
+    padding: var(--space-sm) var(--space-lg);
+  }
 }
 
 @media (max-width: 1024px) {
@@ -172,10 +213,7 @@
     padding: var(--space-md) var(--space-sm) var(--space-md);
   }
 
-  .proxmox-footer {
+  .proxmox-footer__meta {
     padding: var(--space-sm) var(--space-md);
-    flex-direction: column;
-    gap: var(--space-xs);
-    align-items: flex-start;
   }
 }

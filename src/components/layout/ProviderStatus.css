@@ -1,0 +1,57 @@
+.provider-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-xs);
+  background: rgba(19, 22, 40, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.provider-status__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-text-base);
+}
+
+.provider-status__runtime {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.provider-status__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.provider-status__metric {
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  min-height: 88px;
+}
+
+.provider-status__metric .ant-typography,
+.provider-status__header .ant-typography {
+  color: inherit;
+}
+
+.provider-status__metric .ant-typography-secondary {
+  font-size: 12px;
+  letter-spacing: 0.6px;
+}
+
+.provider-status__metric .ant-typography.ant-typography-secondary {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.provider-status__metric .ant-typography.ant-typography-paragraph {
+  margin-bottom: 0;
+  font-size: 12px;
+}

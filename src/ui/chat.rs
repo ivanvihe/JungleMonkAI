@@ -48,6 +48,17 @@ pub fn draw_chat_panel(ctx: &egui::Context, state: &mut AppState) {
                 });
 
             ui.add_space(12.0);
+        });
+    });
+}
+
+pub fn draw_preferences_panel(ctx: &egui::Context, state: &mut AppState) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.heading(state.selected_section.title());
+        ui.label(state.selected_section.description());
+        ui.separator();
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
             draw_selected_section(ui, state);
         });
     });
@@ -137,10 +148,6 @@ fn submit_chat_message(state: &mut AppState) {
 }
 
 fn draw_selected_section(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.heading(state.selected_section.title());
-    ui.label(state.selected_section.description());
-    ui.separator();
-
     match state.selected_section {
         PreferenceSection::SystemGithub => draw_system_github(ui, state),
         PreferenceSection::SystemCache => draw_system_cache(ui, state),
@@ -371,13 +378,13 @@ fn draw_custom_commands(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     ui.add_space(8.0);
-    egui::CollapsingHeader::new("Available functions")
-        .default_open(false)
-        .show(ui, |ui| {
-            for action in AVAILABLE_CUSTOM_ACTIONS {
-                ui.label(format!("{} — {}", action.label(), action.description()));
-            }
-        });
+    if ui
+        .button("Available functions")
+        .on_hover_text("Consulta documentación detallada y ejemplos")
+        .clicked()
+    {
+        state.show_functions_modal = true;
+    }
 }
 
 fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {

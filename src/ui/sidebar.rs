@@ -11,23 +11,59 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
             ui.separator();
 
             egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label("Live Multimodal");
+                ui.add_space(8.0);
 
-                egui::CollapsingHeader::new("Models")
+                egui::CollapsingHeader::new("Preferences")
                     .default_open(true)
                     .show(ui, |ui| {
-                        ui.label("Claude");
-                        ui.label("OpenAI");
-                        ui.label("Groq");
-                        ui.label("HuggingFace");
-                        ui.label("Local");
-                    });
+                        ui.indent("preferences_system", |ui| {
+                            egui::CollapsingHeader::new("System")
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    ui.indent("preferences_system_items", |ui| {
+                                        ui.label("GitHub for Projects");
+                                        ui.label("Cache");
+                                        ui.label("System resources");
+                                    });
+                                });
 
-                egui::CollapsingHeader::new("GitHub")
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        ui.label("Repositories");
-                        ui.label("Issues");
-                        ui.label("Pull Requests");
+                            egui::CollapsingHeader::new("Customization")
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    ui.indent("preferences_customization_items", |ui| {
+                                        ui.label("Custom commands");
+                                        ui.label("Memory");
+                                        ui.label("Profiles");
+                                        ui.label("Projects");
+                                    });
+                                });
+
+                            egui::CollapsingHeader::new("Models")
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    ui.indent("preferences_models_items", |ui| {
+                                        egui::CollapsingHeader::new("Local (Jarvis)")
+                                            .default_open(true)
+                                            .show(ui, |ui| {
+                                                ui.indent("preferences_models_local", |ui| {
+                                                    ui.label("HuggingFace (explore and install)");
+                                                    ui.label("Settings");
+                                                });
+                                            });
+
+                                        egui::CollapsingHeader::new("Providers")
+                                            .default_open(true)
+                                            .show(ui, |ui| {
+                                                ui.indent("preferences_models_providers", |ui| {
+                                                    ui.label("Anthropic");
+                                                    ui.label("OpenAI");
+                                                    ui.label("Groq");
+                                                });
+                                            });
+                                    });
+                                });
+                        });
                     });
             });
 

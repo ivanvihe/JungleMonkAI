@@ -13,7 +13,13 @@ import {
   Tag,
 } from 'antd';
 import type { BadgeProps } from 'antd';
-import { DownOutlined, ReloadOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
+import {
+  DownOutlined,
+  MenuUnfoldOutlined,
+  ReloadOutlined,
+  RobotOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AgentDefinition, AgentKind } from '../../core/agents/agentRegistry';
 import {
@@ -43,6 +49,8 @@ interface ChatTopBarProps {
   onOpenModelManager: () => void;
   activeView: 'chat' | 'repo' | 'canvas';
   onChangeView: (view: 'chat' | 'repo' | 'canvas') => void;
+  showNavigationToggle?: boolean;
+  onToggleNavigation?: () => void;
 }
 
 const STATUS_LABELS: Record<AgentPresenceStatus, string> = {
@@ -94,6 +102,8 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   onOpenModelManager,
   activeView,
   onChangeView,
+  showNavigationToggle = false,
+  onToggleNavigation,
 }) => {
   const hasPending = pendingResponses > 0;
   const overallStatus = resolveStatus(presenceSummary);
@@ -340,6 +350,14 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
   return (
     <Layout.Header className="chat-top-bar">
       <Space className="topbar-left" align="center" size="large">
+        {showNavigationToggle && (
+          <Button
+            type="text"
+            icon={<MenuUnfoldOutlined />}
+            aria-label="Abrir navegación"
+            onClick={onToggleNavigation}
+          />
+        )}
         <Space align="center" size="middle">
           <Avatar shape="square" size={40} style={{ backgroundColor: '#2b2b52', color: '#fff' }}>
             🌀

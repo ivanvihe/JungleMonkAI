@@ -1,12 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Flex, Grid } from 'antd';
-import { PageContainer, ProLayout } from '@ant-design/pro-components';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Drawer, Grid, Layout, Space, Typography } from 'antd';
 import './App.css';
 import './AppLayout.css';
 import './components/chat/ChatInterface.css';
 import { ChatTopBar } from './components/chat/ChatTopBar';
 import { ChatWorkspace } from './components/chat/ChatWorkspace';
-import { SidePanel } from './components/chat/SidePanel';
 import { ConversationStatsModal } from './components/chat/ConversationStatsModal';
 import { RepoStudio } from './components/repo/RepoStudio';
 import { CodeCanvas } from './components/code/CodeCanvas';
@@ -31,6 +29,11 @@ import { ProjectProvider } from './core/projects/ProjectContext';
 import { ModelManagerModal } from './components/models/ModelManagerModal';
 import { JarvisCoreProvider } from './core/jarvis/JarvisCoreContext';
 import { TaskActivityPanel } from './components/layout/TaskActivityPanel';
+import { ResourceTree } from './components/layout/ResourceTree';
+
+const { Content, Footer, Sider } = Layout;
+
+type WorkspaceTabKey = 'chat' | 'feed' | 'details';
 
 interface AppContentProps {
   apiKeys: ApiKeySettings;
@@ -50,11 +53,13 @@ const AppContent: React.FC<AppContentProps> = ({
   const { presenceMap, summary: presenceSummary, refresh } = useAgentPresence(agents, apiKeys);
   const [actorFilter, setActorFilter] = useState<ChatActorFilter>('all');
   const [activeView, setActiveView] = useState<'chat' | 'repo' | 'canvas'>('chat');
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTabKey>('chat');
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isPluginsOpen, setPluginsOpen] = useState(false);
   const [isMcpOpen, setMcpOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
   const [isModelManagerOpen, setModelManagerOpen] = useState(false);
+  const [isNavDrawerOpen, setNavDrawerOpen] = useState(false);
   const screens = Grid.useBreakpoint();
 
   const handleModelStorageDirChange = useCallback(
@@ -74,46 +79,183 @@ const AppContent: React.FC<AppContentProps> = ({
   const showDesktopSidebar = Boolean(screens.lg);
   const siderWidth = Math.max(settings.workspacePreferences.sidePanel.width, 280);
 
+  const shellClassName = useMemo(() => {
+    return `proxmox-shell sidebar-${sidePanelPosition} ${showDesktopSidebar ? 'is-desktop' : 'is-mobile'}`;
+  }, [showDesktopSidebar, sidePanelPosition]);
+
+  const handleTreeSelection = useCallback(
+    (key: string) => {
+      if (!key) {
+        return;
+      }
+
+      switch (key) {
+        case 'workspace-chat':
+          setActiveView('chat');
+          setActiveWorkspaceTab('chat');
+          break;
+        case 'workspace-feed':
+          setActiveView('chat');
+          setActiveWorkspaceTab('feed');
+          break;
+        case 'workspace-details':
+          setActiveView('chat');
+          setActiveWorkspaceTab('details');
+          break;
+        case 'workspace-repo':
+          setActiveView('repo');
+          break;
+        case 'workspace-canvas':
+          setActiveView('canvas');
+          break;
+        case 'agents':
+        case 'agents-active':
+        case 'agents-archived':
+          setSettingsOpen(true);
+          break;
+        case 'models':
+        case 'models-local':
+        case 'models-cloud':
+          setModelManagerOpen(true);
+          break;
+        case 'projects':
+        case 'projects-active':
+        case 'projects-archive':
+          setActiveView('repo');
+          break;
+        case 'preferences':
+        case 'preferences-routing':
+        case 'preferences-workspace':
+        case 'settings':
+          setSettingsOpen(true);
+          break;
+        case 'plugins':
+          setPluginsOpen(true);
+          break;
+        case 'mcp':
+          setMcpOpen(true);
+          break;
+        default:
+          break;
+      }
+      if (!showDesktopSidebar) {
+        setNavDrawerOpen(false);
+      }
+    },
+    [setPluginsOpen, setSettingsOpen, setModelManagerOpen, setMcpOpen, showDesktopSidebar],
+  );
+
+  const handleTreeAction = useCallback(
+    (key: string, action: string) => {
+      if (action === 'open') {
+        handleTreeSelection(key);
+        return;
+      }
+
+      switch (key) {
+        case 'agents':
+        case 'agents-active':
+        case 'agents-archived':
+          if (action === 'refresh') {
+            refresh().catch(() => undefined);
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [handleTreeSelection, refresh],
+  );
+
+  const renderActiveSurface = useCallback(() => {
+    if (activeView === 'repo') {
+      return (
+        <div className="proxmox-surface-card" role="region" aria-label="Explorador de repositorio">
+          <RepoStudio />
+        </div>
+      );
+    }
+
+    if (activeView === 'canvas') {
+      return (
+        <div className="proxmox-surface-card" role="region" aria-label="Code canvas">
+          <CodeCanvas />
+        </div>
+      );
+    }
+
+    return (
+      <div className="proxmox-surface-card" role="region" aria-label="Área de conversación">
+        <ChatWorkspace
+          actorFilter={actorFilter}
+          settings={settings}
+          onSettingsChange={onSettingsChange}
+          presenceMap={presenceMap}
+          onActorFilterChange={setActorFilter}
+          activeTab={activeWorkspaceTab}
+          onTabChange={nextTab => setActiveWorkspaceTab(nextTab)}
+        />
+      </div>
+    );
+  }, [activeView, actorFilter, activeWorkspaceTab, onSettingsChange, presenceMap, settings]);
+
+  const infoPanelContent = (
+    <div className="proxmox-info-panel" role="complementary" aria-label="Monitor de actividad">
+      <TaskActivityPanel pendingResponses={pendingResponses} presenceSummary={presenceSummary} />
+    </div>
+  );
+
+  const footerTimestamp = useMemo(() => {
+    return new Date().toLocaleString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, []);
+
   return (
-    <div className={`app-pro-shell sidebar-${sidePanelPosition} ${showDesktopSidebar ? '' : 'is-mobile'}`}>
-      <ProLayout
-        className="app-pro-layout"
-        layout="mix"
-        contentWidth="Fluid"
-        fixedHeader
-        fixSiderbar
-        siderWidth={showDesktopSidebar ? siderWidth : 0}
-        logo={false}
-        title={false}
-        location={{ pathname: '/' }}
-        route={{ routes: [] }}
-        menuDataRender={() => []}
-        menuFooterRender={false}
-        menuHeaderRender={false}
-        suppressSiderWhenMenuEmpty
-        breadcrumbRender={false}
-        footerRender={false}
-        token={{
-          header: {
-            colorBgHeader: 'var(--shell-header-bg)',
-            colorTextMenu: 'var(--color-text-base)',
-            colorTextMenuSecondary: 'var(--color-text-muted)',
-            colorBgMenuItemHover: 'transparent',
-          },
-          sider: {
-            colorBgCollapsedButton: 'var(--shell-header-bg)',
-            colorMenuBackground: 'transparent',
-            colorBgMenuItemSelected: 'rgba(255, 255, 255, 0.08)',
-            colorTextMenu: 'var(--color-text-muted)',
-            colorTextMenuSelected: 'var(--color-primary)',
-          },
-          pageContainer: {
-            colorBgPageContainer: 'transparent',
-            paddingInlinePageContainerContent: 0,
-            paddingBlockPageContainerContent: 0,
-          },
-        }}
-        headerRender={() => (
+    <div className={shellClassName}>
+      <Layout hasSider className="proxmox-layout">
+        {showDesktopSidebar ? (
+          <Sider
+            width={siderWidth}
+            className="proxmox-sider"
+            theme="dark"
+            collapsible={false}
+            role="navigation"
+            aria-label="Árbol de recursos"
+          >
+            <div className="proxmox-sider__brand">
+              <Typography.Title level={4}>JungleMonk Cluster</Typography.Title>
+              <Typography.Text type="secondary">Recursos coordinados</Typography.Text>
+            </div>
+            <ResourceTree
+              activeView={activeView}
+              activeWorkspaceTab={activeWorkspaceTab}
+              onNodeSelect={handleTreeSelection}
+              onNodeAction={handleTreeAction}
+            />
+          </Sider>
+        ) : (
+          <Drawer
+            placement="left"
+            width={Math.max(280, Math.min(360, siderWidth))}
+            open={isNavDrawerOpen}
+            onClose={() => setNavDrawerOpen(false)}
+            title="Recursos"
+            className="proxmox-nav-drawer"
+            destroyOnClose={false}
+          >
+            <ResourceTree
+              activeView={activeView}
+              activeWorkspaceTab={activeWorkspaceTab}
+              onNodeSelect={handleTreeSelection}
+              onNodeAction={handleTreeAction}
+              variant="compact"
+            />
+          </Drawer>
+        )}
+
+        <Layout className="proxmox-main">
           <div className="app-header-shell" role="banner">
             <ChatTopBar
               agents={agents}
@@ -131,81 +273,32 @@ const AppContent: React.FC<AppContentProps> = ({
               onOpenMcp={() => setMcpOpen(true)}
               onOpenModelManager={() => setModelManagerOpen(true)}
               activeView={activeView}
-              onChangeView={setActiveView}
-            />
-          </div>
-        )}
-        menuRender={() =>
-          showDesktopSidebar ? (
-            <div className="app-sider-shell" role="complementary" aria-label="Panel de agentes">
-              <SidePanel
-                position={sidePanelPosition}
-                width={siderWidth}
-                variant="desktop"
-                onOpenGlobalSettings={() => setSettingsOpen(true)}
-                onOpenModelManager={() => setModelManagerOpen(true)}
-              />
-            </div>
-          ) : null
-        }
-      >
-        <PageContainer className="app-page-container" header={false}>
-          <div className="app-main-content" role="main">
-            {activeView === 'chat' && (
-              <div className="app-surface-card" role="region" aria-label="Área de conversación">
-                <Flex vertical gap="large">
-                  <ChatWorkspace
-                    actorFilter={actorFilter}
-                    settings={settings}
-                    onSettingsChange={onSettingsChange}
-                    presenceMap={presenceMap}
-                    onActorFilterChange={setActorFilter}
-                  />
-                </Flex>
-              </div>
-            )}
-
-            {activeView === 'repo' && (
-              <div className="app-surface-card" role="region" aria-label="Explorador de repositorio">
-                <Flex vertical gap="large">
-                  <RepoStudio />
-                </Flex>
-              </div>
-            )}
-
-            {activeView === 'canvas' && (
-              <div className="app-surface-card" role="region" aria-label="Code canvas">
-                <Flex vertical gap="large">
-                  <CodeCanvas />
-                </Flex>
-              </div>
-            )}
-          </div>
-
-          <div className="task-panel-wrapper">
-            <TaskActivityPanel
-              pendingResponses={pendingResponses}
-              presenceSummary={presenceSummary}
+              onChangeView={view => {
+                setActiveView(view);
+                if (view === 'chat') {
+                  setActiveWorkspaceTab('chat');
+                }
+              }}
+              showNavigationToggle={!showDesktopSidebar}
+              onToggleNavigation={() => setNavDrawerOpen(true)}
             />
           </div>
 
-          {!showDesktopSidebar && (
-            <div
-              className="app-mobile-sidebar-container"
-              role="complementary"
-              aria-label="Configuración de agentes"
-            >
-              <SidePanel
-                position={sidePanelPosition}
-                width={siderWidth}
-                variant="mobile"
-                onOpenGlobalSettings={() => setSettingsOpen(true)}
-                onOpenModelManager={() => setModelManagerOpen(true)}
-              />
+          <Content className="proxmox-content" role="main">
+            <div className="proxmox-content-inner">
+              <div className="proxmox-workspace">{renderActiveSurface()}</div>
+              {infoPanelContent}
             </div>
-          )}
-        </PageContainer>
-      </ProLayout>
+          </Content>
+
+          <Footer className="proxmox-footer">
+            <Space size="large">
+              <span>JungleMonk.AI · Panel inspirado en Proxmox</span>
+              <span>Sesión sincronizada · {footerTimestamp}</span>
+            </Space>
+          </Footer>
+        </Layout>
+      </Layout>
 
       <GlobalSettingsDialog
         isOpen={isSettingsOpen}

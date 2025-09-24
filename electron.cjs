@@ -262,8 +262,36 @@ let mainWindow;
 let fullscreenWindows = [];
 let mirrorInterval = null;
 const isDev = process.env.NODE_ENV === 'development';
+const resolveDevServerUrl = () => {
+  const candidates = [
+    process.env.VITE_DEV_SERVER_URL,
+    process.env.ELECTRON_START_URL,
+    'http://localhost:5173',
+  ];
+
+  for (const url of candidates) {
+    if (typeof url !== 'string') {
+      continue;
+    }
+
+    const trimmed = url.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      // Ensure the URL is well formed to avoid Electron load failures.
+      return new URL(trimmed).toString();
+    } catch (error) {
+      console.warn('Invalid dev server URL candidate skipped:', url, error);
+    }
+  }
+
+  return 'http://localhost:5173';
+};
+
 const startUrl = isDev
-  ? 'http://localhost:3000' // Cambiado de 5173 a 3000 (puerto de Vite por defecto)
+  ? resolveDevServerUrl()
   : `file://${path.join(__dirname, 'dist', 'index.html')}`;
 
 let pluginManagerInstance = null;

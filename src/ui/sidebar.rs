@@ -16,11 +16,6 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     MainView::ChatMultimodal,
                     "Chat Multimodal",
                 );
-                ui.selectable_value(
-                    &mut state.active_main_view,
-                    MainView::LiveMultimodal,
-                    "Live Multimodal",
-                );
                 ui.add_space(8.0);
 
                 egui::CollapsingHeader::new("Preferences")
@@ -31,21 +26,36 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                 .default_open(true)
                                 .show(ui, |ui| {
                                     ui.indent("preferences_system_items", |ui| {
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::SystemGithub,
-                                            "GitHub for Projects",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::SystemCache,
-                                            "Cache",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::SystemResources,
-                                            "System resources",
-                                        );
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::SystemGithub,
+                                                "GitHub for Projects",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::SystemCache,
+                                                "Cache",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::SystemResources,
+                                                "System resources",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
                                     });
                                 });
 
@@ -53,26 +63,46 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                 .default_open(true)
                                 .show(ui, |ui| {
                                     ui.indent("preferences_customization_items", |ui| {
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::CustomizationCommands,
-                                            "Custom commands",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::CustomizationMemory,
-                                            "Memory",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::CustomizationProfiles,
-                                            "Profiles",
-                                        );
-                                        ui.selectable_value(
-                                            &mut state.selected_section,
-                                            PreferenceSection::CustomizationProjects,
-                                            "Projects",
-                                        );
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::CustomizationCommands,
+                                                "Custom commands",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::CustomizationMemory,
+                                                "Memory",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::CustomizationProfiles,
+                                                "Profiles",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
+                                        if ui
+                                            .selectable_value(
+                                                &mut state.selected_section,
+                                                PreferenceSection::CustomizationProjects,
+                                                "Projects",
+                                            )
+                                            .changed()
+                                        {
+                                            state.active_main_view = MainView::Preferences;
+                                        }
                                     });
                                 });
 
@@ -84,16 +114,26 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                             .default_open(true)
                                             .show(ui, |ui| {
                                                 ui.indent("preferences_models_local", |ui| {
-                                                    ui.selectable_value(
-                                                        &mut state.selected_section,
-                                                        PreferenceSection::ModelsLocalHuggingFace,
-                                                        "HuggingFace (explore and install)",
-                                                    );
-                                                    ui.selectable_value(
-                                                        &mut state.selected_section,
-                                                        PreferenceSection::ModelsLocalSettings,
-                                                        "Settings",
-                                                    );
+                                                    if ui
+                                                        .selectable_value(
+                                                            &mut state.selected_section,
+                                                            PreferenceSection::ModelsLocalHuggingFace,
+                                                            "HuggingFace (explore and install)",
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        state.active_main_view = MainView::Preferences;
+                                                    }
+                                                    if ui
+                                                        .selectable_value(
+                                                            &mut state.selected_section,
+                                                            PreferenceSection::ModelsLocalSettings,
+                                                            "Settings",
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        state.active_main_view = MainView::Preferences;
+                                                    }
                                                 });
                                             });
 
@@ -101,21 +141,36 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                                             .default_open(true)
                                             .show(ui, |ui| {
                                                 ui.indent("preferences_models_providers", |ui| {
-                                                    ui.selectable_value(
-                                                        &mut state.selected_section,
-                                                        PreferenceSection::ModelsProviderAnthropic,
-                                                        "Anthropic",
-                                                    );
-                                                    ui.selectable_value(
-                                                        &mut state.selected_section,
-                                                        PreferenceSection::ModelsProviderOpenAi,
-                                                        "OpenAI",
-                                                    );
-                                                    ui.selectable_value(
-                                                        &mut state.selected_section,
-                                                        PreferenceSection::ModelsProviderGroq,
-                                                        "Groq",
-                                                    );
+                                                    if ui
+                                                        .selectable_value(
+                                                            &mut state.selected_section,
+                                                            PreferenceSection::ModelsProviderAnthropic,
+                                                            "Anthropic",
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        state.active_main_view = MainView::Preferences;
+                                                    }
+                                                    if ui
+                                                        .selectable_value(
+                                                            &mut state.selected_section,
+                                                            PreferenceSection::ModelsProviderOpenAi,
+                                                            "OpenAI",
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        state.active_main_view = MainView::Preferences;
+                                                    }
+                                                    if ui
+                                                        .selectable_value(
+                                                            &mut state.selected_section,
+                                                            PreferenceSection::ModelsProviderGroq,
+                                                            "Groq",
+                                                        )
+                                                        .changed()
+                                                    {
+                                                        state.active_main_view = MainView::Preferences;
+                                                    }
                                                 });
                                             });
                                     });

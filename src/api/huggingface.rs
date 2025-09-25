@@ -6,14 +6,68 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[derive(Debug, Deserialize)]
-struct ModelSummary {
+#[derive(Debug, Clone, Deserialize)]
+struct RawModelSummary {
     #[serde(rename = "modelId")]
     model_id: String,
+    author: Option<String>,
+    #[serde(default)]
+    private: bool,
+    #[serde(default)]
+    gated: bool,
+    #[serde(default)]
+    likes: Option<u64>,
+    #[serde(default)]
+    downloads: Option<u64>,
+    #[serde(rename = "pipeline_tag")]
+    pipeline_tag: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
-/// Busca modelos en Hugging Face y devuelve una lista de identificadores.
-pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<String>> {
+/// Información resumida de un modelo publicado en Hugging Face.
+#[derive(Debug, Clone)]
+pub struct HuggingFaceModelInfo {
+    pub id: String,
+    pub author: Option<String>,
+    pub pipeline_tag: Option<String>,
+    pub tags: Vec<String>,
+    pub likes: Option<u64>,
+    pub downloads: Option<u64>,
+    pub requires_token: bool,
+}
+
+impl HuggingFaceModelInfo {
+    /// Construye una tarjeta de modelo a partir de datos crudos provenientes de la API.
+    fn from_raw(raw: RawModelSummary) -> Self {
+        let requires_token = raw.private || raw.gated;
+        Self {
+            id: raw.model_id,
+            author: raw.author,
+            pipeline_tag: raw.pipeline_tag,
+            tags: raw.tags,
+            likes: raw.likes,
+            downloads: raw.downloads,
+            requires_token,
+        }
+    }
+
+    /// Genera un modelo ficticio utilizado como placeholder cuando no hay búsqueda previa.
+    pub fn placeholder(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            author: None,
+            pipeline_tag: None,
+            tags: Vec::new(),
+            likes: None,
+            downloads: None,
+            requires_token: false,
+        }
+    }
+}
+
+/// Busca modelos en Hugging Face y devuelve una lista de metadatos resumidos.
+pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<HuggingFaceModelInfo>> {
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .user_agent("JungleMonkAI/0.1")
@@ -36,11 +90,14 @@ pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<String>> {
         .error_for_status()
         .context("Hugging Face devolvió un estado de error")?;
 
-    let models: Vec<ModelSummary> = response
+    let models: Vec<RawModelSummary> = response
         .json()
         .context("No se pudo interpretar la respuesta de búsqueda de Hugging Face")?;
 
-    Ok(models.into_iter().map(|m| m.model_id).collect())
+    Ok(models
+        .into_iter()
+        .map(HuggingFaceModelInfo::from_raw)
+        .collect())
 }
 
 /// Descarga metadatos básicos del modelo y los almacena en disco dentro del directorio indicado.

@@ -284,6 +284,18 @@ impl JarvisRuntime {
             );
         }
 
+        let required_files = ["config.json", "tokenizer.json", "model.safetensors"];
+        for file in required_files {
+            let path = model_dir.join(file);
+            if !path.exists() {
+                bail!(
+                    "El modelo local en {:?} no contiene el archivo requerido '{}'. Reinstálalo.",
+                    path,
+                    file
+                );
+            }
+        }
+
         let metadata_path = model_dir.join("metadata.json");
         let metadata = if metadata_path.exists() {
             let raw = fs::read_to_string(&metadata_path).with_context(|| {

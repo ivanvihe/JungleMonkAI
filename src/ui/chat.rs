@@ -13,7 +13,7 @@ const ICON_CLOCK: &str = "\u{f017}"; // clock
 const ICON_COPY: &str = "\u{f0c5}"; // copy
 const ICON_QUOTE: &str = "\u{f10e}"; // quote-right
 const ICON_PIN: &str = "\u{f08d}"; // thumb-tack
-const ICON_SEND: &str = "\u{f1d8}"; // paper-plane
+const ICON_SEND: &str = "\u{f04b}"; // play
 const ICON_CODE: &str = "\u{f121}"; // code
 const ICON_PREMIUM: &str = "\u{f521}"; // crown
 const ICON_FREE: &str = "\u{f06b}"; // gift
@@ -34,7 +34,12 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
                 .stroke(theme::subtle_border())
-                .inner_margin(egui::Margin::symmetric(20.0, 16.0)),
+                .inner_margin(egui::Margin {
+                    left: 18.0,
+                    right: 10.0,
+                    top: 18.0,
+                    bottom: 14.0,
+                }),
         )
         .show(ctx, |ui| {
             logs::draw_logs_panel(ui, state);
@@ -103,7 +108,12 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
         .fill(Color32::from_rgb(26, 28, 32))
         .stroke(theme::subtle_border())
         .rounding(egui::Rounding::same(16.0))
-        .inner_margin(egui::Margin::symmetric(20.0, 18.0))
+        .inner_margin(egui::Margin {
+            left: 20.0,
+            right: 14.0,
+            top: 20.0,
+            bottom: 18.0,
+        })
         .show(ui, |ui| {
             let available_height = ui.available_height();
             let available_width = ui.available_width();
@@ -164,7 +174,7 @@ fn draw_message_bubble(
 
     ui.with_layout(layout, |ui| {
         let available_width = ui.available_width();
-        let mut bubble_width = (available_width * 0.98).max(260.0);
+        let mut bubble_width = (available_width - 8.0).max(260.0);
         bubble_width = bubble_width.min(available_width);
         let frame = egui::Frame::none()
             .fill(background)
@@ -332,7 +342,7 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                 let available_width = ui.available_width();
                 let spacing = 12.0;
-                let button_width = 68.0;
+                let button_width = 56.0;
                 let text_width = (available_width - button_width - spacing).max(140.0);
 
                 let text_response = ui
@@ -373,13 +383,14 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                 ui.add_space(spacing);
 
-                let (send_rect, send_response) =
+                let (send_rect, mut send_response) =
                     ui.allocate_exact_size(egui::vec2(button_width, text_height), egui::Sense::click());
                 let send_fill = if send_response.hovered() {
                     Color32::from_rgb(58, 140, 232)
                 } else {
                     Color32::from_rgb(46, 112, 196)
                 };
+                send_response = send_response.on_hover_text("Enviar mensaje");
                 let painter = ui.painter_at(send_rect);
                 painter.rect_filled(send_rect, egui::Rounding::same(12.0), send_fill);
                 painter.rect_stroke(
@@ -388,17 +399,10 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                     theme::subtle_border(),
                 );
                 painter.text(
-                    send_rect.center() - egui::vec2(0.0, 22.0),
+                    send_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     ICON_SEND,
-                    theme::icon_font(20.0),
-                    Color32::from_rgb(240, 240, 240),
-                );
-                painter.text(
-                    send_rect.center() + egui::vec2(0.0, 10.0),
-                    egui::Align2::CENTER_CENTER,
-                    "Enviar",
-                    egui::FontId::proportional(13.0),
+                    theme::icon_font(24.0),
                     Color32::from_rgb(240, 240, 240),
                 );
 
@@ -1239,27 +1243,55 @@ fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index
                     let mut message =
                         format!("Modelo '{}' instalado en {}.", model.id, path.display());
 
+                    state.push_activity_log(
+                        crate::state::LogStatus::Ok,
+                        "Jarvis",
+                        format!("Modelo '{}' descargado en {}", model.id, path.display()),
+                    );
+
                     if state.jarvis_auto_start {
                         match state.ensure_jarvis_runtime() {
                             Ok(runtime) => {
-                                message.push_str(&format!(
-                                    " Jarvis se recargó con {}.",
-                                    runtime.model_label()
-                                ));
+                                let label = runtime.model_label();
+                                let _ = runtime;
+                                message.push_str(&format!(" Jarvis se recargó con {}.", label));
+                                state.push_activity_log(
+                                    crate::state::LogStatus::Ok,
+                                    "Jarvis",
+                                    format!("Se instaló '{}' y Jarvis cargó {}.", model.id, label),
+                                );
                             }
                             Err(err) => {
                                 message.push_str(&format!(
                                     " No se pudo reiniciar Jarvis automáticamente: {}.",
                                     err
                                 ));
+                                state.push_activity_log(
+                                    crate::state::LogStatus::Error,
+                                    "Jarvis",
+                                    format!(
+                                        "El autoarranque falló tras instalar '{}': {}",
+                                        model.id, err
+                                    ),
+                                );
                             }
                         }
                     }
 
                     state.persist_config();
+                    state.jarvis_status = Some(message.clone());
                     message
                 }
-                Err(err) => format!("Fallo al instalar '{}': {}", model.id, err),
+                Err(err) => {
+                    let status = format!("Fallo al instalar '{}': {}", model.id, err);
+                    state.jarvis_status = Some(status.clone());
+                    state.push_activity_log(
+                        crate::state::LogStatus::Error,
+                        "Jarvis",
+                        format!("No se pudo descargar '{}': {}", model.id, err),
+                    );
+                    status
+                }
             }
         }
         LocalModelProvider::Ollama => {

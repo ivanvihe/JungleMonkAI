@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::Duration;
 
 use crate::local_providers::{LocalModelCard, LocalModelProvider};
@@ -114,11 +115,22 @@ pub fn download_model(
         })
         .unwrap_or_default();
 
-    let target_dir = install_dir.join(model.id.replace('/', "_"));
-    fs::create_dir_all(&target_dir)
-        .with_context(|| format!("No se pudo crear el directorio {:?}", target_dir))?;
+    let safe_dir_name = sanitize_id(&model.id);
+    let target_dir = install_dir.join(&safe_dir_name);
+    let staging_dir = install_dir.join(format!("{}__downloading", safe_dir_name));
 
-    let metadata_path = target_dir.join("metadata.json");
+    if staging_dir.exists() {
+        fs::remove_dir_all(&staging_dir).with_context(|| {
+            format!(
+                "No se pudo limpiar el directorio temporal de descarga {:?}",
+                staging_dir
+            )
+        })?;
+    }
+    fs::create_dir_all(&staging_dir)
+        .with_context(|| format!("No se pudo crear el directorio {:?}", staging_dir))?;
+
+    let metadata_path = staging_dir.join("metadata.json");
     fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?)
         .with_context(|| format!("No se pudo escribir {:?}", metadata_path))?;
 
@@ -149,27 +161,56 @@ pub fn download_model(
                 remote
             ));
         }
-        match repo.download(remote) {
-            Ok(path) => {
-                let destination = target_dir.join(remote);
-                if let Some(parent) = destination.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("No se pudo crear {:?}", parent))?;
+        let mut last_err = None;
+        for attempt in 1..=3 {
+            match repo.download(remote) {
+                Ok(path) => {
+                    let destination = staging_dir.join(remote);
+                    if let Some(parent) = destination.parent() {
+                        fs::create_dir_all(parent)
+                            .with_context(|| format!("No se pudo crear {:?}", parent))?;
+                    }
+                    fs::copy(&path, &destination).with_context(|| {
+                        format!(
+                            "No se pudo copiar el archivo descargado de Hugging Face {:?} a {:?}",
+                            path, destination
+                        )
+                    })?;
+
+                    let metadata = fs::metadata(&destination).with_context(|| {
+                        format!("No se pudo obtener el tamaño del archivo {:?}", destination)
+                    })?;
+                    if metadata.len() == 0 {
+                        last_err = Some(anyhow!(
+                            "El archivo '{}' descargado está vacío. Inténtalo nuevamente.",
+                            remote
+                        ));
+                        fs::remove_file(&destination).ok();
+                        thread::sleep(Duration::from_millis(250 * attempt as u64));
+                        continue;
+                    }
+
+                    return Ok(());
                 }
-                fs::copy(&path, &destination).with_context(|| {
-                    format!(
-                        "No se pudo copiar el archivo descargado de Hugging Face {:?} a {:?}",
-                        path, destination
-                    )
-                })?;
-                Ok(())
+                Err(err) => {
+                    if optional {
+                        return Ok(());
+                    }
+                    last_err = Some(anyhow!(
+                        "No se pudo descargar '{}' desde Hugging Face (intento {} de 3): {}",
+                        remote,
+                        attempt,
+                        err
+                    ));
+                    thread::sleep(Duration::from_millis(250 * attempt as u64));
+                }
             }
-            Err(_err) if optional => Ok(()),
-            Err(err) => Err(anyhow!(
-                "No se pudo descargar '{}' desde Hugging Face: {}",
-                remote,
-                err
-            )),
+        }
+
+        if let Some(err) = last_err {
+            Err(err)
+        } else {
+            Err(anyhow!("Error desconocido al descargar '{}'", remote))
         }
     };
 
@@ -190,54 +231,16 @@ pub fn download_model(
         download_file(file, true)?;
     }
 
-    let preferred_weights = [
-        "model.safetensors",
-        "pytorch_model.bin",
-        "model.bin",
-        "diffusion_pytorch_model.bin",
-        "openvino_model.bin",
-        "rust_model.ot",
-    ];
-
-    let mut downloaded_weights = false;
-    for file in preferred_weights {
-        if available_files.contains(file) {
-            download_file(file, false)?;
-            downloaded_weights = true;
-            break;
-        }
-    }
-
-    if !downloaded_weights {
-        if let Some(gguf) = available_files
-            .iter()
-            .find(|name| name.ends_with(".gguf"))
-            .cloned()
-        {
-            download_file(&gguf, false)?;
-            downloaded_weights = true;
-        }
-    }
-
-    if !downloaded_weights {
-        if let Some(bin) = available_files
-            .iter()
-            .find(|name| name.ends_with(".bin"))
-            .cloned()
-        {
-            download_file(&bin, false)?;
-            downloaded_weights = true;
-        }
-    }
-
-    if !downloaded_weights {
+    if available_files.contains("model.safetensors") {
+        download_file("model.safetensors", false)?;
+    } else {
         return Err(anyhow!(
-            "No se encontraron archivos de pesos compatibles en el modelo '{}'",
+            "El modelo '{}' no publica 'model.safetensors'. El runtime local requiere ese formato.",
             model.id
         ));
     }
 
-    let modules_path = target_dir.join("modules.json");
+    let modules_path = staging_dir.join("modules.json");
     if modules_path.exists() {
         let module_data = fs::read_to_string(&modules_path)
             .with_context(|| format!("No se pudo leer {:?}", modules_path))?;
@@ -257,5 +260,61 @@ pub fn download_model(
         }
     }
 
+    ensure_required_assets(&staging_dir)?;
+
+    if target_dir.exists() {
+        fs::remove_dir_all(&target_dir).with_context(|| {
+            format!(
+                "No se pudo reemplazar el directorio de instalación anterior {:?}",
+                target_dir
+            )
+        })?;
+    }
+
+    fs::rename(&staging_dir, &target_dir).with_context(|| {
+        format!(
+            "No se pudo mover el modelo descargado de {:?} a {:?}",
+            staging_dir, target_dir
+        )
+    })?;
+
     Ok(target_dir)
+}
+
+fn sanitize_id(id: &str) -> String {
+    id.chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ' ' => '_',
+            ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            _ => ch,
+        })
+        .collect()
+}
+
+fn ensure_required_assets(dir: &Path) -> Result<()> {
+    let config_path = dir.join("config.json");
+    if !config_path.exists() {
+        return Err(anyhow!(
+            "El modelo descargado no incluye config.json en {:?}",
+            config_path
+        ));
+    }
+
+    let tokenizer = dir.join("tokenizer.json");
+    if !tokenizer.exists() {
+        return Err(anyhow!(
+            "El modelo descargado no incluye tokenizer.json en {:?}",
+            tokenizer
+        ));
+    }
+
+    let safetensors_path = dir.join("model.safetensors");
+    if !safetensors_path.exists() {
+        return Err(anyhow!(
+            "El modelo descargado no contiene 'model.safetensors' en {:?}",
+            safetensors_path
+        ));
+    }
+
+    Ok(())
 }

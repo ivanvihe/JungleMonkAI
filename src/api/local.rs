@@ -144,6 +144,10 @@ impl JarvisRuntime {
         let reflection = Self::reflect_prompt(prompt);
         sections.push(reflection);
 
+        if let Some(analysis) = Self::semantic_analysis(prompt) {
+            sections.push(analysis);
+        }
+
         sections.join("\n\n")
     }
 
@@ -202,4 +206,67 @@ impl JarvisRuntime {
         keywords.dedup();
         keywords.into_iter().take(5).collect()
     }
+
+    fn semantic_analysis(prompt: &str) -> Option<String> {
+        let normalized = prompt.to_lowercase();
+        let mut findings = Vec::new();
+
+        for entry in SEMANTIC_RULES.iter() {
+            if entry
+                .keywords
+                .iter()
+                .any(|keyword| normalized.contains(keyword))
+            {
+                findings.push(format!("- {} → {}", entry.label, entry.hint));
+            }
+        }
+
+        if findings.is_empty() {
+            None
+        } else {
+            let mut report = Vec::with_capacity(findings.len() + 1);
+            report.push("Análisis semántico local:".to_string());
+            report.extend(findings);
+            Some(report.join("\n"))
+        }
+    }
 }
+
+struct SemanticRule {
+    keywords: &'static [&'static str],
+    label: &'static str,
+    hint: &'static str,
+}
+
+const SEMANTIC_RULES: &[SemanticRule] = &[
+    SemanticRule {
+        keywords: &["error", "bug", "fallo", "stack", "trace"],
+        label: "Diagnóstico",
+        hint: "Puedo ayudarte a aislar el problema y proponer pruebas específicas.",
+    },
+    SemanticRule {
+        keywords: &["plan", "estrategia", "roadmap", "pasos", "organizar"],
+        label: "Planificación",
+        hint: "Te propongo estructurar los siguientes pasos y dependencias clave.",
+    },
+    SemanticRule {
+        keywords: &["deploy", "despliegue", "infra", "servidor", "docker"],
+        label: "Operaciones",
+        hint: "Podemos revisar el estado del entorno local y preparar comandos.",
+    },
+    SemanticRule {
+        keywords: &["datos", "dataset", "csv", "analizar", "consulta"],
+        label: "Datos",
+        hint: "Te ayudo a definir transformaciones y métricas para explorar la información.",
+    },
+    SemanticRule {
+        keywords: &["documentación", "doc", "manual", "resumen"],
+        label: "Documentación",
+        hint: "Generemos un esquema y redactemos los apartados esenciales.",
+    },
+    SemanticRule {
+        keywords: &["investigar", "research", "comparar", "benchmark"],
+        label: "Investigación",
+        hint: "Recolecto fuentes relevantes y sintetizo conclusiones preliminares.",
+    },
+];

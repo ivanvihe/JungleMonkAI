@@ -1,5 +1,6 @@
 mod api;
 mod config;
+mod local_providers;
 mod state;
 mod ui;
 

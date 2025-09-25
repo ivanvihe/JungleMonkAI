@@ -3,9 +3,12 @@ use hf_hub::api::sync::ApiBuilder;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use crate::local_providers::{LocalModelCard, LocalModelProvider};
 
 #[derive(Debug, Clone, Deserialize)]
 struct RawModelSummary {
@@ -26,49 +29,8 @@ struct RawModelSummary {
     tags: Vec<String>,
 }
 
-/// Información resumida de un modelo publicado en Hugging Face.
-#[derive(Debug, Clone)]
-pub struct HuggingFaceModelInfo {
-    pub id: String,
-    pub author: Option<String>,
-    pub pipeline_tag: Option<String>,
-    pub tags: Vec<String>,
-    pub likes: Option<u64>,
-    pub downloads: Option<u64>,
-    pub requires_token: bool,
-}
-
-impl HuggingFaceModelInfo {
-    /// Construye una tarjeta de modelo a partir de datos crudos provenientes de la API.
-    fn from_raw(raw: RawModelSummary) -> Self {
-        let requires_token = raw.private || raw.gated;
-        Self {
-            id: raw.model_id,
-            author: raw.author,
-            pipeline_tag: raw.pipeline_tag,
-            tags: raw.tags,
-            likes: raw.likes,
-            downloads: raw.downloads,
-            requires_token,
-        }
-    }
-
-    /// Genera un modelo ficticio utilizado como placeholder cuando no hay búsqueda previa.
-    pub fn placeholder(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            author: None,
-            pipeline_tag: None,
-            tags: Vec::new(),
-            likes: None,
-            downloads: None,
-            requires_token: false,
-        }
-    }
-}
-
 /// Busca modelos en Hugging Face y devuelve una lista de metadatos resumidos.
-pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<HuggingFaceModelInfo>> {
+pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<LocalModelCard>> {
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .user_agent("JungleMonkAI/0.1")
@@ -97,19 +59,33 @@ pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<HuggingFace
 
     Ok(models
         .into_iter()
-        .map(HuggingFaceModelInfo::from_raw)
+        .map(|raw| LocalModelCard {
+            provider: LocalModelProvider::HuggingFace,
+            id: raw.model_id,
+            author: raw.author,
+            pipeline_tag: raw.pipeline_tag,
+            tags: raw.tags,
+            likes: raw.likes,
+            downloads: raw.downloads,
+            requires_token: raw.private || raw.gated,
+            description: None,
+        })
         .collect())
 }
 
 /// Descarga metadatos básicos del modelo y los almacena en disco dentro del directorio indicado.
-pub fn download_model(model_id: &str, install_dir: &Path, token: Option<&str>) -> Result<PathBuf> {
+pub fn download_model(
+    model: &LocalModelCard,
+    install_dir: &Path,
+    token: Option<&str>,
+) -> Result<PathBuf> {
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent("JungleMonkAI/0.1")
         .build()
         .context("No se pudo crear el cliente HTTP para Hugging Face")?;
 
-    let mut request = client.get(format!("https://huggingface.co/api/models/{}", model_id));
+    let mut request = client.get(format!("https://huggingface.co/api/models/{}", model.id));
     if let Some(token) = token {
         if !token.trim().is_empty() {
             request = request.bearer_auth(token.trim());
@@ -126,7 +102,19 @@ pub fn download_model(model_id: &str, install_dir: &Path, token: Option<&str>) -
         .json()
         .context("No se pudo interpretar los metadatos del modelo de Hugging Face")?;
 
-    let target_dir = install_dir.join(model_id.replace('/', "_"));
+    let available_files: HashSet<String> = metadata
+        .get("siblings")
+        .and_then(|siblings| siblings.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("rfilename").and_then(|value| value.as_str()))
+                .map(|value| value.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let target_dir = install_dir.join(model.id.replace('/', "_"));
     fs::create_dir_all(&target_dir)
         .with_context(|| format!("No se pudo crear el directorio {:?}", target_dir))?;
 
@@ -149,9 +137,18 @@ pub fn download_model(model_id: &str, install_dir: &Path, token: Option<&str>) -
     let api = builder
         .build()
         .context("No se pudo inicializar el cliente de Hugging Face Hub")?;
-    let repo = api.model(model_id.to_string());
+    let repo = api.model(model.id.to_string());
 
     let download_file = |remote: &str, optional: bool| -> Result<()> {
+        if !available_files.contains(remote) {
+            if optional {
+                return Ok(());
+            }
+            return Err(anyhow!(
+                "El repositorio de Hugging Face no contiene el archivo obligatorio '{}'",
+                remote
+            ));
+        }
         match repo.download(remote) {
             Ok(path) => {
                 let destination = target_dir.join(remote);
@@ -176,24 +173,68 @@ pub fn download_model(model_id: &str, install_dir: &Path, token: Option<&str>) -
         }
     };
 
-    let required_files = [
-        "config.json",
+    download_file("config.json", false)?;
+
+    let optional_files = [
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "sentence_bert_config.json",
+        "vocab.txt",
+        "merges.txt",
+        "special_tokens_map.json",
         "modules.json",
         "rust_model.ot",
-        "sentence_bert_config.json",
-        "tokenizer_config.json",
-        "tokenizer.json",
-        "model.safetensors",
     ];
-
-    for file in required_files {
-        download_file(file, false)?;
-    }
-
-    let optional_files = ["vocab.txt", "merges.txt", "special_tokens_map.json"];
 
     for file in optional_files {
         download_file(file, true)?;
+    }
+
+    let preferred_weights = [
+        "model.safetensors",
+        "pytorch_model.bin",
+        "model.bin",
+        "diffusion_pytorch_model.bin",
+        "openvino_model.bin",
+        "rust_model.ot",
+    ];
+
+    let mut downloaded_weights = false;
+    for file in preferred_weights {
+        if available_files.contains(file) {
+            download_file(file, false)?;
+            downloaded_weights = true;
+            break;
+        }
+    }
+
+    if !downloaded_weights {
+        if let Some(gguf) = available_files
+            .iter()
+            .find(|name| name.ends_with(".gguf"))
+            .cloned()
+        {
+            download_file(&gguf, false)?;
+            downloaded_weights = true;
+        }
+    }
+
+    if !downloaded_weights {
+        if let Some(bin) = available_files
+            .iter()
+            .find(|name| name.ends_with(".bin"))
+            .cloned()
+        {
+            download_file(&bin, false)?;
+            downloaded_weights = true;
+        }
+    }
+
+    if !downloaded_weights {
+        return Err(anyhow!(
+            "No se encontraron archivos de pesos compatibles en el modelo '{}'",
+            model.id
+        ));
     }
 
     let modules_path = target_dir.join("modules.json");

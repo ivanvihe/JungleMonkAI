@@ -30,6 +30,7 @@ pub struct JarvisConfig {
     pub model_path: String,
     pub install_dir: String,
     pub auto_start: bool,
+    /// Modelos instalados codificados como `proveedor::identificador`.
     pub installed_models: Vec<String>,
     #[serde(default)]
     pub active_model: Option<String>,
@@ -59,9 +60,9 @@ impl JarvisConfig {
     }
 }
 
-/// Preferencias relacionadas con Hugging Face.
+/// Preferencias relacionadas con catálogos de modelos descargables.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct HuggingFaceConfig {
+pub struct ModelProviderConfig {
     pub access_token: Option<String>,
     pub last_search_query: String,
 }
@@ -87,7 +88,17 @@ pub struct AppConfig {
     pub projects: Vec<String>,
     pub selected_project: Option<usize>,
     pub jarvis: JarvisConfig,
-    pub huggingface: HuggingFaceConfig,
+    pub huggingface: ModelProviderConfig,
+    #[serde(default)]
+    pub github_models: ModelProviderConfig,
+    #[serde(default)]
+    pub replicate: ModelProviderConfig,
+    #[serde(default)]
+    pub ollama: ModelProviderConfig,
+    #[serde(default)]
+    pub openrouter: ModelProviderConfig,
+    #[serde(default)]
+    pub modelscope: ModelProviderConfig,
 }
 
 impl Default for AppConfig {
@@ -127,7 +138,12 @@ impl Default for AppConfig {
             projects: vec!["Autonomous Agent".to_string(), "RAG Pipeline".to_string()],
             selected_project: Some(0),
             jarvis: JarvisConfig::default(),
-            huggingface: HuggingFaceConfig::default(),
+            huggingface: ModelProviderConfig::default(),
+            github_models: ModelProviderConfig::default(),
+            replicate: ModelProviderConfig::default(),
+            ollama: ModelProviderConfig::default(),
+            openrouter: ModelProviderConfig::default(),
+            modelscope: ModelProviderConfig::default(),
         }
     }
 }

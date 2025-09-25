@@ -2413,6 +2413,7 @@ dependencies = [
  "eframe",
  "egui_extras",
  "octocrab",
+ "once_cell",
  "reqwest",
  "serde",
  "serde_json",

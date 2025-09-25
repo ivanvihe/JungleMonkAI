@@ -27,52 +27,9 @@ pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
                 );
 
                 ui.separator();
+                ui.add_space(4.0);
                 draw_search(ui, state);
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let logs_label = if state.logs_panel_expanded {
-                        "🗂 Ocultar logs"
-                    } else {
-                        "🗂 Mostrar logs"
-                    };
-                    if ui
-                        .add_sized(
-                            [130.0, 28.0],
-                            theme::secondary_button(
-                                RichText::new(logs_label).color(theme::COLOR_TEXT_PRIMARY),
-                            ),
-                        )
-                        .clicked()
-                    {
-                        state.logs_panel_expanded = !state.logs_panel_expanded;
-                    }
-
-                    if ui
-                        .add_sized(
-                            [110.0, 28.0],
-                            theme::secondary_button(
-                                RichText::new("⚙ Ajustes").color(theme::COLOR_TEXT_PRIMARY),
-                            ),
-                        )
-                        .clicked()
-                    {
-                        state.show_settings_modal = true;
-                    }
-
-                    ui.add_space(6.0);
-                    if ui
-                        .add_sized(
-                            [120.0, 28.0],
-                            theme::primary_button(
-                                RichText::new("▶ Ejecutar").color(Color32::from_rgb(240, 240, 240)),
-                            ),
-                        )
-                        .clicked()
-                    {
-                        state.command_feedback =
-                            Some("Simulando ejecución rápida de tareas programadas.".to_string());
-                    }
-                });
+                ui.add_space(ui.available_width());
             });
         });
 }

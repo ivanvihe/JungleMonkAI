@@ -1,4 +1,17 @@
-use eframe::egui::{self, style::ScrollStyle, Color32, Stroke};
+use std::time::Duration;
+
+use eframe::egui::{
+    self, style::ScrollStyle, Color32, FontDefinitions, FontFamily, FontId, Stroke,
+};
+use once_cell::sync::OnceCell;
+
+const ICON_FONT_URL: &str =
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.ttf";
+
+const ICON_FONT_ID: &str = "fa-solid";
+const ICON_FONT_FAMILY: &str = "icons";
+
+static ICON_FONT_CACHE: OnceCell<Option<Vec<u8>>> = OnceCell::new();
 
 const BG_ROOT: Color32 = Color32::from_rgb(28, 28, 28);
 const BG_PANEL: Color32 = Color32::from_rgb(32, 32, 32);
@@ -10,6 +23,8 @@ const TEXT_WEAK: Color32 = Color32::from_rgb(170, 170, 170);
 const BORDER: Color32 = Color32::from_rgb(48, 48, 48);
 
 pub fn apply(ctx: &egui::Context) {
+    install_fonts(ctx);
+
     let mut style = (*ctx.style()).clone();
     style.visuals = build_visuals();
 
@@ -88,6 +103,25 @@ fn build_visuals() -> egui::Visuals {
     visuals
 }
 
+fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+
+    if let Some(bytes) = icon_font_bytes() {
+        fonts.font_data.insert(
+            ICON_FONT_ID.to_owned(),
+            egui::FontData::from_owned(bytes.clone()),
+        );
+
+        fonts
+            .families
+            .entry(icon_family())
+            .or_default()
+            .insert(0, ICON_FONT_ID.to_owned());
+    }
+
+    ctx.set_fonts(fonts);
+}
+
 pub fn primary_button<'a>(text: impl Into<egui::WidgetText>) -> egui::Button<'a> {
     egui::Button::new(text).fill(BG_ACTIVE)
 }
@@ -107,3 +141,43 @@ pub const COLOR_DANGER: Color32 = Color32::from_rgb(204, 51, 51);
 pub const COLOR_PRIMARY: Color32 = Color32::from_rgb(25, 118, 210);
 pub const COLOR_PANEL: Color32 = BG_ROOT;
 pub const COLOR_HEADER: Color32 = Color32::from_rgb(42, 42, 42);
+
+pub fn icon_font(size: f32) -> FontId {
+    FontId::new(size, icon_family())
+}
+
+fn icon_family() -> FontFamily {
+    FontFamily::Name(ICON_FONT_FAMILY.into())
+}
+
+fn icon_font_bytes() -> Option<&'static Vec<u8>> {
+    ICON_FONT_CACHE.get_or_init(|| fetch_icon_font()).as_ref()
+}
+
+fn fetch_icon_font() -> Option<Vec<u8>> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|err| eprintln!("No se pudo crear el cliente HTTP para la fuente: {err}"))
+        .ok()?;
+
+    let response = client
+        .get(ICON_FONT_URL)
+        .send()
+        .map_err(|err| eprintln!("No se pudo descargar la fuente de iconos: {err}"))
+        .ok()?;
+
+    if !response.status().is_success() {
+        eprintln!(
+            "Descarga de fuente de iconos fallida con estado {}",
+            response.status()
+        );
+        return None;
+    }
+
+    response
+        .bytes()
+        .map(|bytes| bytes.to_vec())
+        .map_err(|err| eprintln!("No se pudo leer la fuente de iconos: {err}"))
+        .ok()
+}

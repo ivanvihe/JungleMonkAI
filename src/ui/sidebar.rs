@@ -3,6 +3,28 @@ use eframe::egui::{self, Color32, RichText};
 
 use super::theme;
 
+const ICON_CHAT: &str = "\u{f086}"; // comments
+const ICON_RESOURCES: &str = "\u{f1b3}"; // cubes
+const ICON_SYSTEM: &str = "\u{f2db}"; // microchip
+const ICON_PROVIDERS: &str = "\u{f6ff}"; // network-wired
+const ICON_LOCAL: &str = "\u{f0a0}"; // hard-drive
+const ICON_NETWORK: &str = "\u{f0ac}"; // globe
+const ICON_GITHUB: &str = "\u{f126}"; // code-branch
+const ICON_CACHE: &str = "\u{f1c0}"; // database
+const ICON_RESOURCE_USAGE: &str = "\u{f625}"; // gauge-high
+const ICON_PROVIDER_ANTHROPIC: &str = "\u{f544}"; // robot
+const ICON_PROVIDER_OPENAI: &str = "\u{e2ca}"; // wand-magic-sparkles
+const ICON_PROVIDER_GROQ: &str = "\u{f0e7}"; // bolt
+const ICON_LOCAL_HF: &str = "\u{f49e}"; // box-open
+const ICON_LOCAL_SETTINGS: &str = "\u{f1de}"; // sliders
+const ICON_CUSTOMIZATION: &str = "\u{f1de}"; // sliders
+const ICON_COMMANDS: &str = "\u{f120}"; // terminal
+const ICON_MEMORY: &str = "\u{f5dc}"; // brain
+const ICON_PROFILES: &str = "\u{f2c1}"; // id-badge
+const ICON_PROJECTS: &str = "\u{f542}"; // diagram-project
+const ICON_BRANCH_COLLAPSED: &str = "\u{f054}"; // chevron-right
+const ICON_BRANCH_EXPANDED: &str = "\u{f078}"; // chevron-down
+
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
     egui::SidePanel::left("navigation_panel")
         .resizable(true)
@@ -39,8 +61,8 @@ struct NavNode {
 const NAV_TREE: &[NavNode] = &[
     NavNode {
         id: "chat",
-        label: "Panel multimodal",
-        icon: "💬",
+        label: "Chat Multimodal",
+        icon: ICON_CHAT,
         view: Some(MainView::ChatMultimodal),
         section: None,
         children: &[],
@@ -48,7 +70,7 @@ const NAV_TREE: &[NavNode] = &[
     NavNode {
         id: "resources",
         label: "Recursos",
-        icon: "📦",
+        icon: ICON_RESOURCES,
         view: None,
         section: None,
         children: RESOURCE_CHILDREN,
@@ -56,7 +78,7 @@ const NAV_TREE: &[NavNode] = &[
     NavNode {
         id: "customization",
         label: "Personalización",
-        icon: "🛠️",
+        icon: ICON_CUSTOMIZATION,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::CustomizationCommands),
         children: CUSTOMIZATION_DETAILS,
@@ -67,7 +89,7 @@ const RESOURCE_CHILDREN: &[NavNode] = &[
     NavNode {
         id: "system",
         label: "Sistema",
-        icon: "🖥️",
+        icon: ICON_SYSTEM,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::SystemResources),
         children: SYSTEM_DETAILS,
@@ -75,7 +97,7 @@ const RESOURCE_CHILDREN: &[NavNode] = &[
     NavNode {
         id: "providers",
         label: "Proveedores",
-        icon: "🖲️",
+        icon: ICON_PROVIDERS,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsProviderOpenAi),
         children: PROVIDER_DETAILS,
@@ -83,7 +105,7 @@ const RESOURCE_CHILDREN: &[NavNode] = &[
     NavNode {
         id: "local_model",
         label: "Modelo local",
-        icon: "💽",
+        icon: ICON_LOCAL,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsLocalSettings),
         children: LOCAL_DETAILS,
@@ -91,7 +113,7 @@ const RESOURCE_CHILDREN: &[NavNode] = &[
     NavNode {
         id: "network",
         label: "Red",
-        icon: "🌐",
+        icon: ICON_NETWORK,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::SystemGithub),
         children: NETWORK_DETAILS,
@@ -102,7 +124,7 @@ const SYSTEM_DETAILS: &[NavNode] = &[
     NavNode {
         id: "system_github",
         label: "GitHub",
-        icon: "☁",
+        icon: ICON_GITHUB,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::SystemGithub),
         children: &[],
@@ -110,7 +132,7 @@ const SYSTEM_DETAILS: &[NavNode] = &[
     NavNode {
         id: "system_cache",
         label: "Caché",
-        icon: "🧹",
+        icon: ICON_CACHE,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::SystemCache),
         children: &[],
@@ -118,7 +140,7 @@ const SYSTEM_DETAILS: &[NavNode] = &[
     NavNode {
         id: "system_resources",
         label: "Recursos",
-        icon: "📊",
+        icon: ICON_RESOURCE_USAGE,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::SystemResources),
         children: &[],
@@ -129,7 +151,7 @@ const PROVIDER_DETAILS: &[NavNode] = &[
     NavNode {
         id: "provider_anthropic",
         label: "Anthropic",
-        icon: "🤖",
+        icon: ICON_PROVIDER_ANTHROPIC,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsProviderAnthropic),
         children: &[],
@@ -137,7 +159,7 @@ const PROVIDER_DETAILS: &[NavNode] = &[
     NavNode {
         id: "provider_openai",
         label: "OpenAI",
-        icon: "✨",
+        icon: ICON_PROVIDER_OPENAI,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsProviderOpenAi),
         children: &[],
@@ -145,7 +167,7 @@ const PROVIDER_DETAILS: &[NavNode] = &[
     NavNode {
         id: "provider_groq",
         label: "Groq",
-        icon: "⚡",
+        icon: ICON_PROVIDER_GROQ,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsProviderGroq),
         children: &[],
@@ -156,7 +178,7 @@ const LOCAL_DETAILS: &[NavNode] = &[
     NavNode {
         id: "local_hf",
         label: "HuggingFace",
-        icon: "📦",
+        icon: ICON_LOCAL_HF,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsLocalHuggingFace),
         children: &[],
@@ -164,7 +186,7 @@ const LOCAL_DETAILS: &[NavNode] = &[
     NavNode {
         id: "local_settings",
         label: "Configuración",
-        icon: "⚙",
+        icon: ICON_LOCAL_SETTINGS,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsLocalSettings),
         children: &[],
@@ -174,7 +196,7 @@ const LOCAL_DETAILS: &[NavNode] = &[
 const NETWORK_DETAILS: &[NavNode] = &[NavNode {
     id: "network_providers",
     label: "Red de proveedores",
-    icon: "🌐",
+    icon: ICON_NETWORK,
     view: Some(MainView::Preferences),
     section: Some(PreferenceSection::ModelsProviderOpenAi),
     children: &[],
@@ -184,7 +206,7 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
     NavNode {
         id: "custom_commands",
         label: "Comandos",
-        icon: "🧰",
+        icon: ICON_COMMANDS,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::CustomizationCommands),
         children: &[],
@@ -192,7 +214,7 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
     NavNode {
         id: "custom_memory",
         label: "Memoria",
-        icon: "🧠",
+        icon: ICON_MEMORY,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::CustomizationMemory),
         children: &[],
@@ -200,7 +222,7 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
     NavNode {
         id: "custom_profiles",
         label: "Perfiles",
-        icon: "👤",
+        icon: ICON_PROFILES,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::CustomizationProfiles),
         children: &[],
@@ -208,7 +230,7 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
     NavNode {
         id: "custom_projects",
         label: "Proyectos",
-        icon: "📁",
+        icon: ICON_PROJECTS,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::CustomizationProjects),
         children: &[],
@@ -219,34 +241,24 @@ fn draw_nav_node(ui: &mut egui::Ui, state: &mut AppState, node: &NavNode, depth:
     let indent = (depth as f32) * 18.0;
     let available_width = ui.available_width();
     let (rect, response) =
-        ui.allocate_at_least(egui::vec2(available_width, 30.0), egui::Sense::click());
+        ui.allocate_at_least(egui::vec2(available_width, 28.0), egui::Sense::click());
 
     let is_expanded = state.expanded_nav_nodes.contains(node.id);
     let is_selected = node_is_selected(state, node);
     let branch_active = node_is_active(state, node);
 
-    let base_fill = if depth == 0 {
-        egui::Color32::from_rgb(28, 28, 28)
+    let highlight = if is_selected {
+        Some(egui::Color32::from_rgb(54, 68, 88))
+    } else if response.hovered() || branch_active {
+        Some(egui::Color32::from_rgb(40, 46, 58))
     } else {
-        egui::Color32::from_rgb(24, 24, 24)
+        None
     };
 
-    let fill = if is_selected {
-        egui::Color32::from_rgb(52, 62, 78)
-    } else if branch_active {
-        egui::Color32::from_rgb(34, 40, 52)
-    } else {
-        base_fill
-    };
-
-    let border = if is_selected {
-        egui::Stroke::new(1.0, Color32::from_rgb(70, 110, 150))
-    } else {
-        theme::subtle_border()
-    };
-
-    let painter = ui.painter();
-    painter.rect(rect.shrink2(egui::vec2(0.5, 1.0)), 0.0, fill, border);
+    if let Some(color) = highlight {
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect.shrink(1.0), 4.0, color);
+    }
 
     let mut content_ui = ui.child_ui(
         egui::Rect::from_min_max(
@@ -257,21 +269,41 @@ fn draw_nav_node(ui: &mut egui::Ui, state: &mut AppState, node: &NavNode, depth:
     );
 
     if !node.children.is_empty() {
-        let arrow = if is_expanded { "▾" } else { "▸" };
-        content_ui.label(RichText::new(arrow).color(theme::COLOR_TEXT_WEAK));
+        let arrow = if is_expanded {
+            ICON_BRANCH_EXPANDED
+        } else {
+            ICON_BRANCH_COLLAPSED
+        };
+        content_ui.label(
+            RichText::new(arrow)
+                .font(theme::icon_font(12.0))
+                .color(theme::COLOR_TEXT_WEAK),
+        );
     } else {
-        content_ui.add_space(16.0);
+        content_ui.add_space(14.0);
     }
 
-    let icon_color = if branch_active {
-        theme::COLOR_SUCCESS
+    let icon_color = if branch_active || is_selected {
+        theme::COLOR_PRIMARY
     } else {
         theme::COLOR_TEXT_WEAK
     };
 
-    content_ui.label(RichText::new(node.icon).color(icon_color));
     content_ui.add_space(6.0);
-    content_ui.label(RichText::new(node.label).color(theme::COLOR_TEXT_PRIMARY));
+    content_ui.label(
+        RichText::new(node.icon)
+            .font(theme::icon_font(15.0))
+            .color(icon_color),
+    );
+    content_ui.add_space(8.0);
+    let text_color = if is_selected {
+        theme::COLOR_TEXT_PRIMARY
+    } else if branch_active {
+        Color32::from_rgb(210, 210, 210)
+    } else {
+        theme::COLOR_TEXT_WEAK
+    };
+    content_ui.label(RichText::new(node.label).color(text_color));
 
     if response.clicked() {
         if !node.children.is_empty() {

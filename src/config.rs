@@ -31,6 +31,8 @@ pub struct JarvisConfig {
     pub install_dir: String,
     pub auto_start: bool,
     pub installed_models: Vec<String>,
+    #[serde(default)]
+    pub active_model: Option<String>,
 }
 
 impl Default for JarvisConfig {
@@ -40,6 +42,7 @@ impl Default for JarvisConfig {
             install_dir: "models/jarvis".to_string(),
             auto_start: true,
             installed_models: Vec::new(),
+            active_model: None,
         }
     }
 }

@@ -161,7 +161,9 @@ fn draw_message_bubble(
     };
 
     ui.with_layout(layout, |ui| {
-        let bubble_width = ui.available_width().clamp(320.0, 640.0);
+        let available_width = ui.available_width();
+        let mut bubble_width = (available_width * 0.98).max(260.0);
+        bubble_width = bubble_width.min(available_width);
         let frame = egui::Frame::none()
             .fill(background)
             .stroke(egui::Stroke::new(1.4, border))
@@ -315,84 +317,102 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                 let mut should_send = false;
 
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
-                    let button_width = 118.0;
-                    let content_width = ui.available_width();
-                    let text_width = (content_width - button_width - 14.0).max(240.0);
-                    let text_height = 110.0;
-
-                    let text_edit = egui::TextEdit::multiline(&mut state.current_chat_input)
-                        .desired_rows(4)
-                        .hint_text(
-                            "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
-                        )
-                        .lock_focus(true)
-                        .desired_width(text_width)
-                        .frame(false);
-
-                    let text_frame = egui::Frame::none()
-                        .fill(Color32::from_rgb(30, 32, 38))
-                        .stroke(theme::subtle_border())
-                        .rounding(egui::Rounding::same(12.0))
-                        .inner_margin(egui::Margin::symmetric(14.0, 12.0));
-
-                    let text_response = text_frame
-                        .show(ui, |ui| {
-                            ui.set_width(text_width);
-                            ui.add_sized([text_width, text_height], text_edit)
-                        })
-                        .inner;
-
-                    let enter_pressed = ui.input(|input| {
-                        input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
-                    });
-
-                    if text_response.has_focus() && enter_pressed {
-                        should_send = true;
-                        ui.memory_mut(|mem| mem.request_focus(text_response.id));
-                    }
-
-                    ui.add_space(14.0);
-
-                    let (send_rect, send_response) = ui.allocate_exact_size(
-                        egui::vec2(button_width, text_height),
-                        egui::Sense::click(),
-                    );
-                    let send_fill = if send_response.hovered() {
-                        Color32::from_rgb(58, 140, 232)
-                    } else {
-                        Color32::from_rgb(46, 112, 196)
-                    };
-                    let painter = ui.painter_at(send_rect);
-                    painter.rect_filled(send_rect, egui::Rounding::same(12.0), send_fill);
-                    painter.rect_stroke(
-                        send_rect,
-                        egui::Rounding::same(12.0),
-                        theme::subtle_border(),
-                    );
-                    painter.text(
-                        send_rect.center() - egui::vec2(0.0, 18.0),
-                        egui::Align2::CENTER_CENTER,
-                        ICON_SEND,
-                        theme::icon_font(22.0),
-                        Color32::from_rgb(240, 240, 240),
-                    );
-                    painter.text(
-                        send_rect.center() + egui::vec2(0.0, 14.0),
-                        egui::Align2::CENTER_CENTER,
-                        "Enviar",
-                        egui::FontId::proportional(15.0),
-                        Color32::from_rgb(240, 240, 240),
-                    );
-
-                    if send_response.clicked() {
-                        should_send = true;
-                    }
-
-                    if should_send {
-                        submit_chat_message(state);
-                    }
+                let text_height = 110.0;
+                let enter_pressed = ui.input(|input| {
+                    input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
                 });
+
+                let available_width = ui.available_width();
+                let spacing = 14.0;
+                let mut button_width = (available_width * 0.24).clamp(100.0, 180.0);
+                if button_width + spacing > available_width {
+                    button_width = (available_width - spacing).max(88.0);
+                }
+                let mut text_width = (available_width - button_width - spacing).max(140.0);
+                if text_width < 180.0 {
+                    let deficit = 180.0 - text_width;
+                    let reducible = (button_width - 88.0).max(0.0);
+                    let adjust = deficit.min(reducible);
+                    button_width -= adjust;
+                    text_width = (available_width - button_width - spacing).max(120.0);
+                }
+
+                let text_response = ui
+                    .allocate_ui_with_layout(
+                        egui::vec2(text_width, text_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            let text_edit = egui::TextEdit::multiline(&mut state.current_chat_input)
+                                .desired_rows(4)
+                                .hint_text(
+                                    "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
+                                )
+                                .lock_focus(true)
+                                .desired_width(f32::INFINITY)
+                                .frame(false);
+
+                            let text_frame = egui::Frame::none()
+                                .fill(Color32::from_rgb(30, 32, 38))
+                                .stroke(theme::subtle_border())
+                                .rounding(egui::Rounding::same(12.0))
+                                .inner_margin(egui::Margin::symmetric(14.0, 12.0));
+
+                            text_frame
+                                .show(ui, |ui| {
+                                    let width = ui.available_width();
+                                    ui.add_sized([width, text_height], text_edit)
+                                })
+                                .inner
+                        },
+                    )
+                    .inner;
+
+                if text_response.has_focus() && enter_pressed {
+                    should_send = true;
+                    ui.ctx()
+                        .memory_mut(|mem| mem.request_focus(text_response.id));
+                }
+
+                ui.add_space(spacing);
+
+                let (send_rect, send_response) = ui.allocate_exact_size(
+                    egui::vec2(button_width, text_height),
+                    egui::Sense::click(),
+                );
+                let send_fill = if send_response.hovered() {
+                    Color32::from_rgb(58, 140, 232)
+                } else {
+                    Color32::from_rgb(46, 112, 196)
+                };
+                let painter = ui.painter_at(send_rect);
+                painter.rect_filled(send_rect, egui::Rounding::same(12.0), send_fill);
+                painter.rect_stroke(
+                    send_rect,
+                    egui::Rounding::same(12.0),
+                    theme::subtle_border(),
+                );
+                painter.text(
+                    send_rect.center() - egui::vec2(0.0, 18.0),
+                    egui::Align2::CENTER_CENTER,
+                    ICON_SEND,
+                    theme::icon_font(22.0),
+                    Color32::from_rgb(240, 240, 240),
+                );
+                painter.text(
+                    send_rect.center() + egui::vec2(0.0, 14.0),
+                    egui::Align2::CENTER_CENTER,
+                    "Enviar",
+                    egui::FontId::proportional(15.0),
+                    Color32::from_rgb(240, 240, 240),
+                );
+
+                if send_response.clicked() {
+                    should_send = true;
+                }
+
+                if should_send {
+                    submit_chat_message(state);
+                }
             });
         });
 }
@@ -415,7 +435,9 @@ fn submit_chat_message(state: &mut AppState) {
         state.handle_command(input);
     } else {
         state.chat_messages.push(ChatMessage::user(input.clone()));
-        state.try_route_provider_message(&input);
+        if !state.try_route_provider_message(&input) {
+            state.respond_with_jarvis(input);
+        }
     }
 }
 
@@ -1114,8 +1136,32 @@ fn install_huggingface_model(state: &mut AppState, index: usize) {
                 {
                     state.installed_jarvis_models.push(model.id.clone());
                 }
+
+                state.jarvis_active_model = Some(model.id.clone());
+                state.jarvis_runtime = None;
+                state.jarvis_model_path = path.display().to_string();
+
+                let mut message = format!("Modelo '{}' instalado en {}.", model.id, path.display());
+
+                if state.jarvis_auto_start {
+                    match state.ensure_jarvis_runtime() {
+                        Ok(runtime) => {
+                            message.push_str(&format!(
+                                " Jarvis se recargó con {}.",
+                                runtime.model_label()
+                            ));
+                        }
+                        Err(err) => {
+                            message.push_str(&format!(
+                                " No se pudo reiniciar Jarvis automáticamente: {}.",
+                                err
+                            ));
+                        }
+                    }
+                }
+
                 state.persist_config();
-                format!("Modelo '{}' instalado en {}.", model.id, path.display())
+                message
             }
             Err(err) => format!("Fallo al instalar '{}': {}", model.id, err),
         };
@@ -1215,11 +1261,83 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
         state.persist_config();
     }
 
+    if state.installed_jarvis_models.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Instala un modelo desde Hugging Face para habilitar Jarvis.",
+        );
+    } else {
+        let mut selected_model = state.jarvis_active_model.clone();
+        let current_label = selected_model
+            .clone()
+            .unwrap_or_else(|| "Selecciona un modelo instalado".to_string());
+
+        egui::ComboBox::from_label("Modelo local activo")
+            .selected_text(current_label)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut selected_model, None, "— Sin modelo —");
+                for model in &state.installed_jarvis_models {
+                    ui.selectable_value(&mut selected_model, Some(model.clone()), model);
+                }
+            });
+
+        if selected_model != state.jarvis_active_model {
+            state.jarvis_active_model = selected_model.clone();
+            state.jarvis_runtime = None;
+
+            if let Some(model_id) = selected_model {
+                let sanitized = model_id.replace('/', "_");
+                let path = std::path::Path::new(&state.jarvis_install_dir).join(sanitized);
+                state.jarvis_model_path = path.display().to_string();
+                state.jarvis_status =
+                    Some(format!("Modelo '{}' seleccionado para Jarvis.", model_id));
+
+                if state.jarvis_auto_start {
+                    match state.ensure_jarvis_runtime() {
+                        Ok(runtime) => {
+                            state.jarvis_status =
+                                Some(format!("Jarvis activo con {}.", runtime.model_label()));
+                        }
+                        Err(err) => {
+                            state.jarvis_status = Some(format!(
+                                "No se pudo iniciar Jarvis con {}: {}.",
+                                model_id, err
+                            ));
+                        }
+                    }
+                }
+            } else {
+                state.jarvis_status = Some("Jarvis quedó sin modelo activo.".to_string());
+                state.jarvis_model_path.clear();
+            }
+
+            state.persist_config();
+        }
+    }
+
     if ui
         .checkbox(&mut state.jarvis_auto_start, "Start Jarvis automatically")
         .changed()
     {
         state.persist_config();
+        if state.jarvis_auto_start {
+            match state.ensure_jarvis_runtime() {
+                Ok(runtime) => {
+                    state.jarvis_status = Some(format!(
+                        "Jarvis se iniciará automáticamente con {}.",
+                        runtime.model_label()
+                    ));
+                }
+                Err(err) => {
+                    state.jarvis_status =
+                        Some(format!("No se pudo preparar el autoarranque: {}", err));
+                }
+            }
+        } else {
+            state.jarvis_status =
+                Some("El autoarranque de Jarvis ha sido desactivado.".to_string());
+            state.jarvis_runtime = None;
+        }
     }
 
     if ui.button("Apply settings").clicked() {

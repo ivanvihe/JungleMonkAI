@@ -260,13 +260,17 @@ fn draw_nav_node(ui: &mut egui::Ui, state: &mut AppState, node: &NavNode, depth:
         painter.rect_filled(rect.shrink(1.0), 4.0, color);
     }
 
+    let content_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.min.x + 12.0 + indent, rect.min.y),
+        egui::pos2(rect.max.x - 12.0, rect.max.y),
+    )
+    .intersect(rect);
+
     let mut content_ui = ui.child_ui(
-        egui::Rect::from_min_max(
-            egui::pos2(rect.min.x + 12.0 + indent, rect.min.y),
-            egui::pos2(rect.max.x - 12.0, rect.max.y),
-        ),
+        content_rect,
         egui::Layout::left_to_right(egui::Align::Center),
     );
+    content_ui.set_clip_rect(content_rect);
 
     if !node.children.is_empty() {
         let arrow = if is_expanded {

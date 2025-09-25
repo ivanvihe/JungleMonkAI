@@ -300,6 +300,12 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
+                    if let Some(tag) = state.jarvis_mention_tag() {
+                        if quick_chip(ui, &tag).clicked() {
+                            insert_mention(state, &tag);
+                        }
+                    }
+
                     for (mention, label) in QUICK_MENTIONS {
                         if quick_chip(ui, label).clicked() {
                             insert_mention(state, mention);
@@ -423,7 +429,15 @@ fn submit_chat_message(state: &mut AppState) {
         state.handle_command(input);
     } else {
         state.chat_messages.push(ChatMessage::user(input.clone()));
-        if !state.try_route_provider_message(&input) {
+        if state.try_route_provider_message(&input) {
+            return;
+        }
+
+        if state.try_invoke_jarvis_alias(&input) {
+            return;
+        }
+
+        if state.jarvis_respond_without_alias {
             state.respond_with_jarvis(input);
         }
     }
@@ -1233,6 +1247,11 @@ fn insert_code_template(state: &mut AppState) {
 }
 
 fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.label("Alias para mencionar a Jarvis en el chat");
+    if ui.text_edit_singleline(&mut state.jarvis_alias).changed() {
+        state.persist_config();
+    }
+
     ui.label("Model path");
     if ui
         .text_edit_singleline(&mut state.jarvis_model_path)
@@ -1327,6 +1346,24 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             state.jarvis_runtime = None;
         }
     }
+
+    ui.horizontal(|ui| {
+        if ui
+            .checkbox(
+                &mut state.jarvis_respond_without_alias,
+                "Responder automáticamente sin mención",
+            )
+            .changed()
+        {
+            state.persist_config();
+        }
+        ui.add_space(8.0);
+        ui.label(
+            RichText::new("Cuando está activo, Jarvis contestará todos los mensajes.")
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(12.0),
+        );
+    });
 
     if ui.button("Apply settings").clicked() {
         state.jarvis_status = Some(format!(

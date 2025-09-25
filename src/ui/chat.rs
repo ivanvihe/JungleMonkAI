@@ -2,7 +2,7 @@ use crate::api::github;
 use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
 use eframe::egui::{self, Color32, RichText};
 
-use super::theme;
+use super::{logs, theme};
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -34,9 +34,13 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin::symmetric(20.0, 16.0)),
         )
-        .show(ctx, |ui| match state.active_main_view {
-            MainView::ChatMultimodal => draw_chat_view(ui, state),
-            MainView::Preferences => draw_preferences_view(ui, state),
+        .show(ctx, |ui| {
+            logs::draw_logs_panel(ui, state);
+
+            match state.active_main_view {
+                MainView::ChatMultimodal => draw_chat_view(ui, state),
+                MainView::Preferences => draw_preferences_view(ui, state),
+            }
         });
 }
 
@@ -44,6 +48,8 @@ fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available = ui.available_size();
     let (rect, _) = ui.allocate_exact_size(available, egui::Sense::hover());
     let mut content_ui = ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
+    content_ui.set_min_width(available.x);
+    content_ui.set_min_height(available.y);
     content_ui.set_clip_rect(rect);
 
     content_ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {

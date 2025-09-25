@@ -10,7 +10,9 @@ fn main() -> anyhow::Result<()> {
     // Inicializa el logger, config, etc. aquí si es necesario
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(1280.0, 800.0)),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size(egui::vec2(1280.0, 800.0))
+            .with_maximized(true),
         ..Default::default()
     };
 

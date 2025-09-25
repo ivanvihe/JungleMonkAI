@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use eframe::egui::{self, Color32, RichText, Stroke};
+use eframe::egui::{self, Color32, Margin, RichText, Stroke};
 
 use super::theme;
 
@@ -14,14 +14,15 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
     egui::SidePanel::right("resource_panel")
         .resizable(true)
         .default_width(280.0)
-        .width_range(220.0..=360.0)
+        .width_range(220.0..=420.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
                 .stroke(theme::subtle_border())
-                .inner_margin(egui::Margin::same(16.0)),
+                .inner_margin(egui::Margin::symmetric(20.0, 18.0)),
         )
         .show(ctx, |ui| {
+            ui.set_width(ui.available_width());
             ui.heading(
                 RichText::new("Resumen de recursos")
                     .color(theme::COLOR_TEXT_PRIMARY)
@@ -47,27 +48,48 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
 }
 
 fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        ui.label(
-            RichText::new(row.icon)
-                .font(theme::icon_font(16.0))
-                .color(theme::COLOR_PRIMARY),
-        );
-        ui.vertical(|ui| {
-            ui.label(
-                RichText::new(row.name)
-                    .color(theme::COLOR_TEXT_PRIMARY)
-                    .strong(),
-            );
-            ui.label(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK));
+    egui::Frame::none()
+        .fill(Color32::from_rgb(30, 32, 38))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 14.0;
+
+                ui.label(
+                    RichText::new(row.icon)
+                        .font(theme::icon_font(18.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+
+                let status_width = 140.0;
+                let text_width = (ui.available_width() - status_width).max(120.0);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(text_width, ui.spacing().interact_size.y * 2.0),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        ui.label(
+                            RichText::new(row.name)
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .strong(),
+                        );
+                        ui.label(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK));
+                    },
+                );
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(status_width, ui.spacing().interact_size.y * 2.0),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        let StatusIndicator::Led { color, status } = &row.indicator;
+                        draw_led(ui, *color, status);
+                    },
+                );
+            });
         });
-        ui.add_space(ui.available_width());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let StatusIndicator::Led { color, status } = &row.indicator;
-            draw_led(ui, *color, status);
-        });
-    });
 }
 
 fn draw_led(ui: &mut egui::Ui, color: Color32, label: &str) {

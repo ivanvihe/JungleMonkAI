@@ -52,20 +52,22 @@ fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
     content_ui.set_min_height(available.y);
     content_ui.set_clip_rect(rect);
 
-    content_ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-        draw_chat_input(ui, state);
-        ui.add_space(16.0);
+    egui::TopBottomPanel::bottom("chat_input_panel")
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(egui::Frame::none())
+        .show_inside(&mut content_ui, |ui| {
+            ui.add_space(6.0);
+            draw_chat_input(ui, state);
+        });
 
-        let history_height = ui.available_height().max(0.0);
-        let history_width = ui.available_width();
-        if history_height > 0.0 && history_width > 0.0 {
-            ui.allocate_ui(egui::vec2(history_width, history_height), |ui| {
-                draw_chat_history(ui, state);
-            });
-        } else {
+    egui::CentralPanel::default()
+        .frame(egui::Frame::none())
+        .show_inside(&mut content_ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.set_min_height(ui.available_height());
             draw_chat_history(ui, state);
-        }
-    });
+        });
 }
 
 fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
@@ -289,9 +291,10 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
         .fill(Color32::from_rgb(24, 26, 32))
         .stroke(theme::subtle_border())
         .rounding(egui::Rounding::same(16.0))
-        .inner_margin(egui::Margin::symmetric(20.0, 18.0))
+        .inner_margin(egui::Margin::symmetric(18.0, 14.0))
         .show(ui, |ui| {
-            ui.set_width(ui.available_width());
+            let full_width = ui.available_width();
+            ui.set_width(full_width);
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -308,32 +311,36 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                     }
                 });
 
-                ui.add_space(10.0);
+                ui.add_space(12.0);
 
                 let mut should_send = false;
 
-                ui.horizontal(|ui| {
-                    let button_width = 96.0;
-                    let available_width = ui.available_width();
-                    let text_width = (available_width - button_width - 12.0).max(200.0);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                    let button_width = 118.0;
+                    let content_width = ui.available_width();
+                    let text_width = (content_width - button_width - 14.0).max(240.0);
+                    let text_height = 110.0;
 
                     let text_edit = egui::TextEdit::multiline(&mut state.current_chat_input)
-                        .desired_rows(3)
+                        .desired_rows(4)
                         .hint_text(
                             "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
                         )
                         .lock_focus(true)
-                        .desired_width(f32::INFINITY)
+                        .desired_width(text_width)
                         .frame(false);
 
                     let text_frame = egui::Frame::none()
                         .fill(Color32::from_rgb(30, 32, 38))
                         .stroke(theme::subtle_border())
                         .rounding(egui::Rounding::same(12.0))
-                        .inner_margin(egui::Margin::same(14.0));
+                        .inner_margin(egui::Margin::symmetric(14.0, 12.0));
 
                     let text_response = text_frame
-                        .show(ui, |ui| ui.add_sized([text_width, 90.0], text_edit))
+                        .show(ui, |ui| {
+                            ui.set_width(text_width);
+                            ui.add_sized([text_width, text_height], text_edit)
+                        })
                         .inner;
 
                     let enter_pressed = ui.input(|input| {
@@ -345,10 +352,12 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                         ui.memory_mut(|mem| mem.request_focus(text_response.id));
                     }
 
-                    ui.add_space(12.0);
+                    ui.add_space(14.0);
 
-                    let (send_rect, send_response) = ui
-                        .allocate_exact_size(egui::vec2(button_width, 90.0), egui::Sense::click());
+                    let (send_rect, send_response) = ui.allocate_exact_size(
+                        egui::vec2(button_width, text_height),
+                        egui::Sense::click(),
+                    );
                     let send_fill = if send_response.hovered() {
                         Color32::from_rgb(58, 140, 232)
                     } else {
@@ -362,28 +371,28 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                         theme::subtle_border(),
                     );
                     painter.text(
-                        send_rect.center() - egui::vec2(0.0, 14.0),
+                        send_rect.center() - egui::vec2(0.0, 18.0),
                         egui::Align2::CENTER_CENTER,
                         ICON_SEND,
-                        theme::icon_font(20.0),
+                        theme::icon_font(22.0),
                         Color32::from_rgb(240, 240, 240),
                     );
                     painter.text(
-                        send_rect.center() + egui::vec2(0.0, 16.0),
+                        send_rect.center() + egui::vec2(0.0, 14.0),
                         egui::Align2::CENTER_CENTER,
                         "Enviar",
-                        egui::FontId::proportional(14.0),
+                        egui::FontId::proportional(15.0),
                         Color32::from_rgb(240, 240, 240),
                     );
 
                     if send_response.clicked() {
                         should_send = true;
                     }
-                });
 
-                if should_send {
-                    submit_chat_message(state);
-                }
+                    if should_send {
+                        submit_chat_message(state);
+                    }
+                });
             });
         });
 }

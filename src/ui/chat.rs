@@ -323,19 +323,9 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                 });
 
                 let available_width = ui.available_width();
-                let spacing = 14.0;
-                let mut button_width = (available_width * 0.24).clamp(100.0, 180.0);
-                if button_width + spacing > available_width {
-                    button_width = (available_width - spacing).max(88.0);
-                }
-                let mut text_width = (available_width - button_width - spacing).max(140.0);
-                if text_width < 180.0 {
-                    let deficit = 180.0 - text_width;
-                    let reducible = (button_width - 88.0).max(0.0);
-                    let adjust = deficit.min(reducible);
-                    button_width -= adjust;
-                    text_width = (available_width - button_width - spacing).max(120.0);
-                }
+                let spacing = 12.0;
+                let button_width = 68.0;
+                let text_width = (available_width - button_width - spacing).max(140.0);
 
                 let text_response = ui
                     .allocate_ui_with_layout(
@@ -375,10 +365,8 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                 ui.add_space(spacing);
 
-                let (send_rect, send_response) = ui.allocate_exact_size(
-                    egui::vec2(button_width, text_height),
-                    egui::Sense::click(),
-                );
+                let (send_rect, send_response) =
+                    ui.allocate_exact_size(egui::vec2(button_width, text_height), egui::Sense::click());
                 let send_fill = if send_response.hovered() {
                     Color32::from_rgb(58, 140, 232)
                 } else {
@@ -392,17 +380,17 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                     theme::subtle_border(),
                 );
                 painter.text(
-                    send_rect.center() - egui::vec2(0.0, 18.0),
+                    send_rect.center() - egui::vec2(0.0, 22.0),
                     egui::Align2::CENTER_CENTER,
                     ICON_SEND,
-                    theme::icon_font(22.0),
+                    theme::icon_font(20.0),
                     Color32::from_rgb(240, 240, 240),
                 );
                 painter.text(
-                    send_rect.center() + egui::vec2(0.0, 14.0),
+                    send_rect.center() + egui::vec2(0.0, 10.0),
                     egui::Align2::CENTER_CENTER,
                     "Enviar",
-                    egui::FontId::proportional(15.0),
+                    egui::FontId::proportional(13.0),
                     Color32::from_rgb(240, 240, 240),
                 );
 

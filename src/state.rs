@@ -865,23 +865,44 @@ impl AppState {
             return None;
         }
 
+        let mut patterns = Vec::new();
+        patterns.push(alias_trimmed.to_string());
+        if !alias_trimmed.starts_with('@') {
+            patterns.push(format!("@{}", alias_trimmed));
+        } else {
+            patterns.push(alias_trimmed.trim_start_matches('@').to_string());
+        }
+
+        for pattern in patterns
+            .into_iter()
+            .filter(|candidate| !candidate.trim().is_empty())
+        {
+            if let Some(remainder) = Self::match_alias_pattern(&pattern, input) {
+                return Some(remainder);
+            }
+        }
+
+        None
+    }
+
+    fn match_alias_pattern(pattern: &str, input: &str) -> Option<String> {
         let input_trimmed = input.trim_start();
-        let alias_chars: Vec<char> = alias_trimmed.chars().collect();
+        let pattern_chars: Vec<char> = pattern.chars().collect();
         let mut input_iter = input_trimmed.chars();
 
-        for alias_ch in &alias_chars {
+        for alias_ch in &pattern_chars {
             match input_iter.next() {
                 Some(user_ch) if user_ch.eq_ignore_ascii_case(alias_ch) => {}
                 _ => return None,
             }
         }
 
-        let alias_bytes: usize = alias_chars.iter().map(|c| c.len_utf8()).sum();
-        if input_trimmed.len() < alias_bytes {
+        let pattern_bytes: usize = pattern_chars.iter().map(|c| c.len_utf8()).sum();
+        if input_trimmed.len() < pattern_bytes {
             return None;
         }
 
-        let mut remainder = input_trimmed[alias_bytes..].trim_start();
+        let mut remainder = input_trimmed[pattern_bytes..].trim_start();
         remainder = remainder.trim_start_matches(|c: char| matches!(c, ':' | ','));
         remainder = remainder.trim_start();
 

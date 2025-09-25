@@ -1,7 +1,14 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use candle_core::{DType, Device, Tensor};
+use candle_nn::VarBuilder;
+use candle_transformers::models::bert::{BertModel, Config as BertConfig};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tokenizers::Tokenizer;
+use tokenizers::{
+    PaddingParams, PaddingStrategy, TruncationDirection, TruncationParams, TruncationStrategy,
+};
 
 /// Representa una instancia del runtime local "Jarvis".
 ///
@@ -16,6 +23,254 @@ pub struct JarvisRuntime {
     summary: Option<String>,
     pipeline_tag: Option<String>,
     tags: Vec<String>,
+    encoder: JarvisEncoder,
+    knowledge: Vec<JarvisKnowledge>,
+}
+
+struct JarvisKnowledge {
+    embedding: Vec<f32>,
+    norm: f32,
+    responder: fn(&JarvisRuntime, &str, f32) -> String,
+}
+
+struct JarvisPersonaBlueprint {
+    label: &'static str,
+    prompts: &'static [&'static str],
+    responder: fn(&JarvisRuntime, &str, f32) -> String,
+}
+
+struct JarvisEncoder {
+    tokenizer: Tokenizer,
+    model: BertModel,
+    device: Device,
+    normalize: bool,
+    mean_pooling: bool,
+}
+
+const JARVIS_BLUEPRINTS: &[JarvisPersonaBlueprint] = &[
+    JarvisPersonaBlueprint {
+        label: "greeting",
+        prompts: &[
+            "hola jarvis",
+            "hey jarvis",
+            "buenos días jarvis",
+            "jarvis estás ahí",
+        ],
+        responder: JarvisRuntime::respond_greeting,
+    },
+    JarvisPersonaBlueprint {
+        label: "status",
+        prompts: &[
+            "estado de jarvis",
+            "qué modelo usas",
+            "estás listo",
+            "jarvis status",
+        ],
+        responder: JarvisRuntime::respond_status,
+    },
+    JarvisPersonaBlueprint {
+        label: "planning",
+        prompts: &[
+            "necesito un plan",
+            "ayúdame a planificar",
+            "organiza esta tarea",
+            "plan de acción",
+        ],
+        responder: JarvisRuntime::respond_planning,
+    },
+    JarvisPersonaBlueprint {
+        label: "troubleshooting",
+        prompts: &["tengo un error", "hay un bug", "fallo en", "stack trace"],
+        responder: JarvisRuntime::respond_troubleshooting,
+    },
+    JarvisPersonaBlueprint {
+        label: "collaboration",
+        prompts: &[
+            "ayúdame con",
+            "puedes ayudarme",
+            "qué recomiendas",
+            "qué sugerencias tienes",
+        ],
+        responder: JarvisRuntime::respond_collaboration,
+    },
+];
+
+impl JarvisEncoder {
+    fn new(model_dir: &Path) -> Result<Self> {
+        let tokenizer_path = model_dir.join("tokenizer.json");
+        let mut tokenizer = Tokenizer::from_file(tokenizer_path)
+            .map_err(|err| anyhow!("No se pudo cargar el tokenizer: {err}"))?;
+        tokenizer
+            .with_truncation(Some(TruncationParams {
+                max_length: 256,
+                strategy: TruncationStrategy::LongestFirst,
+                stride: 0,
+                direction: TruncationDirection::Right,
+            }))
+            .map_err(|err| anyhow!("No se pudo configurar la truncación del tokenizer: {err}"))?;
+        tokenizer.with_padding(Some(PaddingParams {
+            strategy: PaddingStrategy::BatchLongest,
+            direction: tokenizers::PaddingDirection::Right,
+            pad_to_multiple_of: None,
+            pad_id: 0,
+            pad_type_id: 0,
+            pad_token: "[PAD]".to_string(),
+        }));
+
+        let config_path = model_dir.join("config.json");
+        let config_data = fs::read_to_string(&config_path)
+            .with_context(|| format!("No se pudo leer {:?}", config_path))?;
+        let config: BertConfig = serde_json::from_str(&config_data)
+            .with_context(|| format!("No se pudo parsear {:?}", config_path))?;
+
+        let weights_path = model_dir.join("model.safetensors");
+        if !weights_path.exists() {
+            bail!(
+                "No se encontró el archivo de pesos {:?}. Descarga el modelo completo.",
+                weights_path
+            );
+        }
+
+        let device = Device::Cpu;
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)
+                .context("No se pudo mapear los pesos del modelo local")?
+        };
+        let model = BertModel::load(vb, &config)
+            .context("No se pudo inicializar el modelo BERT local para Jarvis")?;
+
+        let modules_path = model_dir.join("modules.json");
+        let normalize = if modules_path.exists() {
+            let data = fs::read_to_string(&modules_path)
+                .with_context(|| format!("No se pudo leer {:?}", modules_path))?;
+            let modules: Vec<Value> = serde_json::from_str(&data)
+                .with_context(|| format!("modules.json inválido en {:?}", modules_path))?;
+            modules.iter().any(|module| {
+                module
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .map(|ty| ty.to_lowercase().contains("normalize"))
+                    .unwrap_or(false)
+            })
+        } else {
+            true
+        };
+
+        let pooling_path = model_dir.join("1_Pooling/config.json");
+        let mean_pooling = if pooling_path.exists() {
+            #[derive(serde::Deserialize)]
+            struct PoolingConfig {
+                #[serde(default)]
+                pooling_mode_mean_tokens: bool,
+            }
+
+            let config = fs::read_to_string(&pooling_path)
+                .with_context(|| format!("No se pudo leer {:?}", pooling_path))?;
+            let pooling: PoolingConfig = serde_json::from_str(&config)
+                .with_context(|| format!("No se pudo parsear {:?}", pooling_path))?;
+            pooling.pooling_mode_mean_tokens
+        } else {
+            true
+        };
+
+        Ok(Self {
+            tokenizer,
+            model,
+            device,
+            normalize,
+            mean_pooling,
+        })
+    }
+
+    fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        let encoding = self
+            .tokenizer
+            .encode(text, true)
+            .map_err(|err| anyhow!("No se pudo tokenizar la entrada para Jarvis: {err}"))?;
+
+        let ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
+        let type_ids: Vec<i64> = encoding
+            .get_type_ids()
+            .iter()
+            .map(|&id| id as i64)
+            .collect();
+        let mask: Vec<f32> = encoding
+            .get_attention_mask()
+            .iter()
+            .map(|&value| value as f32)
+            .collect();
+
+        let seq_len = ids.len();
+        if seq_len == 0 {
+            return Ok(Vec::new());
+        }
+
+        let input_ids = Tensor::new(ids, &self.device)?.reshape((1, seq_len))?;
+        let token_type_ids = if type_ids.is_empty() {
+            Tensor::zeros((1, seq_len), DType::I64, &self.device)?
+        } else {
+            Tensor::new(type_ids, &self.device)?.reshape((1, seq_len))?
+        };
+        let attention_mask = if mask.is_empty() {
+            Tensor::ones((1, seq_len), DType::F32, &self.device)?
+        } else {
+            Tensor::new(mask, &self.device)?.reshape((1, seq_len))?
+        };
+
+        let hidden_states = self
+            .model
+            .forward(&input_ids, &token_type_ids, Some(&attention_mask))?
+            .squeeze(0)?
+            .to_vec2::<f32>()?;
+        let attention_mask = attention_mask.squeeze(0)?.to_vec1::<f32>()?;
+
+        let mut embedding = if self.mean_pooling {
+            if hidden_states.is_empty() {
+                Vec::new()
+            } else {
+                let dimension = hidden_states[0].len();
+                let mut accumulator = vec![0f32; dimension];
+                let mut weight = 0f32;
+                for (token_embedding, &mask_value) in
+                    hidden_states.iter().zip(attention_mask.iter())
+                {
+                    if mask_value > 0.0 {
+                        for (idx, value) in token_embedding.iter().enumerate() {
+                            accumulator[idx] += *value;
+                        }
+                        weight += 1.0;
+                    }
+                }
+                if weight > 0.0 {
+                    let factor = 1.0 / weight;
+                    for value in &mut accumulator {
+                        *value *= factor;
+                    }
+                }
+                accumulator
+            }
+        } else {
+            hidden_states.first().cloned().unwrap_or_else(Vec::new)
+        };
+        if self.normalize {
+            let norm = embedding
+                .iter()
+                .map(|value| value * value)
+                .sum::<f32>()
+                .sqrt();
+            if norm > 0.0 {
+                for value in &mut embedding {
+                    *value /= norm;
+                }
+            }
+        }
+
+        Ok(embedding)
+    }
+
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        texts.iter().map(|text| self.embed(text)).collect()
+    }
 }
 
 impl JarvisRuntime {
@@ -88,12 +343,17 @@ impl JarvisRuntime {
             })
             .unwrap_or_default();
 
+        let encoder = JarvisEncoder::new(&model_dir)?;
+        let knowledge = Self::build_knowledge_base(&encoder)?;
+
         Ok(Self {
             model_dir,
             model_id,
             summary,
             pipeline_tag,
             tags,
+            encoder,
+            knowledge,
         })
     }
 
@@ -120,9 +380,56 @@ impl JarvisRuntime {
     /// La respuesta aprovecha los metadatos para proporcionar contexto
     /// del modelo que está ejecutando Jarvis y analiza palabras clave
     /// del prompt del usuario para ofrecer próximos pasos.
-    pub fn generate_reply(&self, prompt: &str) -> String {
-        let mut sections = Vec::new();
+    pub fn generate_reply(&self, prompt: &str) -> Result<String> {
+        let prompt_vector = self
+            .encoder
+            .embed(prompt)
+            .context("No se pudo vectorizar la petición para Jarvis")?;
+        if prompt_vector.is_empty() {
+            bail!("El modelo de embeddings devolvió un vector vacío para Jarvis");
+        }
+        let prompt_norm = Self::vector_norm(&prompt_vector);
 
+        let mut best_match: Option<(&JarvisKnowledge, f32)> = None;
+        for entry in &self.knowledge {
+            let score = Self::cosine_similarity(&prompt_vector, prompt_norm, entry);
+            match best_match {
+                Some((_, current)) if score <= current => {}
+                _ => best_match = Some((entry, score)),
+            }
+        }
+
+        let persona_segment = if let Some((entry, score)) = best_match {
+            if score >= 0.18 {
+                (entry.responder)(self, prompt, score)
+            } else {
+                Self::reflect_prompt(prompt)
+            }
+        } else {
+            Self::reflect_prompt(prompt)
+        };
+
+        let mut sections = Vec::new();
+        sections.push(self.runtime_overview());
+
+        if let Some(summary) = &self.summary {
+            sections.push(summary.clone());
+        }
+
+        if let Some(tags) = self.tags_preview() {
+            sections.push(format!("Etiquetas destacadas: {}.", tags));
+        }
+
+        sections.push(persona_segment);
+
+        if let Some(analysis) = Self::semantic_analysis(prompt) {
+            sections.push(analysis);
+        }
+
+        Ok(sections.join("\n\n"))
+    }
+
+    fn runtime_overview(&self) -> String {
         let mut header = format!(
             "Jarvis está activo con el modelo local '{}' en tu entorno.",
             self.model_label()
@@ -130,25 +437,81 @@ impl JarvisRuntime {
         if let Some(pipeline) = &self.pipeline_tag {
             header.push_str(&format!(" Está optimizado para la tarea '{}'.", pipeline));
         }
-        sections.push(header);
+        header
+    }
 
-        if let Some(summary) = &self.summary {
-            sections.push(summary.clone());
+    fn tags_preview(&self) -> Option<String> {
+        if self.tags.is_empty() {
+            None
+        } else {
+            Some(
+                self.tags
+                    .iter()
+                    .take(6)
+                    .map(|tag| tag.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            )
+        }
+    }
+
+    fn build_knowledge_base(encoder: &JarvisEncoder) -> Result<Vec<JarvisKnowledge>> {
+        let mut knowledge = Vec::with_capacity(JARVIS_BLUEPRINTS.len());
+        for blueprint in JARVIS_BLUEPRINTS {
+            let embeddings = encoder.embed_batch(blueprint.prompts).with_context(|| {
+                format!(
+                    "No se pudo crear la huella semántica para '{}'.",
+                    blueprint.label
+                )
+            })?;
+            let combined = Self::average_embedding(&embeddings);
+            let norm = Self::vector_norm(&combined);
+            knowledge.push(JarvisKnowledge {
+                embedding: combined,
+                norm,
+                responder: blueprint.responder,
+            });
+        }
+        Ok(knowledge)
+    }
+
+    fn average_embedding(vectors: &[Vec<f32>]) -> Vec<f32> {
+        if vectors.is_empty() {
+            return Vec::new();
         }
 
-        if !self.tags.is_empty() {
-            let preview: Vec<&str> = self.tags.iter().take(6).map(|tag| tag.as_str()).collect();
-            sections.push(format!("Etiquetas destacadas: {}.", preview.join(", ")));
+        let dimension = vectors[0].len();
+        let mut accumulator = vec![0f32; dimension];
+        for vector in vectors {
+            for (idx, value) in vector.iter().enumerate() {
+                accumulator[idx] += *value;
+            }
         }
 
-        let reflection = Self::reflect_prompt(prompt);
-        sections.push(reflection);
+        let factor = 1f32 / vectors.len() as f32;
+        for value in &mut accumulator {
+            *value *= factor;
+        }
+        accumulator
+    }
 
-        if let Some(analysis) = Self::semantic_analysis(prompt) {
-            sections.push(analysis);
+    fn vector_norm(values: &[f32]) -> f32 {
+        let sum: f32 = values.iter().map(|v| v * v).sum();
+        sum.sqrt().max(1e-6)
+    }
+
+    fn cosine_similarity(vector: &[f32], vector_norm: f32, entry: &JarvisKnowledge) -> f32 {
+        if vector.is_empty() || entry.embedding.is_empty() {
+            return 0.0;
         }
 
-        sections.join("\n\n")
+        let dot: f32 = vector
+            .iter()
+            .zip(entry.embedding.iter())
+            .map(|(a, b)| a * b)
+            .sum();
+
+        dot / (vector_norm * entry.norm).max(1e-6)
     }
 
     fn reflect_prompt(prompt: &str) -> String {
@@ -184,6 +547,118 @@ impl JarvisRuntime {
             );
         }
 
+        lines.join("\n\n")
+    }
+
+    fn respond_greeting(&self, prompt: &str, _score: f32) -> String {
+        let mut lines = vec![
+            "¡Hola! Gracias por traerme a la conversación.".to_string(),
+            "Soy tu agente local y puedo ayudarte a estructurar trabajo, revisar ideas o preparar acciones paso a paso.".to_string(),
+        ];
+
+        let keywords = Self::extract_keywords(prompt);
+        if !keywords.is_empty() {
+            lines.push(format!(
+                "Ya tomé nota de que quieres hablar sobre {}.",
+                keywords.join(", ")
+            ));
+        }
+
+        if let Some(tags) = self.tags_preview() {
+            lines.push(format!(
+                "Este modelo destaca en: {}. Podemos apoyarnos en eso para avanzar rápido.",
+                tags
+            ));
+        }
+
+        lines.push("¿Cuál sería el primer paso que quieres que abordemos juntos?".to_string());
+        lines.join("\n\n")
+    }
+
+    fn respond_status(&self, _prompt: &str, _score: f32) -> String {
+        let mut lines = vec![format!("Modelo activo: {}.", self.model_label())];
+        if let Some(pipeline) = &self.pipeline_tag {
+            lines.push(format!("Especialización del modelo: {}.", pipeline));
+        }
+        lines.push(format!(
+            "Directorio de trabajo: {}",
+            self.model_dir.display()
+        ));
+        lines.push(
+            "Estoy listo para recibir instrucciones. Mencióname con el alias configurado y reacciono al instante.".to_string(),
+        );
+        lines.join("\n\n")
+    }
+
+    fn respond_planning(&self, prompt: &str, score: f32) -> String {
+        let keywords = Self::extract_keywords(prompt);
+        let focus = if keywords.is_empty() {
+            "la iniciativa mencionada".to_string()
+        } else {
+            keywords.join(", ")
+        };
+
+        let mut lines = vec![format!(
+            "Vamos a transformar {} en un plan claro (similitud {:.0}%):",
+            focus,
+            score * 100.0
+        )];
+        lines.push("1. Aclaremos el resultado esperado y los indicadores de éxito.".to_string());
+        lines.push(
+            "2. Listemos recursos, dependencias y artefactos que ya tienes disponibles."
+                .to_string(),
+        );
+        lines.push(
+            "3. Organicemos las tareas en fases cortas con responsables y deadlines tentativos."
+                .to_string(),
+        );
+        lines.push(
+            "Si quieres podemos abrir una tabla de seguimiento o preparar comandos automáticos."
+                .to_string(),
+        );
+        lines.join("\n")
+    }
+
+    fn respond_troubleshooting(&self, prompt: &str, _score: f32) -> String {
+        let snippet = Self::prompt_snippet(prompt);
+        let mut lines = vec![format!(
+            "He leído {} y puedo ayudarte a investigar el problema paso a paso.",
+            snippet
+        )];
+        lines.push(
+            "• Primero revisemos logs o stack traces para ubicar el punto exacto de fallo."
+                .to_string(),
+        );
+        lines.push(
+            "• Después contrastemos con cambios recientes o dependencias nuevas que puedan estar involucradas.".to_string(),
+        );
+        lines.push(
+            "• Finalmente, prepararé una lista de pruebas o parches sugeridos que puedas ejecutar localmente.".to_string(),
+        );
+        lines.push("Compárteme detalles adicionales cuando los tengas y lo iteramos.".to_string());
+        lines.join("\n")
+    }
+
+    fn respond_collaboration(&self, prompt: &str, _score: f32) -> String {
+        let keywords = Self::extract_keywords(prompt);
+        let mut lines = Vec::new();
+
+        if !keywords.is_empty() {
+            lines.push(format!(
+                "Detecté que quieres apoyo en: {}.",
+                keywords.join(", ")
+            ));
+        } else {
+            lines
+                .push("Cuéntame qué resultado persigues y preparo opciones concretas.".to_string());
+        }
+
+        lines.push(
+            "Puedo resumir información previa, generar pasos accionables o ayudarte a documentar decisiones.".to_string(),
+        );
+        lines.push(
+            "Si necesitas ejecutar algo en particular, descríbelo y lo convertimos en comandos reproducibles.".to_string(),
+        );
         lines.join("\n\n")
     }
 

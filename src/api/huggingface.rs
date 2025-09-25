@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use hf_hub::api::sync::ApiBuilder;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
@@ -132,6 +133,88 @@ pub fn download_model(model_id: &str, install_dir: &Path, token: Option<&str>) -
     let metadata_path = target_dir.join("metadata.json");
     fs::write(&metadata_path, serde_json::to_string_pretty(&metadata)?)
         .with_context(|| format!("No se pudo escribir {:?}", metadata_path))?;
+
+    let mut builder = ApiBuilder::new().with_progress(false);
+    if let Some(token) = token.and_then(|t| {
+        let trimmed = t.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }) {
+        builder = builder.with_token(Some(token));
+    }
+
+    let api = builder
+        .build()
+        .context("No se pudo inicializar el cliente de Hugging Face Hub")?;
+    let repo = api.model(model_id.to_string());
+
+    let download_file = |remote: &str, optional: bool| -> Result<()> {
+        match repo.download(remote) {
+            Ok(path) => {
+                let destination = target_dir.join(remote);
+                if let Some(parent) = destination.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("No se pudo crear {:?}", parent))?;
+                }
+                fs::copy(&path, &destination).with_context(|| {
+                    format!(
+                        "No se pudo copiar el archivo descargado de Hugging Face {:?} a {:?}",
+                        path, destination
+                    )
+                })?;
+                Ok(())
+            }
+            Err(_err) if optional => Ok(()),
+            Err(err) => Err(anyhow!(
+                "No se pudo descargar '{}' desde Hugging Face: {}",
+                remote,
+                err
+            )),
+        }
+    };
+
+    let required_files = [
+        "config.json",
+        "modules.json",
+        "rust_model.ot",
+        "sentence_bert_config.json",
+        "tokenizer_config.json",
+        "tokenizer.json",
+        "model.safetensors",
+    ];
+
+    for file in required_files {
+        download_file(file, false)?;
+    }
+
+    let optional_files = ["vocab.txt", "merges.txt", "special_tokens_map.json"];
+
+    for file in optional_files {
+        download_file(file, true)?;
+    }
+
+    let modules_path = target_dir.join("modules.json");
+    if modules_path.exists() {
+        let module_data = fs::read_to_string(&modules_path)
+            .with_context(|| format!("No se pudo leer {:?}", modules_path))?;
+        let modules: Vec<Value> = serde_json::from_str(&module_data)
+            .with_context(|| format!("modules.json inválido en {:?}", modules_path))?;
+
+        for module in modules {
+            if let Some(path) = module.get("path").and_then(|value| value.as_str()) {
+                if path.trim().is_empty() {
+                    continue;
+                }
+                let config_path = format!("{}/config.json", path);
+                download_file(&config_path, true)?;
+                let weights_path = format!("{}/rust_model.ot", path);
+                download_file(&weights_path, true)?;
+            }
+        }
+    }
 
     Ok(target_dir)
 }

@@ -324,6 +324,10 @@ pub struct AppState {
     pub jarvis_active_model: Option<String>,
     /// Runtime actualmente cargado del modelo local.
     pub jarvis_runtime: Option<JarvisRuntime>,
+    /// Alias que el usuario debe mencionar para despertar a Jarvis en el chat.
+    pub jarvis_alias: String,
+    /// Permite que Jarvis responda incluso si no se lo menciona explícitamente.
+    pub jarvis_respond_without_alias: bool,
     /// Modelo por defecto de Anthropic/Claude.
     pub claude_default_model: String,
     /// Alias configurado para invocar a Claude desde el chat.
@@ -461,6 +465,12 @@ impl Default for AppState {
             installed_jarvis_models: config.jarvis.installed_models.clone(),
             jarvis_active_model,
             jarvis_runtime: None,
+            jarvis_alias: if config.jarvis.chat_alias.trim().is_empty() {
+                "jarvis".to_string()
+            } else {
+                config.jarvis.chat_alias.clone()
+            },
+            jarvis_respond_without_alias: config.jarvis.respond_without_alias,
             claude_default_model: if config.anthropic.default_model.is_empty() {
                 "claude-3-opus".to_string()
             } else {
@@ -760,6 +770,12 @@ impl AppState {
         self.config.jarvis.auto_start = self.jarvis_auto_start;
         self.config.jarvis.installed_models = self.installed_jarvis_models.clone();
         self.config.jarvis.active_model = self.jarvis_active_model.clone();
+        self.config.jarvis.chat_alias = self.jarvis_alias.trim().to_string();
+        if self.config.jarvis.chat_alias.is_empty() {
+            self.config.jarvis.chat_alias = "jarvis".to_string();
+        }
+        self.jarvis_alias = self.config.jarvis.chat_alias.clone();
+        self.config.jarvis.respond_without_alias = self.jarvis_respond_without_alias;
         self.config.anthropic.default_model = self.claude_default_model.clone();
         self.config.anthropic.alias = self.claude_alias.clone();
         self.config.openai.default_model = self.openai_default_model.clone();
@@ -833,14 +849,21 @@ impl AppState {
 
     pub fn respond_with_jarvis(&mut self, prompt: String) {
         match self.ensure_jarvis_runtime() {
-            Ok(runtime) => {
-                let reply = runtime.generate_reply(&prompt);
-                self.jarvis_status = Some(format!(
-                    "Jarvis responde con el modelo {}.",
-                    runtime.model_label()
-                ));
-                self.chat_messages.push(ChatMessage::new("Jarvis", reply));
-            }
+            Ok(runtime) => match runtime.generate_reply(&prompt) {
+                Ok(reply) => {
+                    self.jarvis_status = Some(format!(
+                        "Jarvis responde con el modelo {}.",
+                        runtime.model_label()
+                    ));
+                    self.chat_messages.push(ChatMessage::new("Jarvis", reply));
+                }
+                Err(err) => {
+                    self.chat_messages.push(ChatMessage::system(format!(
+                        "Jarvis no pudo generar respuesta: {}",
+                        err
+                    )));
+                }
+            },
             Err(err) => {
                 self.chat_messages.push(ChatMessage::system(format!(
                     "Jarvis no está listo: {}",
@@ -1019,6 +1042,26 @@ impl AppState {
         }
 
         false
+    }
+
+    pub fn try_invoke_jarvis_alias(&mut self, input: &str) -> bool {
+        if let Some(prompt) = Self::extract_alias_prompt(&self.jarvis_alias, input) {
+            self.respond_with_jarvis(prompt);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn jarvis_mention_tag(&self) -> Option<String> {
+        let alias = self.jarvis_alias.trim();
+        if alias.is_empty() {
+            None
+        } else if alias.starts_with('@') {
+            Some(alias.to_string())
+        } else {
+            Some(format!("@{}", alias))
+        }
     }
 
     pub fn handle_command(&mut self, command_input: String) {

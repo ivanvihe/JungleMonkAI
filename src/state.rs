@@ -1,7 +1,11 @@
-use crate::{api::huggingface::HuggingFaceModelInfo, config::AppConfig};
+use crate::{
+    api::{huggingface::HuggingFaceModelInfo, local::JarvisRuntime},
+    config::AppConfig,
+};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 /// Identifica la sección actualmente seleccionada en el árbol de preferencias.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,6 +320,10 @@ pub struct AppState {
     pub jarvis_status: Option<String>,
     /// Modelos instalados para Jarvis.
     pub installed_jarvis_models: Vec<String>,
+    /// Identificador del modelo activo para Jarvis.
+    pub jarvis_active_model: Option<String>,
+    /// Runtime actualmente cargado del modelo local.
+    pub jarvis_runtime: Option<JarvisRuntime>,
     /// Modelo por defecto de Anthropic/Claude.
     pub claude_default_model: String,
     /// Alias configurado para invocar a Claude desde el chat.
@@ -380,6 +388,12 @@ impl Default for AppState {
             Vec::new()
         };
 
+        let jarvis_active_model = config
+            .jarvis
+            .active_model
+            .clone()
+            .or_else(|| config.jarvis.installed_models.first().cloned());
+
         let selected_profile = config
             .selected_profile
             .filter(|idx| profiles.get(*idx).is_some())
@@ -400,7 +414,7 @@ impl Default for AppState {
             expanded_nav_nodes.insert(id);
         }
 
-        Self {
+        let mut state = Self {
             show_settings_modal: false,
             search_buffer: String::new(),
             current_chat_input: String::new(),
@@ -445,6 +459,8 @@ impl Default for AppState {
             jarvis_auto_start: config.jarvis.auto_start,
             jarvis_status: None,
             installed_jarvis_models: config.jarvis.installed_models.clone(),
+            jarvis_active_model,
+            jarvis_runtime: None,
             claude_default_model: if config.anthropic.default_model.is_empty() {
                 "claude-3-opus".to_string()
             } else {
@@ -481,7 +497,26 @@ impl Default for AppState {
             expanded_nav_nodes,
             logs_panel_expanded: true,
             activity_logs: default_logs(),
+        };
+
+        if state.jarvis_auto_start {
+            match state.ensure_jarvis_runtime() {
+                Ok(runtime) => {
+                    state.jarvis_status = Some(format!(
+                        "Jarvis iniciado con el modelo {}.",
+                        runtime.model_label()
+                    ));
+                }
+                Err(err) => {
+                    state.jarvis_status = Some(format!(
+                        "No se pudo iniciar Jarvis automáticamente: {}",
+                        err
+                    ));
+                }
+            }
         }
+
+        state
     }
 }
 
@@ -724,6 +759,7 @@ impl AppState {
         self.config.jarvis.install_dir = self.jarvis_install_dir.clone();
         self.config.jarvis.auto_start = self.jarvis_auto_start;
         self.config.jarvis.installed_models = self.installed_jarvis_models.clone();
+        self.config.jarvis.active_model = self.jarvis_active_model.clone();
         self.config.anthropic.default_model = self.claude_default_model.clone();
         self.config.anthropic.alias = self.claude_alias.clone();
         self.config.openai.default_model = self.openai_default_model.clone();
@@ -745,6 +781,72 @@ impl AppState {
                 "No se pudo guardar la configuración: {}",
                 err
             )));
+        }
+    }
+
+    fn jarvis_model_directory(&self) -> Option<PathBuf> {
+        let direct_path = self.jarvis_model_path.trim();
+        if !direct_path.is_empty() {
+            let dir = Path::new(direct_path);
+            if dir.is_dir() {
+                return Some(dir.to_path_buf());
+            }
+            if let Some(parent) = dir.parent() {
+                if parent.is_dir() {
+                    return Some(parent.to_path_buf());
+                }
+            }
+        }
+
+        self.jarvis_active_model
+            .as_ref()
+            .map(|model| self.jarvis_model_directory_for(model))
+    }
+
+    fn jarvis_model_directory_for(&self, model_id: &str) -> PathBuf {
+        let sanitized = model_id.replace('/', "_");
+        Path::new(&self.jarvis_install_dir).join(sanitized)
+    }
+
+    pub fn ensure_jarvis_runtime(&mut self) -> anyhow::Result<&mut JarvisRuntime> {
+        let target_dir = self
+            .jarvis_model_directory()
+            .ok_or_else(|| anyhow::anyhow!("No hay un modelo local configurado para Jarvis."))?;
+
+        let needs_reload = match &self.jarvis_runtime {
+            Some(runtime) => !runtime.matches(&target_dir),
+            None => true,
+        };
+
+        if needs_reload {
+            let runtime =
+                JarvisRuntime::load(target_dir.clone(), self.jarvis_active_model.clone())?;
+            self.jarvis_runtime = Some(runtime);
+            self.jarvis_model_path = target_dir.display().to_string();
+        }
+
+        Ok(self
+            .jarvis_runtime
+            .as_mut()
+            .expect("runtime recién cargado"))
+    }
+
+    pub fn respond_with_jarvis(&mut self, prompt: String) {
+        match self.ensure_jarvis_runtime() {
+            Ok(runtime) => {
+                let reply = runtime.generate_reply(&prompt);
+                self.jarvis_status = Some(format!(
+                    "Jarvis responde con el modelo {}.",
+                    runtime.model_label()
+                ));
+                self.chat_messages.push(ChatMessage::new("Jarvis", reply));
+            }
+            Err(err) => {
+                self.chat_messages.push(ChatMessage::system(format!(
+                    "Jarvis no está listo: {}",
+                    err
+                )));
+            }
         }
     }
 

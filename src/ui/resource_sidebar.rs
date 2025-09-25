@@ -1,7 +1,8 @@
 use crate::state::AppState;
-use eframe::egui::{self, Color32, Margin, RichText, Stroke};
+use eframe::egui::{self, Color32, Label, Margin, RichText, Stroke};
 
 use super::theme;
+use std::path::Path;
 
 const ICON_SYSTEM: &str = "\u{f2db}"; // microchip
 const ICON_JARVIS: &str = "\u{f0a0}"; // hard-drive
@@ -55,7 +56,9 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
         .inner_margin(Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            let status_width = (ui.available_width() * 0.32).clamp(110.0, 190.0);
+
+            ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 14.0;
 
                 ui.label(
@@ -64,11 +67,11 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                         .color(theme::COLOR_PRIMARY),
                 );
 
-                let status_width = 140.0;
-                let text_width = (ui.available_width() - status_width).max(120.0);
-
                 ui.allocate_ui_with_layout(
-                    egui::vec2(text_width, ui.spacing().interact_size.y * 2.0),
+                    egui::vec2(
+                        (ui.available_width() - status_width).max(160.0),
+                        ui.spacing().interact_size.y * 2.0,
+                    ),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
                         ui.label(
@@ -76,7 +79,10 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                                 .color(theme::COLOR_TEXT_PRIMARY)
                                 .strong(),
                         );
-                        ui.label(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK));
+                        ui.add(
+                            Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK))
+                                .wrap(true),
+                        );
                     },
                 );
 
@@ -136,7 +142,7 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_JARVIS,
             name: "Jarvis",
-            detail: format!("Ruta {}", state.jarvis_model_path),
+            detail: jarvis_detail(state),
             indicator: jarvis_indicator(state),
         },
         ResourceRow {
@@ -190,6 +196,28 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
             color: theme::COLOR_SUCCESS,
             status: format!("{} modelos listos", state.installed_jarvis_models.len()),
         }
+    }
+}
+
+fn jarvis_detail(state: &AppState) -> String {
+    if let Some(model_id) = &state.jarvis_active_model {
+        let trimmed_path = state.jarvis_model_path.trim();
+        if trimmed_path.is_empty() {
+            return format!("Modelo {} · ruta sin configurar", model_id);
+        }
+
+        let path = Path::new(trimmed_path);
+        let display = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_string())
+            .unwrap_or_else(|| trimmed_path.to_string());
+
+        format!("Modelo {} · {}", model_id, display)
+    } else if state.jarvis_model_path.trim().is_empty() {
+        "Sin modelo seleccionado".to_string()
+    } else {
+        format!("Ruta {}", state.jarvis_model_path)
     }
 }
 

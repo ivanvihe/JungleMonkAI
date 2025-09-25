@@ -56,9 +56,9 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
         .inner_margin(Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let status_width = (ui.available_width() * 0.32).clamp(110.0, 190.0);
+            let status_width = 150.0;
 
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 14.0;
 
                 ui.label(
@@ -67,34 +67,30 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                         .color(theme::COLOR_PRIMARY),
                 );
 
-                ui.allocate_ui_with_layout(
-                    egui::vec2(
-                        (ui.available_width() - status_width).max(160.0),
-                        ui.spacing().interact_size.y * 2.0,
-                    ),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.label(
-                            RichText::new(row.name)
-                                .color(theme::COLOR_TEXT_PRIMARY)
-                                .strong(),
-                        );
-                        ui.add(
-                            Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK))
-                                .wrap(true),
-                        );
-                    },
-                );
+                ui.vertical(|ui| {
+                    ui.set_width((ui.available_width() - status_width).max(160.0));
+                    ui.label(
+                        RichText::new(row.name)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                });
 
-                ui.allocate_ui_with_layout(
-                    egui::vec2(status_width, ui.spacing().interact_size.y * 2.0),
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        let StatusIndicator::Led { color, status } = &row.indicator;
-                        draw_led(ui, *color, status);
-                    },
-                );
+                let spacer = ui.available_width() - status_width;
+                if spacer > 0.0 {
+                    ui.add_space(spacer);
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let StatusIndicator::Led { color, status } = &row.indicator;
+                    draw_led(ui, *color, status);
+                });
             });
+
+            ui.add_space(6.0);
+            let detail_width = ui.available_width();
+            ui.set_width(detail_width);
+            ui.add(Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK)).wrap(true));
         });
 }
 

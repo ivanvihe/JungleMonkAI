@@ -146,6 +146,13 @@ impl Default for MainView {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemoteProviderKind {
+    Anthropic,
+    OpenAi,
+    Groq,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct LocalProviderState {
     pub access_token: Option<String>,
@@ -838,6 +845,27 @@ impl CustomCommandAction {
 }
 
 impl AppState {
+    pub(crate) fn push_activity_log(
+        &mut self,
+        status: LogStatus,
+        source: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        let entry = LogEntry {
+            status,
+            source: source.into(),
+            message: message.into(),
+            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        };
+
+        self.activity_logs.push(entry);
+        const MAX_ACTIVITY_LOGS: usize = 200;
+        if self.activity_logs.len() > MAX_ACTIVITY_LOGS {
+            let overflow = self.activity_logs.len() - MAX_ACTIVITY_LOGS;
+            self.activity_logs.drain(0..overflow);
+        }
+    }
+
     pub fn provider_state(&self, provider: LocalModelProvider) -> &LocalProviderState {
         self.local_provider_states
             .get(&provider)
@@ -992,6 +1020,11 @@ impl AppState {
         };
 
         if needs_reload {
+            self.push_activity_log(
+                LogStatus::Running,
+                "Jarvis",
+                format!("Cargando modelo local desde {}", target_dir.display()),
+            );
             let runtime = JarvisRuntime::load(
                 target_dir.clone(),
                 self.jarvis_active_model
@@ -1000,6 +1033,21 @@ impl AppState {
             )?;
             self.jarvis_runtime = Some(runtime);
             self.jarvis_model_path = target_dir.display().to_string();
+            let loaded_label = self
+                .jarvis_runtime
+                .as_ref()
+                .map(|runtime| runtime.model_label());
+            if let Some(label) = loaded_label {
+                self.push_activity_log(
+                    LogStatus::Ok,
+                    "Jarvis",
+                    format!("Modelo {} listo para responder.", label),
+                );
+                self.jarvis_status = Some(format!(
+                    "Jarvis cargó {} desde {}.",
+                    label, self.jarvis_model_path
+                ));
+            }
         }
 
         Ok(self
@@ -1009,27 +1057,58 @@ impl AppState {
     }
 
     pub fn respond_with_jarvis(&mut self, prompt: String) {
+        self.push_activity_log(
+            LogStatus::Running,
+            "Jarvis",
+            format!(
+                "Procesando entrada local de {} caracteres.",
+                prompt.chars().count()
+            ),
+        );
         match self.ensure_jarvis_runtime() {
-            Ok(runtime) => match runtime.generate_reply(&prompt) {
-                Ok(reply) => {
-                    self.jarvis_status = Some(format!(
-                        "Jarvis responde con el modelo {}.",
-                        runtime.model_label()
-                    ));
-                    self.chat_messages.push(ChatMessage::new("Jarvis", reply));
+            Ok(runtime) => {
+                let label = runtime.model_label();
+                let reply_result = runtime.generate_reply(&prompt);
+                let _ = runtime;
+                match reply_result {
+                    Ok(reply) => {
+                        self.jarvis_status =
+                            Some(format!("Jarvis responde con el modelo {}.", label));
+                        self.push_activity_log(
+                            LogStatus::Ok,
+                            "Jarvis",
+                            format!("Respuesta generada por {}", label),
+                        );
+                        self.chat_messages.push(ChatMessage::new("Jarvis", reply));
+                    }
+                    Err(err) => {
+                        self.chat_messages.push(ChatMessage::system(format!(
+                            "Jarvis no pudo generar respuesta: {}",
+                            err
+                        )));
+                        self.jarvis_status = Some(format!(
+                            "Jarvis falló al generar respuesta ({label}): {}",
+                            err
+                        ));
+                        self.push_activity_log(
+                            LogStatus::Error,
+                            "Jarvis",
+                            format!("Error al generar respuesta con {}: {}", label, err),
+                        );
+                    }
                 }
-                Err(err) => {
-                    self.chat_messages.push(ChatMessage::system(format!(
-                        "Jarvis no pudo generar respuesta: {}",
-                        err
-                    )));
-                }
-            },
+            }
             Err(err) => {
                 self.chat_messages.push(ChatMessage::system(format!(
                     "Jarvis no está listo: {}",
                     err
                 )));
+                self.jarvis_status = Some(format!("Jarvis no está listo: {}", err));
+                self.push_activity_log(
+                    LogStatus::Error,
+                    "Jarvis",
+                    format!("Runtime inalcanzable: {}", err),
+                );
             }
         }
     }
@@ -1099,6 +1178,7 @@ impl AppState {
 
     fn handle_provider_call<F>(
         &mut self,
+        provider_kind: RemoteProviderKind,
         alias: String,
         provider_name: &str,
         prompt: String,
@@ -1109,20 +1189,57 @@ impl AppState {
         F: Fn(&str, &str, &str) -> anyhow::Result<String>,
     {
         if let Some(key) = api_key {
+            self.push_activity_log(
+                LogStatus::Running,
+                provider_name,
+                format!("Consultando '{}' con el alias '{}'.", model, alias),
+            );
+
             match caller(&key, &model, &prompt) {
-                Ok(response) => self
-                    .chat_messages
-                    .push(ChatMessage::new(alias.clone(), response)),
-                Err(err) => self.chat_messages.push(ChatMessage::system(format!(
-                    "{}: error al solicitar respuesta: {}",
-                    alias, err
-                ))),
+                Ok(response) => {
+                    let snippet: String = response.chars().take(120).collect();
+                    *self.provider_status_slot(provider_kind) = Some(format!(
+                        "{} respondió correctamente ({} caracteres).",
+                        model,
+                        response.chars().count()
+                    ));
+                    self.push_activity_log(
+                        LogStatus::Ok,
+                        provider_name,
+                        format!("Respuesta recibida de '{}': {}", model, snippet),
+                    );
+                    self.chat_messages
+                        .push(ChatMessage::new(alias.clone(), response));
+                }
+                Err(err) => {
+                    *self.provider_status_slot(provider_kind) =
+                        Some(format!("Último error: {}", err));
+                    self.push_activity_log(
+                        LogStatus::Error,
+                        provider_name,
+                        format!("Fallo al invocar '{}': {}", model, err),
+                    );
+                    self.chat_messages.push(ChatMessage::system(format!(
+                        "{}: error al solicitar respuesta: {}",
+                        alias, err
+                    )));
+                }
             }
         } else {
             self.chat_messages.push(ChatMessage::system(format!(
                 "Configura la API key de {} antes de usar el alias '{}'.",
                 provider_name, alias
             )));
+            *self.provider_status_slot(provider_kind) =
+                Some(format!("Falta la API key para {}.", provider_name));
+        }
+    }
+
+    fn provider_status_slot(&mut self, provider: RemoteProviderKind) -> &mut Option<String> {
+        match provider {
+            RemoteProviderKind::Anthropic => &mut self.anthropic_test_status,
+            RemoteProviderKind::OpenAi => &mut self.openai_test_status,
+            RemoteProviderKind::Groq => &mut self.groq_test_status,
         }
     }
 
@@ -1137,6 +1254,7 @@ impl AppState {
             }
         });
         self.handle_provider_call(
+            RemoteProviderKind::Anthropic,
             alias,
             "Anthropic",
             prompt,
@@ -1157,6 +1275,7 @@ impl AppState {
             }
         });
         self.handle_provider_call(
+            RemoteProviderKind::OpenAi,
             alias,
             "OpenAI",
             prompt,
@@ -1177,6 +1296,7 @@ impl AppState {
             }
         });
         self.handle_provider_call(
+            RemoteProviderKind::Groq,
             alias,
             "Groq",
             prompt,

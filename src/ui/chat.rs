@@ -1,7 +1,6 @@
 use crate::api::github;
 use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
 use eframe::egui::{self, Color32, RichText};
-use egui_extras::{Column, TableBuilder};
 
 use super::theme;
 
@@ -13,182 +12,16 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin::symmetric(20.0, 16.0)),
         )
-        .show(ctx, |ui| {
-            draw_tab_bar(ui, state);
-            ui.add_space(12.0);
-            match state.active_main_view {
-                MainView::ChatMultimodal => draw_chat_view(ui, state),
-                MainView::Preferences => draw_preferences_view(ui, state),
-            }
+        .show(ctx, |ui| match state.active_main_view {
+            MainView::ChatMultimodal => draw_chat_view(ui, state),
+            MainView::Preferences => draw_preferences_view(ui, state),
         });
-}
-
-fn draw_tab_bar(ui: &mut egui::Ui, state: &mut AppState) {
-    let frame = egui::Frame::none()
-        .fill(Color32::from_rgb(34, 34, 34))
-        .stroke(theme::subtle_border())
-        .inner_margin(egui::Margin::symmetric(12.0, 8.0));
-
-    frame.show(ui, |ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        let tabs = [
-            (MainView::ChatMultimodal, "Conversación"),
-            (MainView::Preferences, "Preferencias"),
-        ];
-
-        for (view, label) in tabs {
-            let is_active = state.active_main_view == view;
-            let fill = if is_active {
-                theme::COLOR_PRIMARY
-            } else {
-                Color32::from_rgb(40, 40, 40)
-            };
-            let text_color = if is_active {
-                Color32::from_rgb(240, 240, 240)
-            } else {
-                theme::COLOR_TEXT_WEAK
-            };
-
-            let button = egui::Button::new(RichText::new(label).color(text_color))
-                .fill(fill)
-                .min_size(egui::vec2(140.0, 30.0));
-
-            if ui.add(button).clicked() {
-                state.active_main_view = view;
-            }
-        }
-    });
 }
 
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
-    draw_resource_summary(ui, state);
-    ui.add_space(12.0);
     draw_chat_history(ui, state);
     ui.add_space(12.0);
     draw_chat_input(ui, state);
-}
-
-fn draw_resource_summary(ui: &mut egui::Ui, state: &AppState) {
-    egui::Frame::none()
-        .fill(Color32::from_rgb(30, 30, 30))
-        .stroke(theme::subtle_border())
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("Resumen de recursos")
-                        .strong()
-                        .color(theme::COLOR_TEXT_PRIMARY),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
-                });
-            });
-            ui.add_space(6.0);
-
-            TableBuilder::new(ui)
-                .striped(true)
-                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::exact(36.0))
-                .column(Column::exact(150.0))
-                .column(Column::remainder())
-                .column(Column::exact(150.0))
-                .body(|mut body| {
-                    for row in resource_rows(state) {
-                        body.row(26.0, |mut row_ui| {
-                            row_ui.col(|ui| {
-                                ui.label(RichText::new(row.icon).color(row.status_color));
-                            });
-                            row_ui.col(|ui| {
-                                ui.label(RichText::new(row.name).color(theme::COLOR_TEXT_PRIMARY));
-                            });
-                            row_ui.col(|ui| {
-                                ui.label(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK));
-                            });
-                            row_ui.col(|ui| {
-                                ui.label(row.status.clone());
-                            });
-                        });
-                    }
-                });
-        });
-}
-
-fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
-    let mut rows = Vec::new();
-
-    let (status, color) = status_visuals(None, "Operativo");
-    rows.push(ResourceRow {
-        icon: "🖥️",
-        name: "Sistema",
-        detail: format!(
-            "Memoria límite {:.1} GB · Disco {:.1} GB",
-            state.resource_memory_limit_gb, state.resource_disk_limit_gb
-        ),
-        status,
-        status_color: color,
-    });
-
-    let (status, color) = status_visuals(state.jarvis_status.as_ref(), "Listo");
-    rows.push(ResourceRow {
-        icon: "💽",
-        name: "Jarvis",
-        detail: format!("Ruta {}", state.jarvis_model_path),
-        status,
-        status_color: color,
-    });
-
-    let (status, color) = status_visuals(state.openai_test_status.as_ref(), "Disponible");
-    rows.push(ResourceRow {
-        icon: "🤖",
-        name: "OpenAI",
-        detail: format!("Modelo {}", state.openai_default_model),
-        status,
-        status_color: color,
-    });
-
-    let (status, color) = status_visuals(state.anthropic_test_status.as_ref(), "Disponible");
-    rows.push(ResourceRow {
-        icon: "✨",
-        name: "Claude",
-        detail: format!("Modelo {}", state.claude_default_model),
-        status,
-        status_color: color,
-    });
-
-    let (status, color) = status_visuals(state.groq_test_status.as_ref(), "Disponible");
-    rows.push(ResourceRow {
-        icon: "⚡",
-        name: "Groq",
-        detail: format!("Modelo {}", state.groq_default_model),
-        status,
-        status_color: color,
-    });
-
-    rows
-}
-
-fn status_visuals(message: Option<&String>, fallback: &str) -> (RichText, Color32) {
-    let label = message.cloned().unwrap_or_else(|| fallback.to_string());
-    let lower = label.to_lowercase();
-    let color = if lower.contains("error") || lower.contains("fail") {
-        theme::COLOR_DANGER
-    } else if lower.contains("index") || lower.contains("sync") {
-        theme::COLOR_PRIMARY
-    } else {
-        theme::COLOR_SUCCESS
-    };
-
-    (RichText::new(label).color(color), color)
-}
-
-#[derive(Clone)]
-struct ResourceRow {
-    icon: &'static str,
-    name: &'static str,
-    detail: String,
-    status: RichText,
-    status_color: Color32,
 }
 
 fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {

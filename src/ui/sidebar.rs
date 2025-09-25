@@ -16,6 +16,11 @@ const ICON_PROVIDER_ANTHROPIC: &str = "\u{f544}"; // robot
 const ICON_PROVIDER_OPENAI: &str = "\u{e2ca}"; // wand-magic-sparkles
 const ICON_PROVIDER_GROQ: &str = "\u{f0e7}"; // bolt
 const ICON_LOCAL_HF: &str = "\u{f49e}"; // box-open
+const ICON_LOCAL_GITHUB: &str = "\u{f09b}"; // github
+const ICON_LOCAL_REPLICATE: &str = "\u{f1e0}"; // share-alt
+const ICON_LOCAL_OLLAMA: &str = "\u{f233}"; // server
+const ICON_LOCAL_OPENROUTER: &str = "\u{f6ff}"; // route
+const ICON_LOCAL_MODELSCOPE: &str = "\u{f0c3}"; // flask
 const ICON_LOCAL_SETTINGS: &str = "\u{f1de}"; // sliders
 const ICON_CUSTOMIZATION: &str = "\u{f1de}"; // sliders
 const ICON_COMMANDS: &str = "\u{f120}"; // terminal
@@ -181,6 +186,46 @@ const LOCAL_DETAILS: &[NavNode] = &[
         icon: ICON_LOCAL_HF,
         view: Some(MainView::Preferences),
         section: Some(PreferenceSection::ModelsLocalHuggingFace),
+        children: &[],
+    },
+    NavNode {
+        id: "local_github_models",
+        label: "GitHub Models",
+        icon: ICON_LOCAL_GITHUB,
+        view: Some(MainView::Preferences),
+        section: Some(PreferenceSection::ModelsLocalGithub),
+        children: &[],
+    },
+    NavNode {
+        id: "local_replicate",
+        label: "Replicate",
+        icon: ICON_LOCAL_REPLICATE,
+        view: Some(MainView::Preferences),
+        section: Some(PreferenceSection::ModelsLocalReplicate),
+        children: &[],
+    },
+    NavNode {
+        id: "local_ollama",
+        label: "Ollama",
+        icon: ICON_LOCAL_OLLAMA,
+        view: Some(MainView::Preferences),
+        section: Some(PreferenceSection::ModelsLocalOllama),
+        children: &[],
+    },
+    NavNode {
+        id: "local_openrouter",
+        label: "OpenRouter",
+        icon: ICON_LOCAL_OPENROUTER,
+        view: Some(MainView::Preferences),
+        section: Some(PreferenceSection::ModelsLocalOpenRouter),
+        children: &[],
+    },
+    NavNode {
+        id: "local_modelscope",
+        label: "ModelScope",
+        icon: ICON_LOCAL_MODELSCOPE,
+        view: Some(MainView::Preferences),
+        section: Some(PreferenceSection::ModelsLocalModelscope),
         children: &[],
     },
     NavNode {

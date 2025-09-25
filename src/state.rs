@@ -1,6 +1,7 @@
 use crate::{
-    api::{huggingface::HuggingFaceModelInfo, local::JarvisRuntime},
+    api::local::JarvisRuntime,
     config::AppConfig,
+    local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider},
 };
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,11 @@ pub enum PreferenceSection {
     CustomizationProfiles,
     CustomizationProjects,
     ModelsLocalHuggingFace,
+    ModelsLocalGithub,
+    ModelsLocalReplicate,
+    ModelsLocalOllama,
+    ModelsLocalOpenRouter,
+    ModelsLocalModelscope,
     ModelsLocalSettings,
     ModelsProviderAnthropic,
     ModelsProviderOpenAi,
@@ -38,6 +44,21 @@ impl PreferenceSection {
             PreferenceSection::CustomizationProjects => "Preferences › Customization › Projects",
             PreferenceSection::ModelsLocalHuggingFace => {
                 "Preferences › Models › Local (Jarvis) › HuggingFace"
+            }
+            PreferenceSection::ModelsLocalGithub => {
+                "Preferences › Models › Local (Jarvis) › GitHub Models"
+            }
+            PreferenceSection::ModelsLocalReplicate => {
+                "Preferences › Models › Local (Jarvis) › Replicate"
+            }
+            PreferenceSection::ModelsLocalOllama => {
+                "Preferences › Models › Local (Jarvis) › Ollama"
+            }
+            PreferenceSection::ModelsLocalOpenRouter => {
+                "Preferences › Models › Local (Jarvis) › OpenRouter"
+            }
+            PreferenceSection::ModelsLocalModelscope => {
+                "Preferences › Models › Local (Jarvis) › ModelScope"
             }
             PreferenceSection::ModelsLocalSettings => {
                 "Preferences › Models › Local (Jarvis) › Settings"
@@ -76,6 +97,21 @@ impl PreferenceSection {
             PreferenceSection::ModelsLocalHuggingFace => {
                 "Search for local models published on HuggingFace and install them into Jarvis."
             }
+            PreferenceSection::ModelsLocalGithub => {
+                "Discover models curated by GitHub and prepare them for the Jarvis runtime."
+            }
+            PreferenceSection::ModelsLocalReplicate => {
+                "Explore Replicate community models that can be exported for offline use."
+            }
+            PreferenceSection::ModelsLocalOllama => {
+                "List and pull Ollama-ready models into the local Jarvis workspace."
+            }
+            PreferenceSection::ModelsLocalOpenRouter => {
+                "Review OpenRouter compatible models and mirror them locally for Jarvis."
+            }
+            PreferenceSection::ModelsLocalModelscope => {
+                "Search ModelScope catalogs and fetch compatible checkpoints for Jarvis."
+            }
             PreferenceSection::ModelsLocalSettings => {
                 "Configure how the local Jarvis runtime boots and where models are stored."
             }
@@ -107,6 +143,56 @@ pub enum MainView {
 impl Default for MainView {
     fn default() -> Self {
         MainView::ChatMultimodal
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LocalProviderState {
+    pub access_token: Option<String>,
+    pub token_input: String,
+    pub search_query: String,
+    pub models: Vec<LocalModelCard>,
+    pub selected_model: Option<usize>,
+    pub install_status: Option<String>,
+}
+
+impl LocalProviderState {
+    fn from_config(provider: LocalModelProvider, config: &AppConfig) -> Self {
+        let (token, query) = match provider {
+            LocalModelProvider::HuggingFace => (
+                config.huggingface.access_token.clone(),
+                config.huggingface.last_search_query.clone(),
+            ),
+            LocalModelProvider::GithubModels => (
+                config.github_models.access_token.clone(),
+                config.github_models.last_search_query.clone(),
+            ),
+            LocalModelProvider::Replicate => (
+                config.replicate.access_token.clone(),
+                config.replicate.last_search_query.clone(),
+            ),
+            LocalModelProvider::Ollama => (
+                config.ollama.access_token.clone(),
+                config.ollama.last_search_query.clone(),
+            ),
+            LocalModelProvider::OpenRouter => (
+                config.openrouter.access_token.clone(),
+                config.openrouter.last_search_query.clone(),
+            ),
+            LocalModelProvider::Modelscope => (
+                config.modelscope.access_token.clone(),
+                config.modelscope.last_search_query.clone(),
+            ),
+        };
+
+        Self {
+            access_token: token.clone(),
+            token_input: token.unwrap_or_default(),
+            search_query: query,
+            models: Vec::new(),
+            selected_model: None,
+            install_status: None,
+        }
     }
 }
 
@@ -300,16 +386,8 @@ pub struct AppState {
     pub projects: Vec<String>,
     /// Proyecto actualmente seleccionado.
     pub selected_project: Option<usize>,
-    /// Consulta actual para buscar modelos en HuggingFace.
-    pub huggingface_search_query: String,
-    /// Resultados disponibles en HuggingFace.
-    pub huggingface_models: Vec<HuggingFaceModelInfo>,
-    /// Token opcional para acceder a la API de Hugging Face.
-    pub huggingface_access_token: Option<String>,
-    /// Modelo seleccionado dentro de HuggingFace.
-    pub selected_huggingface_model: Option<usize>,
-    /// Mensaje de estado tras intentar instalar un modelo local.
-    pub huggingface_install_status: Option<String>,
+    /// Estado por proveedor del explorador de modelos locales.
+    pub local_provider_states: BTreeMap<LocalModelProvider, LocalProviderState>,
     /// Ruta del modelo local de Jarvis.
     pub jarvis_model_path: String,
     /// Directorio donde se instalarán los modelos locales de Jarvis.
@@ -319,9 +397,11 @@ pub struct AppState {
     /// Mensaje de estado sobre la configuración local de Jarvis.
     pub jarvis_status: Option<String>,
     /// Modelos instalados para Jarvis.
-    pub installed_jarvis_models: Vec<String>,
+    pub installed_local_models: Vec<LocalModelIdentifier>,
+    /// Proveedor seleccionado en la sección de configuración local.
+    pub jarvis_selected_provider: LocalModelProvider,
     /// Identificador del modelo activo para Jarvis.
-    pub jarvis_active_model: Option<String>,
+    pub jarvis_active_model: Option<LocalModelIdentifier>,
     /// Runtime actualmente cargado del modelo local.
     pub jarvis_runtime: Option<JarvisRuntime>,
     /// Alias que el usuario debe mencionar para despertar a Jarvis en el chat.
@@ -382,21 +462,49 @@ impl Default for AppState {
             projects.push("Autonomous Agent".to_string());
         }
 
-        let default_hf_models = if config.huggingface.last_search_query.is_empty() {
-            vec![
-                HuggingFaceModelInfo::placeholder("sentence-transformers/all-MiniLM-L6-v2"),
-                HuggingFaceModelInfo::placeholder("openai/whisper-small"),
-                HuggingFaceModelInfo::placeholder("stabilityai/stable-diffusion-xl"),
-            ]
-        } else {
-            Vec::new()
-        };
+        let mut local_provider_states: BTreeMap<LocalModelProvider, LocalProviderState> =
+            BTreeMap::new();
+        for provider in LocalModelProvider::ALL {
+            let mut provider_state = LocalProviderState::from_config(provider, &config);
+            if provider == LocalModelProvider::HuggingFace
+                && provider_state.search_query.trim().is_empty()
+            {
+                provider_state.models = vec![
+                    LocalModelCard::placeholder(
+                        LocalModelProvider::HuggingFace,
+                        "sentence-transformers/all-MiniLM-L6-v2",
+                    ),
+                    LocalModelCard::placeholder(
+                        LocalModelProvider::HuggingFace,
+                        "openai/whisper-small",
+                    ),
+                    LocalModelCard::placeholder(
+                        LocalModelProvider::HuggingFace,
+                        "stabilityai/stable-diffusion-xl",
+                    ),
+                ];
+            }
+            local_provider_states.insert(provider, provider_state);
+        }
+
+        let installed_local_models: Vec<LocalModelIdentifier> = config
+            .jarvis
+            .installed_models
+            .iter()
+            .map(|entry| LocalModelIdentifier::parse(entry))
+            .collect();
 
         let jarvis_active_model = config
             .jarvis
             .active_model
-            .clone()
-            .or_else(|| config.jarvis.installed_models.first().cloned());
+            .as_ref()
+            .map(|entry| LocalModelIdentifier::parse(entry))
+            .or_else(|| installed_local_models.first().cloned());
+
+        let jarvis_selected_provider = jarvis_active_model
+            .as_ref()
+            .map(|model| model.provider)
+            .unwrap_or(LocalModelProvider::HuggingFace);
 
         let selected_profile = config
             .selected_profile
@@ -453,16 +561,13 @@ impl Default for AppState {
             selected_profile,
             projects,
             selected_project,
-            huggingface_search_query: config.huggingface.last_search_query.clone(),
-            huggingface_models: default_hf_models,
-            huggingface_access_token: config.huggingface.access_token.clone(),
-            selected_huggingface_model: None,
-            huggingface_install_status: None,
+            local_provider_states,
             jarvis_model_path: config.jarvis.model_path.clone(),
             jarvis_install_dir: config.jarvis.install_dir.clone(),
             jarvis_auto_start: config.jarvis.auto_start,
             jarvis_status: None,
-            installed_jarvis_models: config.jarvis.installed_models.clone(),
+            installed_local_models,
+            jarvis_selected_provider,
             jarvis_active_model,
             jarvis_runtime: None,
             jarvis_alias: if config.jarvis.chat_alias.trim().is_empty() {
@@ -733,6 +838,24 @@ impl CustomCommandAction {
 }
 
 impl AppState {
+    pub fn provider_state(&self, provider: LocalModelProvider) -> &LocalProviderState {
+        self.local_provider_states
+            .get(&provider)
+            .expect("estado del proveedor no inicializado")
+    }
+
+    pub fn provider_state_mut(&mut self, provider: LocalModelProvider) -> &mut LocalProviderState {
+        if !self.local_provider_states.contains_key(&provider) {
+            self.local_provider_states.insert(
+                provider,
+                LocalProviderState::from_config(provider, &self.config),
+            );
+        }
+        self.local_provider_states
+            .get_mut(&provider)
+            .expect("estado del proveedor no inicializado")
+    }
+
     fn normalize_string_option(value: &mut Option<String>) {
         if let Some(existing) = value.as_mut() {
             let trimmed = existing.trim();
@@ -763,13 +886,43 @@ impl AppState {
         self.config.selected_profile = self.selected_profile;
         self.config.projects = self.projects.clone();
         self.config.selected_project = self.selected_project;
-        self.config.huggingface.last_search_query = self.huggingface_search_query.clone();
-        self.config.huggingface.access_token = self.huggingface_access_token.clone();
+        let hf_state = self.provider_state(LocalModelProvider::HuggingFace).clone();
+        self.config.huggingface.last_search_query = hf_state.search_query;
+        self.config.huggingface.access_token = hf_state.access_token;
+
+        let github_state = self
+            .provider_state(LocalModelProvider::GithubModels)
+            .clone();
+        self.config.github_models.last_search_query = github_state.search_query;
+        self.config.github_models.access_token = github_state.access_token;
+
+        let replicate_state = self.provider_state(LocalModelProvider::Replicate).clone();
+        self.config.replicate.last_search_query = replicate_state.search_query;
+        self.config.replicate.access_token = replicate_state.access_token;
+
+        let ollama_state = self.provider_state(LocalModelProvider::Ollama).clone();
+        self.config.ollama.last_search_query = ollama_state.search_query;
+        self.config.ollama.access_token = ollama_state.access_token;
+
+        let openrouter_state = self.provider_state(LocalModelProvider::OpenRouter).clone();
+        self.config.openrouter.last_search_query = openrouter_state.search_query;
+        self.config.openrouter.access_token = openrouter_state.access_token;
+
+        let modelscope_state = self.provider_state(LocalModelProvider::Modelscope).clone();
+        self.config.modelscope.last_search_query = modelscope_state.search_query;
+        self.config.modelscope.access_token = modelscope_state.access_token;
         self.config.jarvis.model_path = self.jarvis_model_path.clone();
         self.config.jarvis.install_dir = self.jarvis_install_dir.clone();
         self.config.jarvis.auto_start = self.jarvis_auto_start;
-        self.config.jarvis.installed_models = self.installed_jarvis_models.clone();
-        self.config.jarvis.active_model = self.jarvis_active_model.clone();
+        self.config.jarvis.installed_models = self
+            .installed_local_models
+            .iter()
+            .map(LocalModelIdentifier::serialize)
+            .collect();
+        self.config.jarvis.active_model = self
+            .jarvis_active_model
+            .as_ref()
+            .map(LocalModelIdentifier::serialize);
         self.config.jarvis.chat_alias = self.jarvis_alias.trim().to_string();
         if self.config.jarvis.chat_alias.is_empty() {
             self.config.jarvis.chat_alias = "jarvis".to_string();
@@ -788,6 +941,11 @@ impl AppState {
         Self::normalize_string_option(&mut self.config.groq.api_key);
         Self::normalize_string_option(&mut self.config.github_token);
         Self::normalize_string_option(&mut self.config.huggingface.access_token);
+        Self::normalize_string_option(&mut self.config.github_models.access_token);
+        Self::normalize_string_option(&mut self.config.replicate.access_token);
+        Self::normalize_string_option(&mut self.config.ollama.access_token);
+        Self::normalize_string_option(&mut self.config.openrouter.access_token);
+        Self::normalize_string_option(&mut self.config.modelscope.access_token);
     }
 
     pub fn persist_config(&mut self) {
@@ -819,9 +977,8 @@ impl AppState {
             .map(|model| self.jarvis_model_directory_for(model))
     }
 
-    fn jarvis_model_directory_for(&self, model_id: &str) -> PathBuf {
-        let sanitized = model_id.replace('/', "_");
-        Path::new(&self.jarvis_install_dir).join(sanitized)
+    fn jarvis_model_directory_for(&self, model: &LocalModelIdentifier) -> PathBuf {
+        Path::new(&self.jarvis_install_dir).join(model.sanitized_dir_name())
     }
 
     pub fn ensure_jarvis_runtime(&mut self) -> anyhow::Result<&mut JarvisRuntime> {
@@ -835,8 +992,12 @@ impl AppState {
         };
 
         if needs_reload {
-            let runtime =
-                JarvisRuntime::load(target_dir.clone(), self.jarvis_active_model.clone())?;
+            let runtime = JarvisRuntime::load(
+                target_dir.clone(),
+                self.jarvis_active_model
+                    .as_ref()
+                    .map(|model| model.model_id.clone()),
+            )?;
             self.jarvis_runtime = Some(runtime);
             self.jarvis_model_path = target_dir.display().to_string();
         }
@@ -1461,17 +1622,17 @@ impl AppState {
                         self.jarvis_model_path
                     )),
                     "huggingface" => {
-                        if self.huggingface_models.is_empty() {
+                        let provider_state = self.provider_state(LocalModelProvider::HuggingFace);
+                        if provider_state.models.is_empty() {
                             lines.push("No hay modelos de HuggingFace registrados.".to_string());
                         } else {
-                            lines.push(format!(
-                                "Modelos de HuggingFace: {}",
-                                self.huggingface_models
-                                    .iter()
-                                    .map(|model| model.id.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            ));
+                            let joined = provider_state
+                                .models
+                                .iter()
+                                .map(|model| model.id.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            lines.push(format!("Modelos de HuggingFace: {}", joined));
                         }
                     }
                     "all" => {
@@ -1482,18 +1643,19 @@ impl AppState {
                             self.groq_default_model,
                             self.jarvis_model_path
                         ));
-                        if self.huggingface_models.is_empty() {
+                        let provider_state = self.provider_state(LocalModelProvider::HuggingFace);
+                        if provider_state.models.is_empty() {
                             lines.push("HuggingFace: sin resultados cargados.".to_string());
                         } else {
-                            let preview: Vec<&str> = self
-                                .huggingface_models
+                            let preview: Vec<&str> = provider_state
+                                .models
                                 .iter()
                                 .take(5)
                                 .map(|model| model.id.as_str())
                                 .collect();
                             lines.push(format!(
                                 "HuggingFace ({} modelos): {}",
-                                self.huggingface_models.len(),
+                                provider_state.models.len(),
                                 preview.join(", ")
                             ));
                         }
@@ -1571,7 +1733,9 @@ impl AppState {
                     lines.push(format!(
                         "Jarvis usa {} y hay {} modelos de HuggingFace listos.",
                         self.jarvis_model_path,
-                        self.huggingface_models.len()
+                        self.provider_state(LocalModelProvider::HuggingFace)
+                            .models
+                            .len()
                     ));
                 }
                 if include.iter().any(|s| s == "status") {

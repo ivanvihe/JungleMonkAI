@@ -1,5 +1,7 @@
 use crate::api::github;
+use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
+use anyhow::Result;
 use eframe::egui::{self, Color32, RichText};
 
 use super::{logs, theme};
@@ -452,7 +454,24 @@ fn draw_selected_section(ui: &mut egui::Ui, state: &mut AppState) {
         PreferenceSection::CustomizationMemory => draw_customization_memory(ui, state),
         PreferenceSection::CustomizationProfiles => draw_customization_profiles(ui, state),
         PreferenceSection::CustomizationProjects => draw_customization_projects(ui, state),
-        PreferenceSection::ModelsLocalHuggingFace => draw_local_huggingface(ui, state),
+        PreferenceSection::ModelsLocalHuggingFace => {
+            draw_local_provider(ui, state, LocalModelProvider::HuggingFace)
+        }
+        PreferenceSection::ModelsLocalGithub => {
+            draw_local_provider(ui, state, LocalModelProvider::GithubModels)
+        }
+        PreferenceSection::ModelsLocalReplicate => {
+            draw_local_provider(ui, state, LocalModelProvider::Replicate)
+        }
+        PreferenceSection::ModelsLocalOllama => {
+            draw_local_provider(ui, state, LocalModelProvider::Ollama)
+        }
+        PreferenceSection::ModelsLocalOpenRouter => {
+            draw_local_provider(ui, state, LocalModelProvider::OpenRouter)
+        }
+        PreferenceSection::ModelsLocalModelscope => {
+            draw_local_provider(ui, state, LocalModelProvider::Modelscope)
+        }
         PreferenceSection::ModelsLocalSettings => draw_local_settings(ui, state),
         PreferenceSection::ModelsProviderAnthropic => draw_provider_anthropic(ui, state),
         PreferenceSection::ModelsProviderOpenAi => draw_provider_openai(ui, state),
@@ -833,78 +852,119 @@ fn draw_customization_projects(ui: &mut egui::Ui, state: &mut AppState) {
     );
 }
 
-fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.label("Hugging Face access token (optional)");
-    if ui
-        .text_edit_singleline(
-            state
-                .huggingface_access_token
-                .get_or_insert_with(String::new),
-        )
-        .changed()
+fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalModelProvider) {
+    let mut persist_changes = false;
+    let mut search_request: Option<(String, Option<String>)> = None;
+
     {
-        if state
-            .huggingface_access_token
-            .as_ref()
-            .is_some_and(|token| token.trim().is_empty())
-        {
-            state.huggingface_access_token = None;
+        let provider_state = state.provider_state_mut(provider);
+        let token_label = provider.token_label();
+        ui.label(format!("{}", token_label));
+        ui.horizontal(|ui| {
+            let response = ui.text_edit_singleline(&mut provider_state.token_input);
+            if response.changed() {
+                // Do not persist immediately; wait for the save button.
+            }
+
+            let save_label = RichText::new("Guardar").color(Color32::from_rgb(240, 240, 240));
+            let button = theme::primary_button(save_label).min_size(egui::vec2(0.0, 28.0));
+            if ui.add_sized([110.0, 30.0], button).clicked() {
+                let trimmed = provider_state.token_input.trim();
+                if trimmed.is_empty() {
+                    provider_state.access_token = None;
+                    provider_state.token_input.clear();
+                } else {
+                    provider_state.access_token = Some(trimmed.to_string());
+                    provider_state.token_input = trimmed.to_string();
+                }
+                persist_changes = true;
+            }
+        });
+
+        if provider.requires_token() && provider_state.access_token.is_none() {
+            ui.colored_label(
+                Color32::from_rgb(255, 196, 96),
+                "Este proveedor requiere un token válido para listar modelos.",
+            );
         }
+
+        ui.add_space(6.0);
+        egui::Frame::none()
+            .fill(Color32::from_rgb(30, 32, 36))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(12.0))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let button_width = 120.0;
+                    let text_width = (ui.available_width() - button_width - 12.0).max(240.0);
+                    let search_edit = egui::TextEdit::singleline(&mut provider_state.search_query)
+                        .hint_text(provider.search_hint())
+                        .desired_width(f32::INFINITY);
+                    let response = ui.add_sized([text_width, 30.0], search_edit);
+                    if response.changed() {
+                        persist_changes = true;
+                    }
+
+                    let needs_token =
+                        provider.requires_token() && provider_state.access_token.is_none();
+                    let mut clicked = false;
+                    let search_label =
+                        RichText::new("Buscar").color(Color32::from_rgb(240, 240, 240));
+                    ui.add_enabled_ui(!needs_token, |ui| {
+                        if ui
+                            .add_sized(
+                                [button_width, 32.0],
+                                theme::primary_button(search_label.clone()),
+                            )
+                            .clicked()
+                        {
+                            clicked = true;
+                        }
+                    });
+
+                    if clicked {
+                        search_request = Some((
+                            provider_state.search_query.clone(),
+                            provider_state.access_token.clone(),
+                        ));
+                    }
+                });
+            });
+    }
+
+    if persist_changes {
         state.persist_config();
     }
 
-    ui.add_space(6.0);
-    egui::Frame::none()
-        .fill(Color32::from_rgb(30, 32, 36))
-        .stroke(theme::subtle_border())
-        .rounding(egui::Rounding::same(12.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let button_width = 120.0;
-                let text_width = (ui.available_width() - button_width - 12.0).max(240.0);
-                let search_edit = egui::TextEdit::singleline(&mut state.huggingface_search_query)
-                    .hint_text("Busca modelos, ej. whisper, mistral, diffusion")
-                    .desired_width(f32::INFINITY);
-                let response = ui.add_sized([text_width, 30.0], search_edit);
-                if response.changed() {
-                    state.persist_config();
-                }
-
-                let search_label = RichText::new("Buscar").color(Color32::from_rgb(240, 240, 240));
-                if ui
-                    .add_sized([button_width, 32.0], theme::primary_button(search_label))
-                    .clicked()
-                {
-                    match crate::api::huggingface::search_models(
-                        &state.huggingface_search_query,
-                        state
-                            .huggingface_access_token
-                            .as_ref()
-                            .map(|token| token.as_str()),
-                    ) {
-                        Ok(models) => {
-                            state.huggingface_models = models;
-                            state.huggingface_install_status = Some(format!(
-                                "Se encontraron {} modelos para '{}'.",
-                                state.huggingface_models.len(),
-                                state.huggingface_search_query
-                            ));
-                            state.selected_huggingface_model = None;
-                            state.persist_config();
-                        }
-                        Err(err) => {
-                            state.huggingface_install_status =
-                                Some(format!("Fallo al buscar modelos: {}", err));
-                        }
-                    }
-                }
-            });
-        });
+    if let Some((query, token)) = search_request {
+        match search_models_for_provider(provider, &query, token.as_deref()) {
+            Ok(models) => {
+                let count = models.len();
+                let provider_state = state.provider_state_mut(provider);
+                provider_state.models = models;
+                provider_state.selected_model = None;
+                provider_state.install_status = Some(format!(
+                    "Se encontraron {} modelos para '{}'.",
+                    count, query
+                ));
+                state.persist_config();
+            }
+            Err(err) => {
+                let provider_state = state.provider_state_mut(provider);
+                provider_state.install_status = Some(format!("Fallo al buscar modelos: {}", err));
+            }
+        }
+    }
 
     ui.add_space(12.0);
 
-    if state.huggingface_models.is_empty() {
+    let (models, selected_model) = {
+        let provider_state = state.provider_state(provider);
+        (provider_state.models.clone(), provider_state.selected_model)
+    };
+
+    if models.is_empty() {
         ui.colored_label(
             theme::COLOR_TEXT_WEAK,
             "Busca un término para poblar la galería de modelos.",
@@ -912,11 +972,8 @@ fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
     } else {
         ui.horizontal(|ui| {
             ui.heading(
-                RichText::new(format!(
-                    "Galería de modelos ({} resultados)",
-                    state.huggingface_models.len()
-                ))
-                .color(theme::COLOR_TEXT_PRIMARY),
+                RichText::new(format!("Galería de modelos ({} resultados)", models.len()))
+                    .color(theme::COLOR_TEXT_PRIMARY),
             );
             ui.add_space(ui.available_width());
             ui.label(
@@ -926,41 +983,51 @@ fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
             );
         });
         ui.add_space(8.0);
-        draw_huggingface_gallery(ui, state);
+        draw_provider_gallery(ui, state, provider, &models, selected_model);
     }
 
     ui.add_space(12.0);
+    let installed: Vec<LocalModelIdentifier> = state
+        .installed_local_models
+        .iter()
+        .cloned()
+        .filter(|model| model.provider == provider)
+        .collect();
 
-    if state.installed_jarvis_models.is_empty() {
+    if installed.is_empty() {
         ui.colored_label(
             theme::COLOR_TEXT_WEAK,
-            "Todavía no hay modelos de Hugging Face instalados para Jarvis.",
+            "Todavía no hay modelos instalados desde este proveedor.",
         );
     } else {
         ui.label("Modelos instalados:");
         ui.add_space(4.0);
-        egui::Grid::new("installed_hf_models")
-            .num_columns(2)
+        egui::Grid::new(format!("installed_models_{}", provider.key()))
+            .num_columns(1)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
-                for model in &state.installed_jarvis_models {
-                    ui.label(RichText::new("•").color(theme::COLOR_PRIMARY));
-                    ui.label(RichText::new(model).color(theme::COLOR_TEXT_PRIMARY));
+                for model in installed {
+                    ui.label(RichText::new(model.display_label()).color(theme::COLOR_TEXT_PRIMARY));
                     ui.end_row();
                 }
             });
     }
 
-    if let Some(status) = &state.huggingface_install_status {
+    if let Some(status) = state.provider_state(provider).install_status.clone() {
         ui.add_space(10.0);
         ui.colored_label(theme::COLOR_TEXT_WEAK, status);
     }
 }
 
-fn draw_huggingface_gallery(ui: &mut egui::Ui, state: &mut AppState) {
+fn draw_provider_gallery(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    provider: LocalModelProvider,
+    models: &[LocalModelCard],
+    selected_model: Option<usize>,
+) {
     let columns = if ui.available_width() > 840.0 { 3 } else { 2 };
     let spacing = 16.0;
-    let models = state.huggingface_models.clone();
 
     egui::ScrollArea::vertical()
         .max_height(360.0)
@@ -981,14 +1048,21 @@ fn draw_huggingface_gallery(ui: &mut egui::Ui, state: &mut AppState) {
                             .allocate_at_least(egui::vec2(card_width, 190.0), egui::Sense::click());
                         let mut card_ui =
                             ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
-                        draw_model_card(&mut card_ui, state, model, index);
+                        draw_model_card(
+                            &mut card_ui,
+                            state,
+                            provider,
+                            model,
+                            index,
+                            selected_model == Some(index),
+                        );
 
                         if response.clicked() {
-                            state.selected_huggingface_model = Some(index);
+                            state.provider_state_mut(provider).selected_model = Some(index);
                         }
 
                         if response.double_clicked() {
-                            install_huggingface_model(state, index);
+                            install_local_model(state, provider, index);
                         }
                     }
 
@@ -1007,10 +1081,11 @@ fn draw_huggingface_gallery(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_model_card(
     ui: &mut egui::Ui,
     state: &mut AppState,
-    model: &crate::api::huggingface::HuggingFaceModelInfo,
+    provider: LocalModelProvider,
+    model: &LocalModelCard,
     index: usize,
+    is_selected: bool,
 ) {
-    let is_selected = state.selected_huggingface_model == Some(index);
     let premium = model.requires_token;
 
     let fill = if premium {
@@ -1083,6 +1158,15 @@ fn draw_model_card(
                     );
                 }
 
+                if let Some(description) = &model.description {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(description)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                }
+
                 let mut metrics = Vec::new();
                 if let Some(likes) = model.likes {
                     metrics.push(format!("❤ {}", format_count(likes)));
@@ -1115,61 +1199,265 @@ fn draw_model_card(
                     )
                     .clicked()
                 {
-                    install_huggingface_model(state, index);
+                    install_local_model(state, provider, index);
                 }
             });
         });
 }
 
-fn install_huggingface_model(state: &mut AppState, index: usize) {
-    if let Some(model) = state.huggingface_models.get(index).cloned() {
-        let install_dir = std::path::Path::new(&state.jarvis_install_dir);
-        let token = state
-            .huggingface_access_token
-            .as_ref()
-            .map(|token| token.as_str());
+fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index: usize) {
+    let (model, token) = {
+        let provider_state = state.provider_state(provider);
+        if let Some(model) = provider_state.models.get(index).cloned() {
+            (model, provider_state.access_token.clone())
+        } else {
+            return;
+        }
+    };
 
-        let status = match crate::api::huggingface::download_model(&model.id, install_dir, token) {
-            Ok(path) => {
-                if !state
-                    .installed_jarvis_models
-                    .iter()
-                    .any(|installed| installed == &model.id)
-                {
-                    state.installed_jarvis_models.push(model.id.clone());
-                }
+    debug_assert_eq!(model.provider, provider);
 
-                state.jarvis_active_model = Some(model.id.clone());
-                state.jarvis_runtime = None;
-                state.jarvis_model_path = path.display().to_string();
+    let status = match provider {
+        LocalModelProvider::HuggingFace => {
+            let install_dir = std::path::Path::new(&state.jarvis_install_dir);
+            match crate::api::huggingface::download_model(&model, install_dir, token.as_deref()) {
+                Ok(path) => {
+                    let identifier = LocalModelIdentifier::new(provider, &model.id);
+                    if !state
+                        .installed_local_models
+                        .iter()
+                        .any(|installed| installed == &identifier)
+                    {
+                        state.installed_local_models.push(identifier.clone());
+                    }
 
-                let mut message = format!("Modelo '{}' instalado en {}.", model.id, path.display());
+                    state.jarvis_selected_provider = provider;
+                    state.jarvis_active_model = Some(identifier.clone());
+                    state.jarvis_runtime = None;
+                    state.jarvis_model_path = path.display().to_string();
 
-                if state.jarvis_auto_start {
-                    match state.ensure_jarvis_runtime() {
-                        Ok(runtime) => {
-                            message.push_str(&format!(
-                                " Jarvis se recargó con {}.",
-                                runtime.model_label()
-                            ));
-                        }
-                        Err(err) => {
-                            message.push_str(&format!(
-                                " No se pudo reiniciar Jarvis automáticamente: {}.",
-                                err
-                            ));
+                    let mut message =
+                        format!("Modelo '{}' instalado en {}.", model.id, path.display());
+
+                    if state.jarvis_auto_start {
+                        match state.ensure_jarvis_runtime() {
+                            Ok(runtime) => {
+                                message.push_str(&format!(
+                                    " Jarvis se recargó con {}.",
+                                    runtime.model_label()
+                                ));
+                            }
+                            Err(err) => {
+                                message.push_str(&format!(
+                                    " No se pudo reiniciar Jarvis automáticamente: {}.",
+                                    err
+                                ));
+                            }
                         }
                     }
+
+                    state.persist_config();
+                    message
                 }
-
-                state.persist_config();
-                message
+                Err(err) => format!("Fallo al instalar '{}': {}", model.id, err),
             }
-            Err(err) => format!("Fallo al instalar '{}': {}", model.id, err),
-        };
+        }
+        LocalModelProvider::Ollama => {
+            match crate::api::ollama::pull_model(&model.id, token.as_deref()) {
+                Ok(()) => format!(
+                "Modelo '{}' preparado mediante Ollama. Usa el runtime de Ollama para servirlo.",
+                model.id
+            ),
+                Err(err) => format!("No se pudo preparar '{}' con Ollama: {}", model.id, err),
+            }
+        }
+        _ => format!(
+            "La instalación automática aún no está disponible para {}.",
+            provider.display_name()
+        ),
+    };
 
-        state.selected_huggingface_model = Some(index);
-        state.huggingface_install_status = Some(status);
+    let provider_state = state.provider_state_mut(provider);
+    provider_state.selected_model = Some(index);
+    provider_state.install_status = Some(status);
+}
+
+fn search_models_for_provider(
+    provider: LocalModelProvider,
+    query: &str,
+    token: Option<&str>,
+) -> Result<Vec<LocalModelCard>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    match provider {
+        LocalModelProvider::HuggingFace => crate::api::huggingface::search_models(trimmed, token),
+        LocalModelProvider::Ollama => crate::api::ollama::search_models(trimmed, token),
+        LocalModelProvider::OpenRouter => crate::api::openrouter::search_models(trimmed),
+        _ => {
+            let lowercase = trimmed.to_lowercase();
+            let catalog = sample_catalog(provider);
+            let filtered = catalog
+                .into_iter()
+                .filter(|card| {
+                    card.id.to_lowercase().contains(&lowercase)
+                        || card
+                            .description
+                            .as_ref()
+                            .map(|desc| desc.to_lowercase().contains(&lowercase))
+                            .unwrap_or(false)
+                })
+                .collect();
+            Ok(filtered)
+        }
+    }
+}
+
+fn sample_catalog(provider: LocalModelProvider) -> Vec<LocalModelCard> {
+    match provider {
+        LocalModelProvider::GithubModels => vec![
+            LocalModelCard {
+                provider,
+                id: "github/CodeLlama-34b".to_string(),
+                author: Some("GitHub".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["code".to_string(), "llama".to_string()],
+                description: Some(
+                    "Modelos experimentales de GitHub Models listos para desplegar en contenedores.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+            LocalModelCard {
+                provider,
+                id: "github/Phi-3-mini".to_string(),
+                author: Some("GitHub".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["chat".to_string(), "preview".to_string()],
+                description: Some(
+                    "Inferencia hospedada en GitHub Models compatible con la API de OpenAI.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+        ],
+        LocalModelProvider::Replicate => vec![
+            LocalModelCard {
+                provider,
+                id: "replicate/flux-dev".to_string(),
+                author: Some("Replicate".to_string()),
+                pipeline_tag: Some("image-to-image".to_string()),
+                tags: vec!["diffusion".to_string(), "vision".to_string()],
+                description: Some(
+                    "Modelos visuales populares de la comunidad de Replicate disponibles mediante API.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+            LocalModelCard {
+                provider,
+                id: "replicate/llama-3-70b-instruct".to_string(),
+                author: Some("Replicate".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["chat".to_string(), "meta".to_string()],
+                description: Some(
+                    "Versión alojada de Llama 3 para uso inmediato a través de Replicate API.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+        ],
+        LocalModelProvider::Ollama => vec![
+            LocalModelCard {
+                provider,
+                id: "ollama/llama3".to_string(),
+                author: Some("Ollama".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["local".to_string(), "chat".to_string()],
+                description: Some(
+                    "Modelos descargables mediante 'ollama pull' listos para ejecutarse en tu host.".
+                        to_string(),
+                ),
+                requires_token: false,
+                ..Default::default()
+            },
+            LocalModelCard {
+                provider,
+                id: "ollama/codellama".to_string(),
+                author: Some("Ollama".to_string()),
+                pipeline_tag: Some("code-generation".to_string()),
+                tags: vec!["code".to_string(), "local".to_string()],
+                description: Some(
+                    "Ejemplos de modelos que Ollama expone como imágenes portables para contenedores.".
+                        to_string(),
+                ),
+                requires_token: false,
+                ..Default::default()
+            },
+        ],
+        LocalModelProvider::OpenRouter => vec![
+            LocalModelCard {
+                provider,
+                id: "openrouter/google/gemini-pro".to_string(),
+                author: Some("OpenRouter".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["router".to_string(), "gemini".to_string()],
+                description: Some(
+                    "Agrega modelos de múltiples proveedores con una única API compatible con OpenAI.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+            LocalModelCard {
+                provider,
+                id: "openrouter/mistral/mixtral-8x7b".to_string(),
+                author: Some("OpenRouter".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["mixture-of-experts".to_string()],
+                description: Some(
+                    "Modelos orquestados por OpenRouter listos para su consumo mediante claves personales.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+        ],
+        LocalModelProvider::Modelscope => vec![
+            LocalModelCard {
+                provider,
+                id: "modelscope/Qwen1.5-14B-Chat".to_string(),
+                author: Some("ModelScope".to_string()),
+                pipeline_tag: Some("text-generation".to_string()),
+                tags: vec!["qwen".to_string(), "chat".to_string()],
+                description: Some(
+                    "Modelos del ecosistema ModelScope listos para descarga mediante su SDK oficial.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+            LocalModelCard {
+                provider,
+                id: "modelscope/speech_paraformer".to_string(),
+                author: Some("ModelScope".to_string()),
+                pipeline_tag: Some("automatic-speech-recognition".to_string()),
+                tags: vec!["audio".to_string(), "asr".to_string()],
+                description: Some(
+                    "Ejemplos de pipelines de voz disponibles a través del hub de ModelScope.".
+                        to_string(),
+                ),
+                requires_token: true,
+                ..Default::default()
+            },
+        ],
+        LocalModelProvider::HuggingFace => Vec::new(),
     }
 }
 
@@ -1268,23 +1556,78 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
         state.persist_config();
     }
 
-    if state.installed_jarvis_models.is_empty() {
+    if state.installed_local_models.is_empty() {
         ui.colored_label(
             theme::COLOR_TEXT_WEAK,
             "Instala un modelo desde Hugging Face para habilitar Jarvis.",
         );
     } else {
-        let mut selected_model = state.jarvis_active_model.clone();
+        let mut provider = state.jarvis_selected_provider;
+        let available_providers: Vec<LocalModelProvider> = state
+            .installed_local_models
+            .iter()
+            .map(|model| model.provider)
+            .collect();
+
+        if !available_providers.contains(&provider) {
+            provider = state
+                .installed_local_models
+                .first()
+                .map(|model| model.provider)
+                .unwrap_or(LocalModelProvider::HuggingFace);
+        }
+
+        egui::ComboBox::from_label("Proveedor local")
+            .selected_text(provider.display_name().to_string())
+            .show_ui(ui, |ui| {
+                for candidate in LocalModelProvider::ALL {
+                    if available_providers.contains(&candidate) {
+                        ui.selectable_value(&mut provider, candidate, candidate.display_name());
+                    }
+                }
+            });
+
+        if provider != state.jarvis_selected_provider {
+            state.jarvis_selected_provider = provider;
+            if state
+                .jarvis_active_model
+                .as_ref()
+                .map(|model| model.provider)
+                != Some(provider)
+            {
+                state.jarvis_active_model = None;
+            }
+            state.persist_config();
+        }
+
+        let available_models: Vec<LocalModelIdentifier> = state
+            .installed_local_models
+            .iter()
+            .cloned()
+            .filter(|model| model.provider == provider)
+            .collect();
+
+        let mut selected_model = state
+            .jarvis_active_model
+            .as_ref()
+            .filter(|model| model.provider == provider)
+            .cloned();
+
         let current_label = selected_model
-            .clone()
+            .as_ref()
+            .map(|model| model.display_label())
             .unwrap_or_else(|| "Selecciona un modelo instalado".to_string());
 
         egui::ComboBox::from_label("Modelo local activo")
             .selected_text(current_label)
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut selected_model, None, "— Sin modelo —");
-                for model in &state.installed_jarvis_models {
-                    ui.selectable_value(&mut selected_model, Some(model.clone()), model);
+                for model in &available_models {
+                    ui.selectable_value(
+                        &mut selected_model,
+                        Some(model.clone()),
+                        model.display_label(),
+                    );
                 }
             });
 
@@ -1292,12 +1635,14 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             state.jarvis_active_model = selected_model.clone();
             state.jarvis_runtime = None;
 
-            if let Some(model_id) = selected_model {
-                let sanitized = model_id.replace('/', "_");
-                let path = std::path::Path::new(&state.jarvis_install_dir).join(sanitized);
+            if let Some(model) = selected_model {
+                let path = std::path::Path::new(&state.jarvis_install_dir)
+                    .join(model.sanitized_dir_name());
                 state.jarvis_model_path = path.display().to_string();
-                state.jarvis_status =
-                    Some(format!("Modelo '{}' seleccionado para Jarvis.", model_id));
+                state.jarvis_status = Some(format!(
+                    "Modelo '{}' seleccionado para Jarvis.",
+                    model.display_label()
+                ));
 
                 if state.jarvis_auto_start {
                     match state.ensure_jarvis_runtime() {
@@ -1308,7 +1653,8 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                         Err(err) => {
                             state.jarvis_status = Some(format!(
                                 "No se pudo iniciar Jarvis con {}: {}.",
-                                model_id, err
+                                model.display_label(),
+                                err
                             ));
                         }
                     }

@@ -186,7 +186,7 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
         return led_from_message(status);
     }
 
-    if state.installed_jarvis_models.is_empty() {
+    if state.installed_local_models.is_empty() {
         StatusIndicator::Led {
             color: COLOR_WARNING,
             status: "Sin modelos instalados".to_string(),
@@ -194,16 +194,16 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
     } else {
         StatusIndicator::Led {
             color: theme::COLOR_SUCCESS,
-            status: format!("{} modelos listos", state.installed_jarvis_models.len()),
+            status: format!("{} modelos listos", state.installed_local_models.len()),
         }
     }
 }
 
 fn jarvis_detail(state: &AppState) -> String {
-    if let Some(model_id) = &state.jarvis_active_model {
+    if let Some(model) = &state.jarvis_active_model {
         let trimmed_path = state.jarvis_model_path.trim();
         if trimmed_path.is_empty() {
-            return format!("Modelo {} · ruta sin configurar", model_id);
+            return format!("{} · ruta sin configurar", model.display_label());
         }
 
         let path = Path::new(trimmed_path);
@@ -213,7 +213,7 @@ fn jarvis_detail(state: &AppState) -> String {
             .map(|name| name.to_string())
             .unwrap_or_else(|| trimmed_path.to_string());
 
-        format!("Modelo {} · {}", model_id, display)
+        format!("{} · {}", model.display_label(), display)
     } else if state.jarvis_model_path.trim().is_empty() {
         "Sin modelo seleccionado".to_string()
     } else {

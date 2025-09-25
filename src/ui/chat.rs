@@ -42,11 +42,23 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
 
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available = ui.available_size();
-    ui.set_min_size(available);
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+    let (rect, _) = ui.allocate_exact_size(available, egui::Sense::hover());
+    let mut content_ui = ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
+    content_ui.set_clip_rect(rect);
+
+    content_ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
         draw_chat_input(ui, state);
         ui.add_space(16.0);
-        draw_chat_history(ui, state);
+
+        let history_height = ui.available_height().max(0.0);
+        let history_width = ui.available_width();
+        if history_height > 0.0 && history_width > 0.0 {
+            ui.allocate_ui(egui::vec2(history_width, history_height), |ui| {
+                draw_chat_history(ui, state);
+            });
+        } else {
+            draw_chat_history(ui, state);
+        }
     });
 }
 
@@ -75,7 +87,6 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
-    let available_height = ui.available_height().max(260.0);
     let mut pending_actions = Vec::new();
 
     egui::Frame::none()
@@ -84,6 +95,9 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
         .rounding(egui::Rounding::same(16.0))
         .inner_margin(egui::Margin::symmetric(20.0, 18.0))
         .show(ui, |ui| {
+            let available_height = ui.available_height();
+            let available_width = ui.available_width();
+            ui.set_width(available_width);
             ui.set_min_height(available_height);
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)

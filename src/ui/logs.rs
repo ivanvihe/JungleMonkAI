@@ -49,10 +49,11 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
                         TableBuilder::new(ui)
                             .striped(false)
                             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .column(Column::exact(48.0))
-                            .column(Column::exact(150.0))
-                            .column(Column::remainder())
-                            .column(Column::exact(120.0))
+                            .column(Column::initial(64.0).resizable(true))
+                            .column(Column::initial(160.0).resizable(true))
+                            .column(Column::remainder().resizable(true))
+                            .column(Column::initial(140.0).resizable(true))
+                            .resizable(true)
                             .header(28.0, |mut header| {
                                 header.col(|ui| {
                                     paint_header_cell(ui, header_bg);

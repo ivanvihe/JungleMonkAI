@@ -40,61 +40,64 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let header_bg = egui::Color32::from_rgb(36, 36, 36);
-                        let row_even = egui::Color32::from_rgb(38, 38, 38);
-                        let row_odd = egui::Color32::from_rgb(46, 46, 46);
+                        let header_bg = egui::Color32::from_rgb(40, 42, 48);
+                        let row_even = egui::Color32::from_rgb(36, 38, 44);
+                        let row_odd = egui::Color32::from_rgb(32, 34, 40);
+
+                        ui.set_width(ui.available_width());
 
                         TableBuilder::new(ui)
                             .striped(false)
                             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                            .column(Column::exact(36.0))
-                            .column(Column::exact(120.0))
+                            .column(Column::exact(48.0))
+                            .column(Column::exact(150.0))
                             .column(Column::remainder())
                             .column(Column::exact(120.0))
-                            .header(24.0, |mut header| {
+                            .header(28.0, |mut header| {
                                 header.col(|ui| {
-                                    ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
+                                    paint_header_cell(ui, header_bg);
                                     ui.label(RichText::new("Estado").color(theme::COLOR_TEXT_WEAK));
                                 });
                                 header.col(|ui| {
-                                    ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
+                                    paint_header_cell(ui, header_bg);
                                     ui.label(RichText::new("Origen").color(theme::COLOR_TEXT_WEAK));
                                 });
                                 header.col(|ui| {
-                                    ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
+                                    paint_header_cell(ui, header_bg);
                                     ui.label(
                                         RichText::new("Detalle").color(theme::COLOR_TEXT_WEAK),
                                     );
                                 });
                                 header.col(|ui| {
-                                    ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
+                                    paint_header_cell(ui, header_bg);
                                     ui.label(RichText::new("Hora").color(theme::COLOR_TEXT_WEAK));
                                 });
                             })
                             .body(|mut body| {
                                 for (index, entry) in state.activity_logs.iter().enumerate() {
                                     let bg = if index % 2 == 0 { row_even } else { row_odd };
-                                    body.row(26.0, |mut row| {
+                                    body.row(28.0, |mut row| {
                                         row.col(|ui| {
-                                            ui.painter().rect_filled(ui.max_rect(), 0.0, bg);
+                                            paint_cell(ui, bg);
                                             ui.label(status_badge(entry.status));
                                         });
                                         row.col(|ui| {
-                                            ui.painter().rect_filled(ui.max_rect(), 0.0, bg);
+                                            paint_cell(ui, bg);
                                             ui.label(
                                                 RichText::new(&entry.source)
-                                                    .color(theme::COLOR_TEXT_PRIMARY),
+                                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                                    .strong(),
                                             );
                                         });
                                         row.col(|ui| {
-                                            ui.painter().rect_filled(ui.max_rect(), 0.0, bg);
+                                            paint_cell(ui, bg);
                                             ui.label(
                                                 RichText::new(&entry.message)
                                                     .color(theme::COLOR_TEXT_PRIMARY),
                                             );
                                         });
                                         row.col(|ui| {
-                                            ui.painter().rect_filled(ui.max_rect(), 0.0, bg);
+                                            paint_cell(ui, bg);
                                             ui.label(
                                                 RichText::new(&entry.timestamp)
                                                     .color(theme::COLOR_TEXT_WEAK),
@@ -157,4 +160,16 @@ fn status_badge(status: LogStatus) -> RichText {
         LogStatus::Error => RichText::new("❌ Error").color(theme::COLOR_DANGER),
         LogStatus::Running => RichText::new("⏳ En curso").color(theme::COLOR_PRIMARY),
     }
+}
+
+fn paint_header_cell(ui: &mut egui::Ui, color: egui::Color32) {
+    let rect = ui.max_rect();
+    ui.painter()
+        .rect_filled(rect, egui::Rounding::same(6.0), color);
+}
+
+fn paint_cell(ui: &mut egui::Ui, color: egui::Color32) {
+    let rect = ui.max_rect();
+    ui.painter()
+        .rect_filled(rect, egui::Rounding::same(4.0), color);
 }

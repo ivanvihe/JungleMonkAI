@@ -4,6 +4,28 @@ use eframe::egui::{self, Color32, RichText};
 
 use super::theme;
 
+const ICON_USER: &str = "\u{f007}"; // user
+const ICON_SYSTEM: &str = "\u{f085}"; // cogs
+const ICON_ASSISTANT: &str = "\u{f544}"; // robot
+const ICON_CLOCK: &str = "\u{f017}"; // clock
+const ICON_COPY: &str = "\u{f0c5}"; // copy
+const ICON_QUOTE: &str = "\u{f10e}"; // quote-right
+const ICON_PIN: &str = "\u{f08d}"; // thumb-tack
+const ICON_SEND: &str = "\u{f1d8}"; // paper-plane
+const ICON_CODE: &str = "\u{f121}"; // code
+const ICON_PREMIUM: &str = "\u{f521}"; // crown
+const ICON_FREE: &str = "\u{f06b}"; // gift
+const ICON_DOWNLOAD: &str = "\u{f019}"; // download
+
+const QUICK_MENTIONS: [(&str, &str); 3] =
+    [("@claude", "@claude"), ("@gpt", "@gpt"), ("@groq", "@groq")];
+
+enum PendingChatAction {
+    Mention(String),
+    Quote(String),
+    Reuse(String),
+}
+
 pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
     egui::CentralPanel::default()
         .frame(
@@ -19,9 +41,13 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
 }
 
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
-    draw_chat_history(ui, state);
-    ui.add_space(12.0);
-    draw_chat_input(ui, state);
+    let available = ui.available_size();
+    ui.set_min_size(available);
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+        draw_chat_input(ui, state);
+        ui.add_space(16.0);
+        draw_chat_history(ui, state);
+    });
 }
 
 fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
@@ -49,122 +75,317 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
-    let max_height = (ui.available_height() * 0.55).max(220.0);
+    let available_height = ui.available_height().max(260.0);
+    let mut pending_actions = Vec::new();
+
     egui::Frame::none()
-        .fill(Color32::from_rgb(30, 30, 30))
+        .fill(Color32::from_rgb(26, 28, 32))
         .stroke(theme::subtle_border())
-        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+        .rounding(egui::Rounding::same(16.0))
+        .inner_margin(egui::Margin::symmetric(20.0, 18.0))
         .show(ui, |ui| {
+            ui.set_min_height(available_height);
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
-                .max_height(max_height)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for message in &state.chat_messages {
-                        ui.add_space(6.0);
-                        let (bg_fill, icon, align_right) = if message.sender == "User" {
-                            (Color32::from_rgb(36, 52, 72), "🧑", true)
-                        } else if message.sender == "System" {
-                            (Color32::from_rgb(36, 36, 36), "🛠", false)
-                        } else {
-                            (Color32::from_rgb(38, 38, 38), "🤖", false)
-                        };
-
-                        let layout = if align_right {
-                            egui::Layout::right_to_left(egui::Align::TOP)
-                        } else {
-                            egui::Layout::left_to_right(egui::Align::TOP)
-                        };
-
-                        ui.with_layout(layout, |ui| {
-                            egui::Frame::none()
-                                .fill(bg_fill)
-                                .stroke(theme::subtle_border())
-                                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new(icon).color(theme::COLOR_TEXT_WEAK));
-                                        if message.sender != "User" {
-                                            ui.label(
-                                                RichText::new(format!("{}", message.sender))
-                                                    .strong()
-                                                    .color(theme::COLOR_TEXT_PRIMARY),
-                                            );
-                                        }
-                                        ui.label(
-                                            RichText::new(&message.text)
-                                                .color(theme::COLOR_TEXT_PRIMARY),
-                                        );
-                                    });
-                                });
-                        });
+                    ui.set_width(ui.available_width());
+                    for (index, message) in state.chat_messages.iter().enumerate() {
+                        draw_message_bubble(ui, message, index, &mut pending_actions);
                     }
                 });
         });
+
+    apply_pending_actions(state, pending_actions);
+}
+
+fn draw_message_bubble(
+    ui: &mut egui::Ui,
+    message: &ChatMessage,
+    index: usize,
+    pending_actions: &mut Vec<PendingChatAction>,
+) {
+    ui.add_space(if index == 0 { 0.0 } else { 10.0 });
+
+    let is_user = message.sender == "User";
+    let is_system = message.sender == "System";
+    let (background, border, icon, accent) = if is_user {
+        (
+            Color32::from_rgb(34, 48, 70),
+            Color32::from_rgb(62, 120, 192),
+            ICON_USER,
+            Color32::from_rgb(130, 180, 240),
+        )
+    } else if is_system {
+        (
+            Color32::from_rgb(36, 36, 36),
+            Color32::from_rgb(88, 88, 88),
+            ICON_SYSTEM,
+            Color32::from_rgb(200, 200, 200),
+        )
+    } else {
+        (
+            Color32::from_rgb(30, 36, 46),
+            Color32::from_rgb(70, 110, 180),
+            ICON_ASSISTANT,
+            Color32::from_rgb(150, 200, 255),
+        )
+    };
+
+    let layout = if is_user {
+        egui::Layout::right_to_left(egui::Align::TOP)
+    } else {
+        egui::Layout::left_to_right(egui::Align::TOP)
+    };
+
+    ui.with_layout(layout, |ui| {
+        let bubble_width = ui.available_width().clamp(320.0, 640.0);
+        let frame = egui::Frame::none()
+            .fill(background)
+            .stroke(egui::Stroke::new(1.4, border))
+            .rounding(egui::Rounding::same(14.0))
+            .inner_margin(egui::Margin::same(16.0));
+
+        let response = frame.show(ui, |ui| {
+            ui.set_width(bubble_width);
+            ui.vertical(|ui| {
+                draw_message_header(ui, message, icon, accent, pending_actions);
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(&message.text)
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .size(15.0),
+                );
+            });
+        });
+
+        if response.response.double_clicked() && !is_user {
+            pending_actions.push(PendingChatAction::Mention(format!(
+                "@{}",
+                message.sender.to_lowercase()
+            )));
+        }
+    });
+}
+
+fn draw_message_header(
+    ui: &mut egui::Ui,
+    message: &ChatMessage,
+    icon: &str,
+    accent: Color32,
+    pending_actions: &mut Vec<PendingChatAction>,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.label(
+            RichText::new(icon)
+                .font(theme::icon_font(16.0))
+                .color(accent),
+        );
+        let sender_label = if message.sender == "User" {
+            "Tú"
+        } else {
+            &message.sender
+        };
+        ui.label(
+            RichText::new(sender_label)
+                .strong()
+                .color(theme::COLOR_TEXT_PRIMARY),
+        );
+        ui.label(
+            RichText::new(ICON_CLOCK)
+                .font(theme::icon_font(12.0))
+                .color(theme::COLOR_TEXT_WEAK),
+        );
+        ui.label(
+            RichText::new(&message.timestamp)
+                .italics()
+                .size(12.0)
+                .color(theme::COLOR_TEXT_WEAK),
+        );
+        ui.add_space(ui.available_width());
+        draw_message_actions(ui, message, pending_actions);
+    });
+}
+
+fn draw_message_actions(
+    ui: &mut egui::Ui,
+    message: &ChatMessage,
+    pending_actions: &mut Vec<PendingChatAction>,
+) {
+    if message_action_button(ui, ICON_COPY, "Copiar mensaje al portapapeles").clicked() {
+        let text = message.text.clone();
+        ui.output_mut(|out| out.copied_text = text);
+    }
+
+    if message_action_button(ui, ICON_QUOTE, "Citar mensaje en el input").clicked() {
+        let mut quoted = message
+            .text
+            .lines()
+            .map(|line| format!("> {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        quoted.push_str("\n\n");
+        pending_actions.push(PendingChatAction::Quote(quoted));
+    }
+
+    if message_action_button(ui, ICON_PIN, "Reutilizar este mensaje").clicked() {
+        pending_actions.push(PendingChatAction::Reuse(message.text.clone()));
+    }
+}
+
+fn message_action_button(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
+    let button = egui::Button::new(
+        RichText::new(icon)
+            .font(theme::icon_font(13.0))
+            .color(Color32::from_rgb(230, 230, 230)),
+    )
+    .min_size(egui::vec2(30.0, 26.0))
+    .fill(Color32::from_rgb(44, 46, 54))
+    .rounding(egui::Rounding::same(6.0));
+
+    let response = ui.add(button);
+    response.on_hover_text(tooltip)
+}
+
+fn apply_pending_actions(state: &mut AppState, actions: Vec<PendingChatAction>) {
+    for action in actions {
+        match action {
+            PendingChatAction::Mention(tag) => insert_mention(state, &tag),
+            PendingChatAction::Quote(text) => {
+                if !state.current_chat_input.ends_with('\n') && !state.current_chat_input.is_empty()
+                {
+                    state.current_chat_input.push('\n');
+                }
+                state.current_chat_input.push_str(&text);
+            }
+            PendingChatAction::Reuse(text) => state.current_chat_input = text,
+        }
+    }
 }
 
 fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(34, 34, 34))
+        .fill(Color32::from_rgb(24, 26, 32))
         .stroke(theme::subtle_border())
-        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+        .rounding(egui::Rounding::same(16.0))
+        .inner_margin(egui::Margin::symmetric(20.0, 18.0))
         .show(ui, |ui| {
-            let spacing = 10.0;
-            ui.spacing_mut().item_spacing.x = spacing;
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    for (mention, label) in QUICK_MENTIONS {
+                        if quick_chip(ui, label).clicked() {
+                            insert_mention(state, mention);
+                        }
+                    }
 
-            let send_button_width = 120.0;
-            let control_height = 32.0;
-            let text_width = (ui.available_width() - send_button_width - spacing).max(200.0);
+                    ui.add_space(ui.available_width());
 
-            let mut should_send = false;
+                    if quick_chip_with_icon(ui, ICON_CODE, "Insertar bloque de código").clicked() {
+                        insert_code_template(state);
+                    }
+                });
 
-            ui.horizontal(|ui| {
-                let text_edit = egui::TextEdit::singleline(&mut state.current_chat_input)
-                    .hint_text("Escribe tu mensaje o comando...")
-                    .desired_width(f32::INFINITY);
+                ui.add_space(10.0);
 
-                let response = ui.add_sized([text_width, control_height], text_edit);
-                if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                    should_send = true;
-                    ui.memory_mut(|mem| mem.request_focus(response.id));
-                }
+                let mut should_send = false;
 
-                let send_button = theme::primary_button(
-                    RichText::new("➤ Enviar").color(Color32::from_rgb(240, 240, 240)),
-                )
-                .min_size(egui::vec2(send_button_width, control_height));
+                ui.horizontal(|ui| {
+                    let button_width = 96.0;
+                    let available_width = ui.available_width();
+                    let text_width = (available_width - button_width - 12.0).max(200.0);
 
-                if ui.add(send_button).clicked() {
-                    should_send = true;
+                    let text_edit = egui::TextEdit::multiline(&mut state.current_chat_input)
+                        .desired_rows(3)
+                        .hint_text(
+                            "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
+                        )
+                        .lock_focus(true)
+                        .desired_width(f32::INFINITY)
+                        .frame(false);
+
+                    let text_frame = egui::Frame::none()
+                        .fill(Color32::from_rgb(30, 32, 38))
+                        .stroke(theme::subtle_border())
+                        .rounding(egui::Rounding::same(12.0))
+                        .inner_margin(egui::Margin::same(14.0));
+
+                    let text_response = text_frame
+                        .show(ui, |ui| ui.add_sized([text_width, 90.0], text_edit))
+                        .inner;
+
+                    let enter_pressed = ui.input(|input| {
+                        input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
+                    });
+
+                    if text_response.has_focus() && enter_pressed {
+                        should_send = true;
+                        ui.memory_mut(|mem| mem.request_focus(text_response.id));
+                    }
+
+                    ui.add_space(12.0);
+
+                    let (send_rect, send_response) = ui
+                        .allocate_exact_size(egui::vec2(button_width, 90.0), egui::Sense::click());
+                    let send_fill = if send_response.hovered() {
+                        Color32::from_rgb(58, 140, 232)
+                    } else {
+                        Color32::from_rgb(46, 112, 196)
+                    };
+                    let painter = ui.painter_at(send_rect);
+                    painter.rect_filled(send_rect, egui::Rounding::same(12.0), send_fill);
+                    painter.rect_stroke(
+                        send_rect,
+                        egui::Rounding::same(12.0),
+                        theme::subtle_border(),
+                    );
+                    painter.text(
+                        send_rect.center() - egui::vec2(0.0, 14.0),
+                        egui::Align2::CENTER_CENTER,
+                        ICON_SEND,
+                        theme::icon_font(20.0),
+                        Color32::from_rgb(240, 240, 240),
+                    );
+                    painter.text(
+                        send_rect.center() + egui::vec2(0.0, 16.0),
+                        egui::Align2::CENTER_CENTER,
+                        "Enviar",
+                        egui::FontId::proportional(14.0),
+                        Color32::from_rgb(240, 240, 240),
+                    );
+
+                    if send_response.clicked() {
+                        should_send = true;
+                    }
+                });
+
+                if should_send {
+                    submit_chat_message(state);
                 }
             });
-
-            if should_send {
-                submit_chat_message(state);
-            }
         });
 }
 
 fn submit_chat_message(state: &mut AppState) {
-    if state.current_chat_input.trim().is_empty() {
+    let trimmed = state.current_chat_input.trim();
+    if trimmed.is_empty() {
         state.current_chat_input.clear();
         return;
     }
 
-    let input = state.current_chat_input.trim().to_string();
+    let mut input = trimmed.to_string();
+    while input.ends_with('\n') {
+        input.pop();
+    }
     state.current_chat_input.clear();
 
     if input.starts_with('/') {
-        state.chat_messages.push(ChatMessage {
-            sender: "User".to_string(),
-            text: input.clone(),
-        });
+        state.chat_messages.push(ChatMessage::user(input.clone()));
         state.handle_command(input);
     } else {
-        state.chat_messages.push(ChatMessage {
-            sender: "User".to_string(),
-            text: input.clone(),
-        });
+        state.chat_messages.push(ChatMessage::user(input.clone()));
         state.try_route_provider_message(&input);
     }
 }
@@ -580,101 +801,371 @@ fn draw_local_huggingface(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        if ui
-            .add(
-                egui::TextEdit::singleline(&mut state.huggingface_search_query)
-                    .hint_text("Search models, e.g. whisper"),
-            )
-            .changed()
-        {
-            state.persist_config();
-        }
-        if ui.button("Search").clicked() {
-            match crate::api::huggingface::search_models(
-                &state.huggingface_search_query,
-                state
-                    .huggingface_access_token
-                    .as_ref()
-                    .map(|token| token.as_str()),
-            ) {
-                Ok(models) => {
-                    state.huggingface_models = models;
-                    state.huggingface_install_status = Some(format!(
-                        "Found {} models for query '{}'.",
-                        state.huggingface_models.len(),
-                        state.huggingface_search_query
-                    ));
-                    state.selected_huggingface_model = None;
+    egui::Frame::none()
+        .fill(Color32::from_rgb(30, 32, 36))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let button_width = 120.0;
+                let text_width = (ui.available_width() - button_width - 12.0).max(240.0);
+                let search_edit = egui::TextEdit::singleline(&mut state.huggingface_search_query)
+                    .hint_text("Busca modelos, ej. whisper, mistral, diffusion")
+                    .desired_width(f32::INFINITY);
+                let response = ui.add_sized([text_width, 30.0], search_edit);
+                if response.changed() {
                     state.persist_config();
                 }
-                Err(err) => {
-                    state.huggingface_install_status =
-                        Some(format!("Failed to search models: {}", err));
+
+                let search_label = RichText::new("Buscar").color(Color32::from_rgb(240, 240, 240));
+                if ui
+                    .add_sized([button_width, 32.0], theme::primary_button(search_label))
+                    .clicked()
+                {
+                    match crate::api::huggingface::search_models(
+                        &state.huggingface_search_query,
+                        state
+                            .huggingface_access_token
+                            .as_ref()
+                            .map(|token| token.as_str()),
+                    ) {
+                        Ok(models) => {
+                            state.huggingface_models = models;
+                            state.huggingface_install_status = Some(format!(
+                                "Se encontraron {} modelos para '{}'.",
+                                state.huggingface_models.len(),
+                                state.huggingface_search_query
+                            ));
+                            state.selected_huggingface_model = None;
+                            state.persist_config();
+                        }
+                        Err(err) => {
+                            state.huggingface_install_status =
+                                Some(format!("Fallo al buscar modelos: {}", err));
+                        }
+                    }
                 }
-            }
-        }
-    });
-
-    let combo_label = state
-        .selected_huggingface_model
-        .and_then(|idx| state.huggingface_models.get(idx))
-        .cloned()
-        .unwrap_or_else(|| "Select a model".to_string());
-
-    egui::ComboBox::from_label("Available models")
-        .selected_text(combo_label)
-        .show_ui(ui, |ui| {
-            for (idx, model) in state.huggingface_models.iter().enumerate() {
-                ui.selectable_value(&mut state.selected_huggingface_model, Some(idx), model);
-            }
+            });
         });
 
-    if ui.button("Install model").clicked() {
-        let status = if let Some(idx) = state.selected_huggingface_model {
-            if let Some(model) = state.huggingface_models.get(idx).cloned() {
-                let install_dir = std::path::Path::new(&state.jarvis_install_dir);
-                let token = state
-                    .huggingface_access_token
-                    .as_ref()
-                    .map(|token| token.as_str());
-                match crate::api::huggingface::download_model(&model, install_dir, token) {
-                    Ok(path) => {
-                        if !state.installed_jarvis_models.contains(&model) {
-                            state.installed_jarvis_models.push(model.clone());
-                        }
-                        state.persist_config();
-                        format!("Model '{}' installed at {}.", model, path.display())
-                    }
-                    Err(err) => format!("Failed to install '{}': {}", model, err),
-                }
-            } else {
-                "Select a model to install.".to_string()
-            }
-        } else {
-            "Select a model to install.".to_string()
-        };
+    ui.add_space(12.0);
 
-        state.huggingface_install_status = Some(status);
-    }
-
-    if state.installed_jarvis_models.is_empty() {
-        ui.add_space(6.0);
+    if state.huggingface_models.is_empty() {
         ui.colored_label(
-            ui.visuals().weak_text_color(),
-            "No Hugging Face models installed for Jarvis yet.",
+            theme::COLOR_TEXT_WEAK,
+            "Busca un término para poblar la galería de modelos.",
         );
     } else {
-        ui.add_space(6.0);
-        ui.label("Installed models:");
-        for model in &state.installed_jarvis_models {
-            ui.label(format!("• {}", model));
-        }
+        ui.horizontal(|ui| {
+            ui.heading(
+                RichText::new(format!(
+                    "Galería de modelos ({} resultados)",
+                    state.huggingface_models.len()
+                ))
+                .color(theme::COLOR_TEXT_PRIMARY),
+            );
+            ui.add_space(ui.available_width());
+            ui.label(
+                RichText::new("Clic en una tarjeta para seleccionarla o instalarla.")
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .size(12.0),
+            );
+        });
+        ui.add_space(8.0);
+        draw_huggingface_gallery(ui, state);
+    }
+
+    ui.add_space(12.0);
+
+    if state.installed_jarvis_models.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Todavía no hay modelos de Hugging Face instalados para Jarvis.",
+        );
+    } else {
+        ui.label("Modelos instalados:");
+        ui.add_space(4.0);
+        egui::Grid::new("installed_hf_models")
+            .num_columns(2)
+            .spacing([12.0, 6.0])
+            .show(ui, |ui| {
+                for model in &state.installed_jarvis_models {
+                    ui.label(RichText::new("•").color(theme::COLOR_PRIMARY));
+                    ui.label(RichText::new(model).color(theme::COLOR_TEXT_PRIMARY));
+                    ui.end_row();
+                }
+            });
     }
 
     if let Some(status) = &state.huggingface_install_status {
-        ui.add_space(6.0);
-        ui.colored_label(ui.visuals().weak_text_color(), status);
+        ui.add_space(10.0);
+        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+    }
+}
+
+fn draw_huggingface_gallery(ui: &mut egui::Ui, state: &mut AppState) {
+    let columns = if ui.available_width() > 840.0 { 3 } else { 2 };
+    let spacing = 16.0;
+    let models = state.huggingface_models.clone();
+
+    egui::ScrollArea::vertical()
+        .max_height(360.0)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let available_width = ui.available_width();
+            let card_width = ((available_width - spacing * ((columns as f32) - 1.0))
+                / columns as f32)
+                .max(240.0);
+
+            let mut base_index = 0usize;
+            for chunk in models.chunks(columns) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = spacing;
+                    for (offset, model) in chunk.iter().enumerate() {
+                        let index = base_index + offset;
+                        let (rect, response) = ui
+                            .allocate_at_least(egui::vec2(card_width, 190.0), egui::Sense::click());
+                        let mut card_ui =
+                            ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
+                        draw_model_card(&mut card_ui, state, model, index);
+
+                        if response.clicked() {
+                            state.selected_huggingface_model = Some(index);
+                        }
+
+                        if response.double_clicked() {
+                            install_huggingface_model(state, index);
+                        }
+                    }
+
+                    if chunk.len() < columns {
+                        for _ in chunk.len()..columns {
+                            ui.add_space(card_width);
+                        }
+                    }
+                });
+                ui.add_space(spacing);
+                base_index += chunk.len();
+            }
+        });
+}
+
+fn draw_model_card(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    model: &crate::api::huggingface::HuggingFaceModelInfo,
+    index: usize,
+) {
+    let is_selected = state.selected_huggingface_model == Some(index);
+    let premium = model.requires_token;
+
+    let fill = if premium {
+        Color32::from_rgb(48, 36, 56)
+    } else {
+        Color32::from_rgb(34, 38, 44)
+    };
+    let border = if is_selected {
+        theme::COLOR_PRIMARY
+    } else if premium {
+        Color32::from_rgb(182, 134, 242)
+    } else {
+        Color32::from_rgb(70, 80, 96)
+    };
+
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(egui::Stroke::new(
+            if is_selected { 2.0 } else { 1.0 },
+            border,
+        ))
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let badge_icon = if premium { ICON_PREMIUM } else { ICON_FREE };
+                    let badge_color = if premium {
+                        Color32::from_rgb(255, 214, 102)
+                    } else {
+                        Color32::from_rgb(108, 214, 148)
+                    };
+                    ui.label(
+                        RichText::new(badge_icon)
+                            .font(theme::icon_font(15.0))
+                            .color(badge_color),
+                    );
+                    ui.label(
+                        RichText::new(&model.id)
+                            .strong()
+                            .color(theme::COLOR_TEXT_PRIMARY),
+                    );
+                });
+
+                if let Some(author) = &model.author {
+                    ui.label(
+                        RichText::new(format!("Autor: {}", author))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                }
+
+                if let Some(pipeline) = &model.pipeline_tag {
+                    ui.label(
+                        RichText::new(format!("Pipeline: {}", pipeline))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                }
+
+                if !model.tags.is_empty() {
+                    let tags: Vec<&str> =
+                        model.tags.iter().take(3).map(|tag| tag.as_str()).collect();
+                    ui.label(
+                        RichText::new(format!("Etiquetas: {}", tags.join(", ")))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                }
+
+                let mut metrics = Vec::new();
+                if let Some(likes) = model.likes {
+                    metrics.push(format!("❤ {}", format_count(likes)));
+                }
+                if let Some(downloads) = model.downloads {
+                    metrics.push(format!("⬇ {}", format_count(downloads)));
+                }
+                if !metrics.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(metrics.join("  · "))
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(12.0),
+                    );
+                }
+
+                ui.add_space(8.0);
+
+                let button_label = if premium {
+                    format!("{} Instalar (token)", ICON_DOWNLOAD)
+                } else {
+                    format!("{} Instalar", ICON_DOWNLOAD)
+                };
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 30.0],
+                        theme::primary_button(
+                            RichText::new(button_label).color(Color32::from_rgb(240, 240, 240)),
+                        ),
+                    )
+                    .clicked()
+                {
+                    install_huggingface_model(state, index);
+                }
+            });
+        });
+}
+
+fn install_huggingface_model(state: &mut AppState, index: usize) {
+    if let Some(model) = state.huggingface_models.get(index).cloned() {
+        let install_dir = std::path::Path::new(&state.jarvis_install_dir);
+        let token = state
+            .huggingface_access_token
+            .as_ref()
+            .map(|token| token.as_str());
+
+        let status = match crate::api::huggingface::download_model(&model.id, install_dir, token) {
+            Ok(path) => {
+                if !state
+                    .installed_jarvis_models
+                    .iter()
+                    .any(|installed| installed == &model.id)
+                {
+                    state.installed_jarvis_models.push(model.id.clone());
+                }
+                state.persist_config();
+                format!("Modelo '{}' instalado en {}.", model.id, path.display())
+            }
+            Err(err) => format!("Fallo al instalar '{}': {}", model.id, err),
+        };
+
+        state.selected_huggingface_model = Some(index);
+        state.huggingface_install_status = Some(status);
+    }
+}
+
+fn format_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        let short = value as f64 / 1_000_000.0;
+        if short >= 10.0 {
+            format!("{:.0}M", short)
+        } else {
+            format!("{:.1}M", short)
+        }
+    } else if value >= 1_000 {
+        let short = value as f64 / 1_000.0;
+        if short >= 10.0 {
+            format!("{:.0}K", short)
+        } else {
+            format!("{:.1}K", short)
+        }
+    } else {
+        value.to_string()
+    }
+}
+
+fn quick_chip(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let button = egui::Button::new(
+        RichText::new(label)
+            .color(Color32::from_rgb(228, 228, 228))
+            .strong(),
+    )
+    .min_size(egui::vec2(0.0, 28.0))
+    .fill(Color32::from_rgb(36, 38, 46))
+    .rounding(egui::Rounding::same(10.0));
+    ui.add(button)
+}
+
+fn quick_chip_with_icon(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
+    let button = egui::Button::new(
+        RichText::new(icon)
+            .font(theme::icon_font(14.0))
+            .color(Color32::from_rgb(230, 230, 230)),
+    )
+    .min_size(egui::vec2(32.0, 28.0))
+    .fill(Color32::from_rgb(36, 38, 46))
+    .rounding(egui::Rounding::same(10.0));
+    let response = ui.add(button);
+    response.on_hover_text(tooltip)
+}
+
+fn insert_mention(state: &mut AppState, mention: &str) {
+    let trimmed = state.current_chat_input.trim();
+    if trimmed.starts_with(mention) {
+        if !state.current_chat_input.ends_with(' ') {
+            state.current_chat_input.push(' ');
+        }
+        return;
+    }
+
+    if trimmed.is_empty() {
+        state.current_chat_input = format!("{} ", mention);
+    } else {
+        state.current_chat_input = format!("{} {}", mention, trimmed);
+    }
+}
+
+fn insert_code_template(state: &mut AppState) {
+    let template = "```language\n\n```";
+    if state.current_chat_input.trim().is_empty() {
+        state.current_chat_input = template.to_string();
+    } else {
+        if !state.current_chat_input.ends_with('\n') {
+            state.current_chat_input.push('\n');
+        }
+        state.current_chat_input.push_str(template);
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::{api::huggingface::HuggingFaceModelInfo, config::AppConfig};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -299,7 +299,7 @@ pub struct AppState {
     /// Consulta actual para buscar modelos en HuggingFace.
     pub huggingface_search_query: String,
     /// Resultados disponibles en HuggingFace.
-    pub huggingface_models: Vec<String>,
+    pub huggingface_models: Vec<HuggingFaceModelInfo>,
     /// Token opcional para acceder a la API de Hugging Face.
     pub huggingface_access_token: Option<String>,
     /// Modelo seleccionado dentro de HuggingFace.
@@ -372,9 +372,9 @@ impl Default for AppState {
 
         let default_hf_models = if config.huggingface.last_search_query.is_empty() {
             vec![
-                "sentence-transformers/all-MiniLM-L6-v2".to_string(),
-                "openai/whisper-small".to_string(),
-                "stabilityai/stable-diffusion-xl".to_string(),
+                HuggingFaceModelInfo::placeholder("sentence-transformers/all-MiniLM-L6-v2"),
+                HuggingFaceModelInfo::placeholder("openai/whisper-small"),
+                HuggingFaceModelInfo::placeholder("stabilityai/stable-diffusion-xl"),
             ]
         } else {
             Vec::new()
@@ -485,18 +485,34 @@ impl Default for AppState {
     }
 }
 
-// Define ChatMessage struct
+#[derive(Clone, Debug)]
 pub struct ChatMessage {
     pub sender: String,
     pub text: String,
+    pub timestamp: String,
+}
+
+impl ChatMessage {
+    pub fn new(sender: impl Into<String>, text: impl Into<String>) -> Self {
+        ChatMessage {
+            sender: sender.into(),
+            text: text.into(),
+            timestamp: Local::now().format("%H:%M:%S").to_string(),
+        }
+    }
+
+    pub fn system(text: impl Into<String>) -> Self {
+        Self::new("System", text)
+    }
+
+    pub fn user(text: impl Into<String>) -> Self {
+        Self::new("User", text)
+    }
 }
 
 impl Default for ChatMessage {
     fn default() -> Self {
-        ChatMessage {
-            sender: "System".to_string(),
-            text: "Welcome to Multimodal Agent!".to_string(),
-        }
+        ChatMessage::system("Welcome to Multimodal Agent!")
     }
 }
 
@@ -725,10 +741,10 @@ impl AppState {
     pub fn persist_config(&mut self) {
         self.sync_config_from_state();
         if let Err(err) = self.config.save() {
-            self.chat_messages.push(ChatMessage {
-                sender: "System".to_string(),
-                text: format!("No se pudo guardar la configuración: {}", err),
-            });
+            self.chat_messages.push(ChatMessage::system(format!(
+                "No se pudo guardar la configuración: {}",
+                err
+            )));
         }
     }
 
@@ -787,23 +803,19 @@ impl AppState {
     {
         if let Some(key) = api_key {
             match caller(&key, &model, &prompt) {
-                Ok(response) => self.chat_messages.push(ChatMessage {
-                    sender: alias.clone(),
-                    text: response,
-                }),
-                Err(err) => self.chat_messages.push(ChatMessage {
-                    sender: "System".to_string(),
-                    text: format!("{}: error al solicitar respuesta: {}", alias, err),
-                }),
+                Ok(response) => self
+                    .chat_messages
+                    .push(ChatMessage::new(alias.clone(), response)),
+                Err(err) => self.chat_messages.push(ChatMessage::system(format!(
+                    "{}: error al solicitar respuesta: {}",
+                    alias, err
+                ))),
             }
         } else {
-            self.chat_messages.push(ChatMessage {
-                sender: "System".to_string(),
-                text: format!(
-                    "Configura la API key de {} antes de usar el alias '{}'.",
-                    provider_name, alias
-                ),
-            });
+            self.chat_messages.push(ChatMessage::system(format!(
+                "Configura la API key de {} antes de usar el alias '{}'.",
+                provider_name, alias
+            )));
         }
     }
 
@@ -903,10 +915,7 @@ impl AppState {
         }
 
         for message in outcome.messages {
-            self.chat_messages.push(ChatMessage {
-                sender: "System".to_string(),
-                text: message,
-            });
+            self.chat_messages.push(ChatMessage::system(message));
         }
     }
 
@@ -1291,7 +1300,11 @@ impl AppState {
                         } else {
                             lines.push(format!(
                                 "Modelos de HuggingFace: {}",
-                                self.huggingface_models.join(", ")
+                                self.huggingface_models
+                                    .iter()
+                                    .map(|model| model.id.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
                             ));
                         }
                     }
@@ -1306,15 +1319,16 @@ impl AppState {
                         if self.huggingface_models.is_empty() {
                             lines.push("HuggingFace: sin resultados cargados.".to_string());
                         } else {
+                            let preview: Vec<&str> = self
+                                .huggingface_models
+                                .iter()
+                                .take(5)
+                                .map(|model| model.id.as_str())
+                                .collect();
                             lines.push(format!(
                                 "HuggingFace ({} modelos): {}",
                                 self.huggingface_models.len(),
-                                self.huggingface_models
-                                    .iter()
-                                    .take(5)
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
+                                preview.join(", ")
                             ));
                         }
                     }

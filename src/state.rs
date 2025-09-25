@@ -210,10 +210,36 @@ pub fn default_custom_commands() -> Vec<CustomCommand> {
     ]
 }
 
+fn default_logs() -> Vec<LogEntry> {
+    let timestamp = Local::now().format("%H:%M:%S").to_string();
+    vec![
+        LogEntry {
+            status: LogStatus::Ok,
+            source: "Scheduler".to_string(),
+            message: "Sincronización de proveedores completada".to_string(),
+            timestamp: timestamp.clone(),
+        },
+        LogEntry {
+            status: LogStatus::Running,
+            source: "Jarvis".to_string(),
+            message: "Indexando embeddings locales".to_string(),
+            timestamp: timestamp.clone(),
+        },
+        LogEntry {
+            status: LogStatus::Error,
+            source: "Red".to_string(),
+            message: "Timeout al consultar métricas externas".to_string(),
+            timestamp,
+        },
+    ]
+}
+
 /// Contiene el estado global de la aplicación.
 pub struct AppState {
     /// Controla la visibilidad de la ventana modal de configuración.
     pub show_settings_modal: bool,
+    /// Texto del buscador en el header.
+    pub search_buffer: String,
     /// El texto actual en el campo de entrada del chat.
     pub current_chat_input: String,
     /// Historial de mensajes del chat.
@@ -308,6 +334,12 @@ pub struct AppState {
     pub groq_alias: String,
     /// Mensaje de prueba de conexión con Groq.
     pub groq_test_status: Option<String>,
+    /// Ramas expandidas del árbol de navegación.
+    pub expanded_nav_nodes: BTreeSet<&'static str>,
+    /// Determina si el panel de logs inferior está visible.
+    pub logs_panel_expanded: bool,
+    /// Registros de actividad recientes.
+    pub activity_logs: Vec<LogEntry>,
 }
 
 impl Default for AppState {
@@ -357,8 +389,20 @@ impl Default for AppState {
             .filter(|idx| projects.get(*idx).is_some())
             .or(Some(0));
 
+        let mut expanded_nav_nodes = BTreeSet::new();
+        for id in [
+            "resources",
+            "system",
+            "providers",
+            "local_model",
+            "customization",
+        ] {
+            expanded_nav_nodes.insert(id);
+        }
+
         Self {
             show_settings_modal: false,
+            search_buffer: String::new(),
             current_chat_input: String::new(),
             chat_messages: vec![ChatMessage::default()],
             config: config.clone(),
@@ -434,6 +478,9 @@ impl Default for AppState {
                 config.groq.alias.clone()
             },
             groq_test_status: None,
+            expanded_nav_nodes,
+            logs_panel_expanded: true,
+            activity_logs: default_logs(),
         }
     }
 }
@@ -522,6 +569,21 @@ pub struct CommandDocumentation {
     pub summary: &'static str,
     pub parameters: &'static [&'static str],
     pub examples: &'static [&'static str],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogStatus {
+    Ok,
+    Error,
+    Running,
+}
+
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    pub status: LogStatus,
+    pub source: String,
+    pub message: String,
+    pub timestamp: String,
 }
 
 impl CustomCommandAction {

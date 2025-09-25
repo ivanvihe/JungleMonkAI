@@ -17,11 +17,7 @@ fn main() -> anyhow::Result<()> {
     eframe::run_native(
         "Multimodal Agent",
         options,
-        Box::new(|cc| {
-            // Aquí puedes configurar estilos de egui si quieres
-            // cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Box::new(MultimodalApp::new(cc))
-        }),
+        Box::new(|cc| Box::new(MultimodalApp::new(cc))),
     )
     .map_err(|e| anyhow::anyhow!("Eframe error: {}", e))?;
 
@@ -33,7 +29,9 @@ struct MultimodalApp {
 }
 
 impl MultimodalApp {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        ui::theme::apply(&cc.egui_ctx);
+
         Self {
             state: AppState::default(),
         }

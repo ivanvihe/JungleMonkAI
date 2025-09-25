@@ -1,127 +1,315 @@
 use crate::api::github;
-use crate::state::{AppState, ChatMessage, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
-use eframe::egui;
+use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
+use eframe::egui::{self, Color32, RichText};
+use egui_extras::{Column, TableBuilder};
 
-pub fn draw_chat_panel(ctx: &egui::Context, state: &mut AppState) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        egui::TopBottomPanel::bottom("chat_input_panel")
-            .resizable(false)
-            .show_inside(ui, |ui| {
-                draw_chat_input(ui, state);
+use super::theme;
+
+pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
+    egui::CentralPanel::default()
+        .frame(
+            egui::Frame::none()
+                .fill(theme::COLOR_PANEL)
+                .stroke(theme::subtle_border())
+                .inner_margin(egui::Margin::symmetric(20.0, 16.0)),
+        )
+        .show(ctx, |ui| {
+            draw_tab_bar(ui, state);
+            ui.add_space(12.0);
+            match state.active_main_view {
+                MainView::ChatMultimodal => draw_chat_view(ui, state),
+                MainView::Preferences => draw_preferences_view(ui, state),
+            }
+        });
+}
+
+fn draw_tab_bar(ui: &mut egui::Ui, state: &mut AppState) {
+    let frame = egui::Frame::none()
+        .fill(Color32::from_rgb(34, 34, 34))
+        .stroke(theme::subtle_border())
+        .inner_margin(egui::Margin::symmetric(12.0, 8.0));
+
+    frame.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let tabs = [
+            (MainView::ChatMultimodal, "Conversación"),
+            (MainView::Preferences, "Preferencias"),
+        ];
+
+        for (view, label) in tabs {
+            let is_active = state.active_main_view == view;
+            let fill = if is_active {
+                theme::COLOR_PRIMARY
+            } else {
+                Color32::from_rgb(40, 40, 40)
+            };
+            let text_color = if is_active {
+                Color32::from_rgb(240, 240, 240)
+            } else {
+                theme::COLOR_TEXT_WEAK
+            };
+
+            let button = egui::Button::new(RichText::new(label).color(text_color))
+                .fill(fill)
+                .min_size(egui::vec2(140.0, 30.0));
+
+            if ui.add(button).clicked() {
+                state.active_main_view = view;
+            }
+        }
+    });
+}
+
+fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
+    draw_resource_summary(ui, state);
+    ui.add_space(12.0);
+    draw_chat_history(ui, state);
+    ui.add_space(12.0);
+    draw_chat_input(ui, state);
+}
+
+fn draw_resource_summary(ui: &mut egui::Ui, state: &AppState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(30, 30, 30))
+        .stroke(theme::subtle_border())
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new("Resumen de recursos")
+                        .strong()
+                        .color(theme::COLOR_TEXT_PRIMARY),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
+                });
             });
+            ui.add_space(6.0);
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.heading("Chat Multimodal");
-            ui.separator();
+            TableBuilder::new(ui)
+                .striped(true)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::exact(36.0))
+                .column(Column::exact(150.0))
+                .column(Column::remainder())
+                .column(Column::exact(150.0))
+                .body(|mut body| {
+                    for row in resource_rows(state) {
+                        body.row(26.0, |mut row_ui| {
+                            row_ui.col(|ui| {
+                                ui.label(RichText::new(row.icon).color(row.status_color));
+                            });
+                            row_ui.col(|ui| {
+                                ui.label(RichText::new(row.name).color(theme::COLOR_TEXT_PRIMARY));
+                            });
+                            row_ui.col(|ui| {
+                                ui.label(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK));
+                            });
+                            row_ui.col(|ui| {
+                                ui.label(row.status.clone());
+                            });
+                        });
+                    }
+                });
+        });
+}
 
-            let max_height = ui.available_height() * 0.55;
+fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
+    let mut rows = Vec::new();
+
+    let (status, color) = status_visuals(None, "Operativo");
+    rows.push(ResourceRow {
+        icon: "🖥️",
+        name: "Sistema",
+        detail: format!(
+            "Memoria límite {:.1} GB · Disco {:.1} GB",
+            state.resource_memory_limit_gb, state.resource_disk_limit_gb
+        ),
+        status,
+        status_color: color,
+    });
+
+    let (status, color) = status_visuals(state.jarvis_status.as_ref(), "Listo");
+    rows.push(ResourceRow {
+        icon: "💽",
+        name: "Jarvis",
+        detail: format!("Ruta {}", state.jarvis_model_path),
+        status,
+        status_color: color,
+    });
+
+    let (status, color) = status_visuals(state.openai_test_status.as_ref(), "Disponible");
+    rows.push(ResourceRow {
+        icon: "🤖",
+        name: "OpenAI",
+        detail: format!("Modelo {}", state.openai_default_model),
+        status,
+        status_color: color,
+    });
+
+    let (status, color) = status_visuals(state.anthropic_test_status.as_ref(), "Disponible");
+    rows.push(ResourceRow {
+        icon: "✨",
+        name: "Claude",
+        detail: format!("Modelo {}", state.claude_default_model),
+        status,
+        status_color: color,
+    });
+
+    let (status, color) = status_visuals(state.groq_test_status.as_ref(), "Disponible");
+    rows.push(ResourceRow {
+        icon: "⚡",
+        name: "Groq",
+        detail: format!("Modelo {}", state.groq_default_model),
+        status,
+        status_color: color,
+    });
+
+    rows
+}
+
+fn status_visuals(message: Option<&String>, fallback: &str) -> (RichText, Color32) {
+    let label = message.cloned().unwrap_or_else(|| fallback.to_string());
+    let lower = label.to_lowercase();
+    let color = if lower.contains("error") || lower.contains("fail") {
+        theme::COLOR_DANGER
+    } else if lower.contains("index") || lower.contains("sync") {
+        theme::COLOR_PRIMARY
+    } else {
+        theme::COLOR_SUCCESS
+    };
+
+    (RichText::new(label).color(color), color)
+}
+
+#[derive(Clone)]
+struct ResourceRow {
+    icon: &'static str,
+    name: &'static str,
+    detail: String,
+    status: RichText,
+    status_color: Color32,
+}
+
+fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(32, 32, 32))
+        .stroke(theme::subtle_border())
+        .inner_margin(egui::Margin::symmetric(18.0, 14.0))
+        .show(ui, |ui| {
+            ui.heading(
+                RichText::new(state.selected_section.title())
+                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .strong(),
+            );
+            ui.label(
+                RichText::new(state.selected_section.description()).color(theme::COLOR_TEXT_WEAK),
+            );
+            ui.add_space(10.0);
+
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    draw_selected_section(ui, state);
+                });
+        });
+}
+
+fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
+    let max_height = (ui.available_height() * 0.55).max(220.0);
+    egui::Frame::none()
+        .fill(Color32::from_rgb(30, 30, 30))
+        .stroke(theme::subtle_border())
+        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+        .show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
                 .max_height(max_height)
+                .auto_shrink([false, false])
                 .show(ui, |ui| {
                     for message in &state.chat_messages {
-                        ui.add_space(5.0); // Add some spacing between messages
-
-                        if message.sender == "User" {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                                egui::Frame::none()
-                                    .fill(ui.visuals().selection.bg_fill)
-                                    .rounding(egui::Rounding::same(5.0))
-                                    .inner_margin(egui::Margin::same(8.0))
-                                    .show(ui, |ui| {
-                                        ui.label(&message.text);
-                                    });
-                            });
+                        ui.add_space(6.0);
+                        let (bg_fill, icon, align_right) = if message.sender == "User" {
+                            (Color32::from_rgb(36, 52, 72), "🧑", true)
+                        } else if message.sender == "System" {
+                            (Color32::from_rgb(36, 36, 36), "🛠", false)
                         } else {
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                                egui::Frame::none()
-                                    .fill(ui.visuals().widgets.noninteractive.bg_fill)
-                                    .rounding(egui::Rounding::same(5.0))
-                                    .inner_margin(egui::Margin::same(8.0))
-                                    .show(ui, |ui| {
-                                        ui.strong(format!("{}:", message.sender));
-                                        ui.label(&message.text);
+                            (Color32::from_rgb(38, 38, 38), "🤖", false)
+                        };
+
+                        let layout = if align_right {
+                            egui::Layout::right_to_left(egui::Align::TOP)
+                        } else {
+                            egui::Layout::left_to_right(egui::Align::TOP)
+                        };
+
+                        ui.with_layout(layout, |ui| {
+                            egui::Frame::none()
+                                .fill(bg_fill)
+                                .stroke(theme::subtle_border())
+                                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(icon).color(theme::COLOR_TEXT_WEAK));
+                                        if message.sender != "User" {
+                                            ui.label(
+                                                RichText::new(format!("{}", message.sender))
+                                                    .strong()
+                                                    .color(theme::COLOR_TEXT_PRIMARY),
+                                            );
+                                        }
+                                        ui.label(
+                                            RichText::new(&message.text)
+                                                .color(theme::COLOR_TEXT_PRIMARY),
+                                        );
                                     });
-                            });
-                        }
+                                });
+                        });
                     }
                 });
-
-            ui.add_space(12.0);
         });
-    });
-}
-
-pub fn draw_preferences_panel(ctx: &egui::Context, state: &mut AppState) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading(state.selected_section.title());
-        ui.label(state.selected_section.description());
-        ui.separator();
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            draw_selected_section(ui, state);
-        });
-    });
 }
 
 fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.add_space(12.0);
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 34, 34))
+        .stroke(theme::subtle_border())
+        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+        .show(ui, |ui| {
+            let spacing = 10.0;
+            ui.spacing_mut().item_spacing.x = spacing;
 
-    ui.vertical_centered(|ui| {
-        let max_width = 720.0;
-        let available_width = ui.available_width().min(max_width);
+            let send_button_width = 120.0;
+            let control_height = 32.0;
+            let text_width = (ui.available_width() - send_button_width - spacing).max(200.0);
 
-        ui.scope(|ui| {
-            ui.set_width(available_width);
+            let mut should_send = false;
 
-            egui::Frame::none()
-                .fill(ui.visuals().faint_bg_color)
-                .stroke(egui::Stroke::new(
-                    1.0,
-                    ui.visuals().widgets.noninteractive.bg_fill,
-                ))
-                .rounding(egui::Rounding::same(14.0))
-                .inner_margin(egui::Margin::symmetric(16.0, 10.0))
-                .show(ui, |ui| {
-                    let spacing = 10.0;
-                    ui.spacing_mut().item_spacing.x = spacing;
+            ui.horizontal(|ui| {
+                let text_edit = egui::TextEdit::singleline(&mut state.current_chat_input)
+                    .hint_text("Escribe tu mensaje o comando...")
+                    .desired_width(f32::INFINITY);
 
-                    let send_button_width = 88.0;
-                    let control_height = 34.0;
-                    let text_width =
-                        (ui.available_width() - send_button_width - spacing).max(200.0);
+                let response = ui.add_sized([text_width, control_height], text_edit);
+                if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                    should_send = true;
+                    ui.memory_mut(|mem| mem.request_focus(response.id));
+                }
 
-                    let mut should_send = false;
+                let send_button = theme::primary_button(
+                    RichText::new("➤ Enviar").color(Color32::from_rgb(240, 240, 240)),
+                )
+                .min_size(egui::vec2(send_button_width, control_height));
 
-                    ui.horizontal(|ui| {
-                        let text_edit = egui::TextEdit::singleline(&mut state.current_chat_input)
-                            .hint_text("Type your message or command here...")
-                            .desired_width(f32::INFINITY)
-                            .horizontal_align(egui::Align::Center);
+                if ui.add(send_button).clicked() {
+                    should_send = true;
+                }
+            });
 
-                        let response = ui.add_sized([text_width, control_height], text_edit);
-                        if response.lost_focus()
-                            && ui.input(|input| input.key_pressed(egui::Key::Enter))
-                        {
-                            should_send = true;
-                            ui.memory_mut(|mem| mem.request_focus(response.id));
-                        }
-
-                        let send_button = egui::Button::new("Send")
-                            .rounding(egui::Rounding::same(10.0))
-                            .min_size(egui::vec2(send_button_width, control_height));
-
-                        if ui.add(send_button).clicked() {
-                            should_send = true;
-                        }
-                    });
-
-                    if should_send {
-                        submit_chat_message(state);
-                    }
-                });
+            if should_send {
+                submit_chat_message(state);
+            }
         });
-    });
 }
 
 fn submit_chat_message(state: &mut AppState) {

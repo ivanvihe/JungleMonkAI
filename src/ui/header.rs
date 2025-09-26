@@ -6,7 +6,7 @@ use super::theme;
 
 pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
     egui::TopBottomPanel::top("global_header")
-        .exact_height(44.0)
+        .exact_height(56.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_HEADER)
@@ -14,7 +14,7 @@ pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
                 .inner_margin(egui::Margin::symmetric(12.0, 6.0)),
         )
         .show(ctx, |ui| {
-            ui.set_height(32.0);
+            ui.set_height(44.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
 

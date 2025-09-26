@@ -11,11 +11,11 @@ const ICON_CLAUDE: &str = "\u{e2ca}"; // wand-magic-sparkles
 const ICON_GROQ: &str = "\u{f0e7}"; // bolt
 const COLOR_WARNING: Color32 = Color32::from_rgb(255, 196, 0);
 
-pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
-    egui::SidePanel::right("resource_panel")
+pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
+    let panel_response = egui::SidePanel::right("resource_panel")
         .resizable(true)
-        .default_width(280.0)
-        .width_range(220.0..=420.0)
+        .default_width(state.right_panel_width)
+        .width_range(200.0..=400.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
@@ -28,6 +28,7 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
                 }),
         )
         .show(ctx, |ui| {
+            ui.set_clip_rect(ui.max_rect());
             let available_height = ui.available_height();
             ui.set_min_height(available_height);
             ui.set_width(ui.available_width());
@@ -58,6 +59,29 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
                     });
             });
         });
+
+    let width = panel_response.response.rect.width().clamp(200.0, 400.0);
+    state.right_panel_width = width;
+
+    let separator_rect = egui::Rect::from_min_max(
+        egui::pos2(
+            panel_response.response.rect.left() - 2.0,
+            panel_response.response.rect.top(),
+        ),
+        egui::pos2(
+            panel_response.response.rect.left() + 2.0,
+            panel_response.response.rect.bottom(),
+        ),
+    );
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("right_separator"),
+    ));
+    painter.rect_filled(
+        separator_rect,
+        0.0,
+        theme::COLOR_PRIMARY.gamma_multiply(0.25),
+    );
 }
 
 fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {

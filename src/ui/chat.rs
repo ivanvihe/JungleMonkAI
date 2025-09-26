@@ -4,7 +4,7 @@ use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE
 use anyhow::Result;
 use eframe::egui::{self, Color32, RichText, Spinner};
 
-use super::{logs, theme};
+use super::theme;
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -41,13 +41,9 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                     bottom: 14.0,
                 }),
         )
-        .show(ctx, |ui| {
-            logs::draw_logs_panel(ui, state);
-
-            match state.active_main_view {
-                MainView::ChatMultimodal => draw_chat_view(ui, state),
-                MainView::Preferences => draw_preferences_view(ui, state),
-            }
+        .show(ctx, |ui| match state.active_main_view {
+            MainView::ChatMultimodal => draw_chat_view(ui, state),
+            MainView::Preferences => draw_preferences_view(ui, state),
         });
 }
 

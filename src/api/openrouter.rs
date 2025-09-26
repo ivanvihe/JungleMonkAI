@@ -103,6 +103,7 @@ pub fn search_models(query: &str) -> Result<Vec<LocalModelCard>> {
                 downloads: None,
                 requires_token: true,
                 description: model.description,
+                incompatible_reason: None,
             }
         })
         .take(50)

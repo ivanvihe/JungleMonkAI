@@ -1567,10 +1567,13 @@ fn draw_model_card(
     } else {
         Color32::from_rgb(34, 38, 44)
     };
+    let incompatible = model.incompatible_reason.is_some();
     let border = if is_selected {
         theme::COLOR_PRIMARY
     } else if premium {
         Color32::from_rgb(182, 134, 242)
+    } else if incompatible {
+        theme::COLOR_DANGER
     } else {
         Color32::from_rgb(70, 80, 96)
     };
@@ -1641,6 +1644,16 @@ fn draw_model_card(
                     );
                 }
 
+                if let Some(reason) = &model.incompatible_reason {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(reason)
+                            .color(theme::COLOR_DANGER)
+                            .italics()
+                            .size(11.0),
+                    );
+                }
+
                 let mut metrics = Vec::new();
                 if let Some(likes) = model.likes {
                     metrics.push(format!("❤ {}", format_count(likes)));
@@ -1664,15 +1677,16 @@ fn draw_model_card(
                 } else {
                     format!("{} Instalar", ICON_DOWNLOAD)
                 };
-                if ui
-                    .add_sized(
-                        [ui.available_width(), 30.0],
-                        theme::primary_button(
-                            RichText::new(button_label).color(Color32::from_rgb(240, 240, 240)),
-                        ),
+                let button_width = ui.available_width();
+                let response = ui.add_enabled(
+                    !incompatible,
+                    theme::primary_button(
+                        RichText::new(button_label).color(Color32::from_rgb(240, 240, 240)),
                     )
-                    .clicked()
-                {
+                    .min_size(egui::vec2(button_width, 30.0)),
+                );
+
+                if response.clicked() {
                     install_local_model(state, provider, index);
                 }
             });
@@ -1870,6 +1884,13 @@ fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index
     };
 
     debug_assert_eq!(model.provider, provider);
+
+    if let Some(reason) = &model.incompatible_reason {
+        let message = format!("'{}' no es compatible: {}", model.id, reason);
+        state.provider_state_mut(provider).install_status = Some(message.clone());
+        state.push_activity_log(LogStatus::Warning, "Jarvis", message);
+        return;
+    }
 
     let status = match provider {
         LocalModelProvider::HuggingFace => {

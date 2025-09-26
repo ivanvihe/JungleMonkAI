@@ -23,43 +23,34 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
                 .inner_margin(egui::Margin::symmetric(20.0, 18.0)),
         )
         .show(ctx, |ui| {
-            let total_width = ui.available_width();
-            let content_width = total_width.min(360.0);
-            let horizontal_padding = ((total_width - content_width) / 2.0).max(0.0);
+            let available_height = ui.available_height();
+            ui.set_min_height(available_height);
+            ui.set_width(ui.available_width());
 
-            ui.horizontal(|ui| {
-                if horizontal_padding > 0.0 {
-                    ui.add_space(horizontal_padding);
-                }
+            ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                ui.set_width(ui.available_width());
+                ui.heading(
+                    RichText::new("Resumen de recursos")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+                ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
+                ui.add_space(12.0);
 
-                ui.vertical(|ui| {
-                    ui.set_width(content_width);
-                    ui.heading(
-                        RichText::new("Resumen de recursos")
-                            .color(theme::COLOR_TEXT_PRIMARY)
-                            .strong(),
-                    );
-                    ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
-                    ui.add_space(12.0);
-
-                    let rows = resource_rows(state);
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            for (index, row) in rows.iter().enumerate() {
-                                draw_resource_row(ui, row);
-                                if index + 1 != rows.len() {
-                                    ui.add_space(10.0);
-                                    ui.separator();
-                                    ui.add_space(10.0);
-                                }
+                let rows = resource_rows(state);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        for (index, row) in rows.iter().enumerate() {
+                            draw_resource_row(ui, row);
+                            if index + 1 != rows.len() {
+                                ui.add_space(10.0);
+                                ui.separator();
+                                ui.add_space(10.0);
                             }
-                        });
-                });
-
-                if horizontal_padding > 0.0 {
-                    ui.add_space(horizontal_padding);
-                }
+                        }
+                    });
             });
         });
 }
@@ -72,7 +63,11 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
         .inner_margin(Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let status_width = 150.0;
+            let total_width = ui.available_width();
+            let status_width = (total_width * 0.32)
+                .max(110.0)
+                .min(total_width * 0.5)
+                .min(200.0);
 
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 14.0;
@@ -83,29 +78,36 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                         .color(theme::COLOR_PRIMARY),
                 );
 
-                ui.vertical(|ui| {
-                    ui.set_width((ui.available_width() - status_width).max(160.0));
-                    ui.label(
-                        RichText::new(row.name)
-                            .color(theme::COLOR_TEXT_PRIMARY)
-                            .strong(),
-                    );
-                });
+                let available_after_icon = ui.available_width();
+                let text_width = (available_after_icon - status_width)
+                    .max(120.0)
+                    .min(available_after_icon);
 
-                let spacer = ui.available_width() - status_width;
-                if spacer > 0.0 {
-                    ui.add_space(spacer);
-                }
+                ui.allocate_ui_with_layout(
+                    egui::vec2(text_width, 0.0),
+                    egui::Layout::left_to_right(egui::Align::TOP),
+                    |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(
+                            RichText::new(row.name)
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .strong(),
+                        );
+                    },
+                );
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let StatusIndicator::Led { color, status } = &row.indicator;
-                    draw_led(ui, *color, status);
-                });
+                ui.allocate_ui_with_layout(
+                    egui::vec2(status_width, 0.0),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        let StatusIndicator::Led { color, status } = &row.indicator;
+                        draw_led(ui, *color, status);
+                    },
+                );
             });
 
             ui.add_space(6.0);
-            let detail_width = ui.available_width();
-            ui.set_width(detail_width);
+            ui.set_width(ui.available_width());
             ui.add(Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK)).wrap(true));
         });
 }

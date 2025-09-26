@@ -289,17 +289,13 @@ impl JarvisEncoder {
         let config_path = model_dir.join("config.json");
         let config_data = fs::read_to_string(&config_path)
             .with_context(|| format!("No se pudo leer {:?}", config_path))?;
-        let config: BertConfig = match serde_json::from_str(&config_data) {
-            Ok(config) => config,
-            Err(primary_err) => {
-                let value: Value = serde_json::from_str(&config_data).with_context(|| {
-                    format!("No se pudo interpretar {:?} como JSON", config_path)
-                })?;
-                adapt_bert_config(&value).ok_or_else(|| {
-                    anyhow!("No se pudo parsear {:?}: {}", config_path, primary_err)
-                })?
-            }
-        };
+        let config_value: Value = serde_json::from_str(&config_data)
+            .with_context(|| format!("No se pudo interpretar {:?} como JSON", config_path))?;
+        let base_config: BertConfig =
+            serde_json::from_value(config_value.clone()).or_else(|primary_err| {
+                adapt_bert_config(&config_value)
+                    .ok_or_else(|| anyhow!("No se pudo parsear {:?}: {}", config_path, primary_err))
+            })?;
 
         let safetensor_files = collect_safetensor_files(model_dir)?;
         if safetensor_files.is_empty() {
@@ -312,12 +308,68 @@ impl JarvisEncoder {
         let weight_refs: Vec<&Path> = safetensor_files.iter().map(|path| path.as_path()).collect();
 
         let device = Device::Cpu;
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&weight_refs, DType::F32, &device)
-                .context("No se pudo mapear los pesos del modelo local")?
+        let dtype_hint = config_value
+            .get("torch_dtype")
+            .and_then(|value| value.as_str())
+            .map(|dtype| dtype.to_ascii_lowercase());
+        let mut dtype_candidates = vec![DType::F32];
+        match dtype_hint.as_deref() {
+            Some("float16") | Some("half") => {
+                dtype_candidates.push(DType::F16);
+            }
+            Some("bfloat16") | Some("bf16") => {
+                dtype_candidates.push(DType::BF16);
+            }
+            _ => {}
+        }
+
+        let mut config_candidates = Vec::new();
+        config_candidates.push(base_config.clone());
+        if base_config.model_type.as_deref() != Some("bert") {
+            let mut with_bert_prefix = base_config.clone();
+            with_bert_prefix.model_type = Some("bert".to_string());
+            config_candidates.push(with_bert_prefix);
+        }
+        if base_config.model_type.is_some() {
+            let mut without_prefix = base_config.clone();
+            without_prefix.model_type = None;
+            config_candidates.push(without_prefix);
+        }
+
+        let mut model = None;
+        let mut last_error: Option<anyhow::Error> = None;
+
+        'outer: for dtype in dtype_candidates {
+            for candidate in &config_candidates {
+                let vb = match unsafe {
+                    VarBuilder::from_mmaped_safetensors(&weight_refs, dtype, &device)
+                } {
+                    Ok(builder) => builder,
+                    Err(err) => {
+                        last_error = Some(anyhow::Error::new(err));
+                        continue;
+                    }
+                };
+
+                match BertModel::load(vb, candidate) {
+                    Ok(loaded) => {
+                        model = Some(loaded);
+                        break 'outer;
+                    }
+                    Err(err) => {
+                        last_error = Some(anyhow::Error::new(err));
+                    }
+                }
+            }
+        }
+
+        let model = if let Some(model) = model {
+            model
+        } else if let Some(err) = last_error {
+            return Err(err.context("No se pudo inicializar el modelo BERT local para Jarvis"));
+        } else {
+            bail!("No se pudo inicializar el modelo BERT local para Jarvis");
         };
-        let model = BertModel::load(vb, &config)
-            .context("No se pudo inicializar el modelo BERT local para Jarvis")?;
 
         let modules_path = model_dir.join("modules.json");
         let normalize = if modules_path.exists() {

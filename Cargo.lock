@@ -3062,6 +3062,7 @@ dependencies = [
  "eframe",
  "egui_extras",
  "hf-hub",
+ "log",
  "octocrab",
  "once_cell",
  "reqwest",

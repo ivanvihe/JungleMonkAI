@@ -4,6 +4,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{
     BertModel, Config as BertConfig, HiddenAct, PositionEmbeddingType,
 };
+use log::warn;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,7 @@ pub struct JarvisRuntime {
     tags: Vec<String>,
     encoder: JarvisEncoder,
     knowledge: Vec<JarvisKnowledge>,
+    encoder_ready: bool,
 }
 
 struct JarvisKnowledge {
@@ -41,12 +43,56 @@ struct JarvisPersonaBlueprint {
     responder: fn(&JarvisRuntime, &str, f32) -> String,
 }
 
-struct JarvisEncoder {
-    tokenizer: Tokenizer,
-    model: BertModel,
-    device: Device,
-    normalize: bool,
-    mean_pooling: bool,
+enum JarvisEncoder {
+    Bert {
+        tokenizer: Tokenizer,
+        model: BertModel,
+        device: Device,
+        normalize: bool,
+        mean_pooling: bool,
+    },
+    Placeholder,
+}
+
+const PLACEHOLDER_EMBEDDING_DIM: usize = 32;
+
+fn normalized_keywords(text: &str) -> Vec<String> {
+    let mut keywords: Vec<String> = text
+        .split_whitespace()
+        .map(|token| token.trim_matches(|c: char| !c.is_alphanumeric()))
+        .filter(|token| token.len() > 4)
+        .map(|token| token.to_lowercase())
+        .collect();
+    keywords.sort();
+    keywords.dedup();
+    keywords
+}
+
+fn read_metadata(model_dir: &Path) -> Option<Value> {
+    let metadata_path = model_dir.join("metadata.json");
+    if !metadata_path.exists() {
+        return None;
+    }
+
+    match fs::read_to_string(&metadata_path) {
+        Ok(raw) => match serde_json::from_str(&raw) {
+            Ok(value) => Some(value),
+            Err(err) => {
+                warn!(
+                    "El archivo de metadatos {:?} no contiene JSON válido: {}",
+                    metadata_path, err
+                );
+                None
+            }
+        },
+        Err(err) => {
+            warn!(
+                "No se pudo leer el archivo de metadatos {:?}: {}",
+                metadata_path, err
+            );
+            None
+        }
+    }
 }
 
 fn collect_safetensor_files(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -413,7 +459,7 @@ impl JarvisEncoder {
             true
         };
 
-        Ok(Self {
+        Ok(JarvisEncoder::Bert {
             tokenizer,
             model,
             device,
@@ -422,94 +468,133 @@ impl JarvisEncoder {
         })
     }
 
+    fn placeholder() -> Self {
+        JarvisEncoder::Placeholder
+    }
+
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
-        let encoding = self
-            .tokenizer
-            .encode(text, true)
-            .map_err(|err| anyhow!("No se pudo tokenizar la entrada para Jarvis: {err}"))?;
+        match self {
+            JarvisEncoder::Bert {
+                tokenizer,
+                model,
+                device,
+                normalize,
+                mean_pooling,
+            } => {
+                let encoding = tokenizer
+                    .encode(text, true)
+                    .map_err(|err| anyhow!("No se pudo tokenizar la entrada para Jarvis: {err}"))?;
 
-        let ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
-        let type_ids: Vec<i64> = encoding
-            .get_type_ids()
-            .iter()
-            .map(|&id| id as i64)
-            .collect();
-        let mask: Vec<f32> = encoding
-            .get_attention_mask()
-            .iter()
-            .map(|&value| value as f32)
-            .collect();
+                let ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
+                let type_ids: Vec<i64> = encoding
+                    .get_type_ids()
+                    .iter()
+                    .map(|&id| id as i64)
+                    .collect();
+                let mask: Vec<f32> = encoding
+                    .get_attention_mask()
+                    .iter()
+                    .map(|&value| value as f32)
+                    .collect();
 
-        let seq_len = ids.len();
-        if seq_len == 0 {
-            return Ok(Vec::new());
-        }
+                let seq_len = ids.len();
+                if seq_len == 0 {
+                    return Ok(Vec::new());
+                }
 
-        let input_ids = Tensor::new(ids, &self.device)?.reshape((1, seq_len))?;
-        let token_type_ids = if type_ids.is_empty() {
-            Tensor::zeros((1, seq_len), DType::I64, &self.device)?
-        } else {
-            Tensor::new(type_ids, &self.device)?.reshape((1, seq_len))?
-        };
-        let attention_mask = if mask.is_empty() {
-            Tensor::ones((1, seq_len), DType::F32, &self.device)?
-        } else {
-            Tensor::new(mask, &self.device)?.reshape((1, seq_len))?
-        };
+                let input_ids = Tensor::new(ids, device)?.reshape((1, seq_len))?;
+                let token_type_ids = if type_ids.is_empty() {
+                    Tensor::zeros((1, seq_len), DType::I64, device)?
+                } else {
+                    Tensor::new(type_ids, device)?.reshape((1, seq_len))?
+                };
+                let attention_mask = if mask.is_empty() {
+                    Tensor::ones((1, seq_len), DType::F32, device)?
+                } else {
+                    Tensor::new(mask, device)?.reshape((1, seq_len))?
+                };
 
-        let hidden_states = self
-            .model
-            .forward(&input_ids, &token_type_ids, Some(&attention_mask))?
-            .squeeze(0)?
-            .to_vec2::<f32>()?;
-        let attention_mask = attention_mask.squeeze(0)?.to_vec1::<f32>()?;
+                let hidden_states = model
+                    .forward(&input_ids, &token_type_ids, Some(&attention_mask))?
+                    .squeeze(0)?
+                    .to_vec2::<f32>()?;
+                let attention_mask = attention_mask.squeeze(0)?.to_vec1::<f32>()?;
 
-        let mut embedding = if self.mean_pooling {
-            if hidden_states.is_empty() {
-                Vec::new()
-            } else {
-                let dimension = hidden_states[0].len();
-                let mut accumulator = vec![0f32; dimension];
-                let mut weight = 0f32;
-                for (token_embedding, &mask_value) in
-                    hidden_states.iter().zip(attention_mask.iter())
-                {
-                    if mask_value > 0.0 {
-                        for (idx, value) in token_embedding.iter().enumerate() {
-                            accumulator[idx] += *value;
+                let mut embedding = if *mean_pooling {
+                    if hidden_states.is_empty() {
+                        Vec::new()
+                    } else {
+                        let dimension = hidden_states[0].len();
+                        let mut accumulator = vec![0f32; dimension];
+                        let mut weight = 0f32;
+                        for (token_embedding, &mask_value) in
+                            hidden_states.iter().zip(attention_mask.iter())
+                        {
+                            if mask_value > 0.0 {
+                                for (idx, value) in token_embedding.iter().enumerate() {
+                                    accumulator[idx] += *value;
+                                }
+                                weight += 1.0;
+                            }
                         }
-                        weight += 1.0;
+                        if weight > 0.0 {
+                            let factor = 1.0 / weight;
+                            for value in &mut accumulator {
+                                *value *= factor;
+                            }
+                        }
+                        accumulator
+                    }
+                } else {
+                    hidden_states.first().cloned().unwrap_or_else(Vec::new)
+                };
+                if *normalize {
+                    let norm = embedding
+                        .iter()
+                        .map(|value| value * value)
+                        .sum::<f32>()
+                        .sqrt();
+                    if norm > 0.0 {
+                        for value in &mut embedding {
+                            *value /= norm;
+                        }
                     }
                 }
-                if weight > 0.0 {
-                    let factor = 1.0 / weight;
-                    for value in &mut accumulator {
-                        *value *= factor;
-                    }
-                }
-                accumulator
-            }
-        } else {
-            hidden_states.first().cloned().unwrap_or_else(Vec::new)
-        };
-        if self.normalize {
-            let norm = embedding
-                .iter()
-                .map(|value| value * value)
-                .sum::<f32>()
-                .sqrt();
-            if norm > 0.0 {
-                for value in &mut embedding {
-                    *value /= norm;
-                }
-            }
-        }
 
-        Ok(embedding)
+                Ok(embedding)
+            }
+            JarvisEncoder::Placeholder => Ok(Self::placeholder_embedding(text)),
+        }
     }
 
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         texts.iter().map(|text| self.embed(text)).collect()
+    }
+
+    fn placeholder_embedding(text: &str) -> Vec<f32> {
+        let keywords = normalized_keywords(text);
+        if keywords.is_empty() {
+            return vec![0.0; PLACEHOLDER_EMBEDDING_DIM];
+        }
+
+        let mut vector = vec![0f32; PLACEHOLDER_EMBEDDING_DIM];
+        for keyword in keywords {
+            let mut hash: u64 = 0;
+            for byte in keyword.as_bytes() {
+                hash = hash.wrapping_mul(31).wrapping_add(u64::from(*byte));
+            }
+            let index = (hash as usize) % PLACEHOLDER_EMBEDDING_DIM;
+            vector[index] += 1.0;
+        }
+
+        let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for value in &mut vector {
+                *value /= norm;
+            }
+        }
+
+        vector
     }
 }
 
@@ -524,53 +609,19 @@ impl JarvisRuntime {
         }
 
         if !model_dir.exists() {
-            bail!(
-                "El directorio del modelo local {:?} no existe. Instálalo desde Hugging Face.",
+            warn!(
+                "El directorio del modelo local {:?} no existe; Jarvis funcionará en modo degradado.",
+                model_dir
+            );
+        } else if !model_dir.is_dir() {
+            warn!(
+                "La ruta del modelo local {:?} no es un directorio válido; Jarvis funcionará en modo degradado.",
                 model_dir
             );
         }
 
-        if !model_dir.is_dir() {
-            bail!(
-                "La ruta del modelo local {:?} no es un directorio válido.",
-                model_dir
-            );
-        }
-
-        let required_files = ["config.json", "tokenizer.json"];
-        for file in required_files {
-            let path = model_dir.join(file);
-            if !path.exists() {
-                bail!(
-                    "El modelo local en {:?} no contiene el archivo requerido '{}'. Reinstálalo.",
-                    path,
-                    file
-                );
-            }
-        }
-
-        if collect_safetensor_files(&model_dir)?.is_empty() {
-            bail!(
-                "El modelo local en {:?} no incluye archivos '.safetensors'. Reinstálalo o descarga una versión compatible.",
-                model_dir
-            );
-        }
-
-        let metadata_path = model_dir.join("metadata.json");
-        let metadata = if metadata_path.exists() {
-            let raw = fs::read_to_string(&metadata_path).with_context(|| {
-                format!(
-                    "No se pudo leer el archivo de metadatos {:?}",
-                    metadata_path
-                )
-            })?;
-            let value: Value = serde_json::from_str(&raw).with_context(|| {
-                format!(
-                    "El archivo de metadatos {:?} no contiene JSON válido",
-                    metadata_path
-                )
-            })?;
-            Some(value)
+        let metadata = if model_dir.is_dir() {
+            read_metadata(&model_dir)
         } else {
             None
         };
@@ -615,8 +666,27 @@ impl JarvisRuntime {
             })
             .unwrap_or_default();
 
-        let encoder = JarvisEncoder::new(&model_dir)?;
-        let knowledge = Self::build_knowledge_base(&encoder)?;
+        let (encoder, encoder_ready) = match JarvisEncoder::new(&model_dir) {
+            Ok(encoder) => (encoder, true),
+            Err(err) => {
+                warn!(
+                    "No se pudo inicializar Jarvis con el modelo local: {}. Se usará modo degradado.",
+                    err
+                );
+                (JarvisEncoder::placeholder(), false)
+            }
+        };
+
+        let knowledge = match Self::build_knowledge_base(&encoder) {
+            Ok(knowledge) => knowledge,
+            Err(err) => {
+                warn!(
+                    "No se pudo preparar la base de conocimientos local: {}. Se continuará sin coincidencias semánticas.",
+                    err
+                );
+                Vec::new()
+            }
+        };
 
         Ok(Self {
             model_dir,
@@ -626,6 +696,7 @@ impl JarvisRuntime {
             tags,
             encoder,
             knowledge,
+            encoder_ready,
         })
     }
 
@@ -653,34 +724,66 @@ impl JarvisRuntime {
     /// del modelo que está ejecutando Jarvis y analiza palabras clave
     /// del prompt del usuario para ofrecer próximos pasos.
     pub fn generate_reply(&self, prompt: &str) -> Result<String> {
-        let prompt_vector = self
-            .encoder
-            .embed(prompt)
-            .context("No se pudo vectorizar la petición para Jarvis")?;
-        if prompt_vector.is_empty() {
-            bail!("El modelo de embeddings devolvió un vector vacío para Jarvis");
-        }
-        let prompt_norm = Self::vector_norm(&prompt_vector);
-
-        let mut best_match: Option<(&JarvisKnowledge, f32)> = None;
-        for entry in &self.knowledge {
-            let score = Self::cosine_similarity(&prompt_vector, prompt_norm, entry);
-            match best_match {
-                Some((_, current)) if score <= current => {}
-                _ => best_match = Some((entry, score)),
+        let prompt_vector = match self.encoder.embed(prompt) {
+            Ok(vector) => vector,
+            Err(err) => {
+                warn!(
+                    "No se pudo vectorizar la petición para Jarvis: {}. Se usará una respuesta genérica.",
+                    err
+                );
+                return Ok(self.compose_response(Self::reflect_prompt(prompt), prompt));
             }
-        }
+        };
 
-        let persona_segment = if let Some((entry, score)) = best_match {
-            if score >= 0.18 {
-                (entry.responder)(self, prompt, score)
+        let persona_segment = if prompt_vector.is_empty() || self.knowledge.is_empty() {
+            Self::reflect_prompt(prompt)
+        } else {
+            let prompt_norm = Self::vector_norm(&prompt_vector);
+            let mut best_match: Option<(&JarvisKnowledge, f32)> = None;
+            for entry in &self.knowledge {
+                let score = Self::cosine_similarity(&prompt_vector, prompt_norm, entry);
+                match best_match {
+                    Some((_, current)) if score <= current => {}
+                    _ => best_match = Some((entry, score)),
+                }
+            }
+
+            if let Some((entry, score)) = best_match {
+                if score >= 0.18 {
+                    (entry.responder)(self, prompt, score)
+                } else {
+                    Self::reflect_prompt(prompt)
+                }
             } else {
                 Self::reflect_prompt(prompt)
             }
-        } else {
-            Self::reflect_prompt(prompt)
         };
 
+        Ok(self.compose_response(persona_segment, prompt))
+    }
+
+    fn runtime_overview(&self) -> String {
+        let mut header = if self.encoder_ready {
+            format!(
+                "Jarvis está activo con el modelo local '{}' en tu entorno.",
+                self.model_label()
+            )
+        } else {
+            format!(
+                "Jarvis está en modo de solo metadatos para '{}' porque faltan los pesos locales.",
+                self.model_label()
+            )
+        };
+        if let Some(pipeline) = &self.pipeline_tag {
+            header.push_str(&format!(" Está optimizado para la tarea '{}'.", pipeline));
+        }
+        if !self.encoder_ready {
+            header.push_str(" Descarga los pesos completos para habilitar respuestas semánticas.");
+        }
+        header
+    }
+
+    fn compose_response(&self, persona_segment: String, prompt: &str) -> String {
         let mut sections = Vec::new();
         sections.push(self.runtime_overview());
 
@@ -698,18 +801,7 @@ impl JarvisRuntime {
             sections.push(analysis);
         }
 
-        Ok(sections.join("\n\n"))
-    }
-
-    fn runtime_overview(&self) -> String {
-        let mut header = format!(
-            "Jarvis está activo con el modelo local '{}' en tu entorno.",
-            self.model_label()
-        );
-        if let Some(pipeline) = &self.pipeline_tag {
-            header.push_str(&format!(" Está optimizado para la tarea '{}'.", pipeline));
-        }
-        header
+        sections.join("\n\n")
     }
 
     fn tags_preview(&self) -> Option<String> {
@@ -730,12 +822,16 @@ impl JarvisRuntime {
     fn build_knowledge_base(encoder: &JarvisEncoder) -> Result<Vec<JarvisKnowledge>> {
         let mut knowledge = Vec::with_capacity(JARVIS_BLUEPRINTS.len());
         for blueprint in JARVIS_BLUEPRINTS {
-            let embeddings = encoder.embed_batch(blueprint.prompts).with_context(|| {
-                format!(
-                    "No se pudo crear la huella semántica para '{}'.",
-                    blueprint.label
-                )
-            })?;
+            let embeddings = match encoder.embed_batch(blueprint.prompts) {
+                Ok(value) => value,
+                Err(err) => {
+                    warn!(
+                        "No se pudo crear la huella semántica para '{}': {}.",
+                        blueprint.label, err
+                    );
+                    continue;
+                }
+            };
             let combined = Self::average_embedding(&embeddings);
             let norm = Self::vector_norm(&combined);
             knowledge.push(JarvisKnowledge {

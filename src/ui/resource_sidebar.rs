@@ -20,7 +20,12 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
                 .stroke(theme::subtle_border())
-                .inner_margin(egui::Margin::symmetric(20.0, 18.0)),
+                .inner_margin(egui::Margin {
+                    left: 16.0,
+                    right: 18.0,
+                    top: 18.0,
+                    bottom: 18.0,
+                }),
         )
         .show(ctx, |ui| {
             let available_height = ui.available_height();
@@ -56,60 +61,73 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
 }
 
 fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
-    egui::Frame::none()
-        .fill(Color32::from_rgb(30, 32, 38))
-        .stroke(theme::subtle_border())
-        .rounding(egui::Rounding::same(12.0))
-        .inner_margin(Margin::symmetric(14.0, 12.0))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            let total_width = ui.available_width();
-            let status_width = (total_width * 0.32)
-                .max(110.0)
-                .min(total_width * 0.5)
-                .min(200.0);
+    let total_width = ui.available_width();
+    let row_width = (total_width - 8.0).max(total_width * 0.92);
 
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 14.0;
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        ui.vertical(|ui| {
+            ui.set_width(row_width);
+            egui::Frame::none()
+                .fill(Color32::from_rgb(30, 32, 38))
+                .stroke(theme::subtle_border())
+                .rounding(egui::Rounding::same(12.0))
+                .inner_margin(Margin::symmetric(12.0, 10.0))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    let available = ui.available_width();
+                    let status_width = (available * 0.32)
+                        .max(110.0)
+                        .min(available * 0.5)
+                        .min(200.0);
 
-                ui.label(
-                    RichText::new(row.icon)
-                        .font(theme::icon_font(18.0))
-                        .color(theme::COLOR_PRIMARY),
-                );
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 14.0;
 
-                let available_after_icon = ui.available_width();
-                let text_width = (available_after_icon - status_width)
-                    .max(120.0)
-                    .min(available_after_icon);
-
-                ui.allocate_ui_with_layout(
-                    egui::vec2(text_width, 0.0),
-                    egui::Layout::left_to_right(egui::Align::TOP),
-                    |ui| {
-                        ui.set_width(ui.available_width());
                         ui.label(
-                            RichText::new(row.name)
-                                .color(theme::COLOR_TEXT_PRIMARY)
-                                .strong(),
+                            RichText::new(row.icon)
+                                .font(theme::icon_font(18.0))
+                                .color(theme::COLOR_PRIMARY),
                         );
-                    },
-                );
 
-                ui.allocate_ui_with_layout(
-                    egui::vec2(status_width, 0.0),
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        let StatusIndicator::Led { color, status } = &row.indicator;
-                        draw_led(ui, *color, status);
-                    },
-                );
-            });
+                        let available_after_icon = ui.available_width();
+                        let text_width = (available_after_icon - status_width)
+                            .max(120.0)
+                            .min(available_after_icon);
 
-            ui.add_space(6.0);
-            ui.set_width(ui.available_width());
-            ui.add(Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK)).wrap(true));
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(text_width, 0.0),
+                            egui::Layout::left_to_right(egui::Align::TOP),
+                            |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(
+                                    RichText::new(row.name)
+                                        .color(theme::COLOR_TEXT_PRIMARY)
+                                        .strong(),
+                                );
+                            },
+                        );
+
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(status_width, 0.0),
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                let StatusIndicator::Led { color, status } = &row.indicator;
+                                draw_led(ui, *color, status);
+                            },
+                        );
+                    });
+
+                    ui.add_space(6.0);
+                    ui.set_width(ui.available_width());
+                    ui.add(
+                        Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK))
+                            .wrap(true),
+                    );
+                });
         });
+        ui.add_space(4.0);
+    });
 }
 
 fn draw_led(ui: &mut egui::Ui, color: Color32, label: &str) {

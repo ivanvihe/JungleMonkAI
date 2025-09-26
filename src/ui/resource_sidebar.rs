@@ -288,24 +288,42 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
 fn jarvis_details(state: &AppState) -> Vec<ResourceDetail> {
     if let Some(model) = &state.jarvis_active_model {
         let trimmed_path = state.jarvis_model_path.trim();
-        if trimmed_path.is_empty() {
-            return vec![
-                ResourceDetail::labeled("Modelo", model.display_label()),
-                ResourceDetail::labeled("Ruta", "Sin configurar"),
-            ];
+        let mut details = vec![ResourceDetail::labeled("Modelo", model.display_label())];
+
+        if let Some(record) = state.installed_model(model) {
+            let size = format_sidebar_bytes(record.size_bytes);
+            details.push(ResourceDetail::labeled("Tamaño", size));
+            let timestamp = format_sidebar_timestamp(record.installed_at);
+            details.push(ResourceDetail::labeled("Instalado", timestamp));
+
+            let effective_path = if record.install_path.trim().is_empty() {
+                trimmed_path
+            } else {
+                record.install_path.as_str()
+            };
+
+            let display = Path::new(effective_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| effective_path.to_string());
+            details.push(ResourceDetail::labeled("Ruta", display));
+            return details;
         }
 
-        let path = Path::new(trimmed_path);
-        let display = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name.to_string())
-            .unwrap_or_else(|| trimmed_path.to_string());
+        if trimmed_path.is_empty() {
+            details.push(ResourceDetail::labeled("Ruta", "Sin configurar"));
+        } else {
+            let path = Path::new(trimmed_path);
+            let display = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| trimmed_path.to_string());
+            details.push(ResourceDetail::labeled("Ruta", display));
+        }
 
-        vec![
-            ResourceDetail::labeled("Modelo", model.display_label()),
-            ResourceDetail::labeled("Ruta", display),
-        ]
+        details
     } else if state.jarvis_model_path.trim().is_empty() {
         vec![
             ResourceDetail::value("Sin modelo"),
@@ -317,6 +335,31 @@ fn jarvis_details(state: &AppState) -> Vec<ResourceDetail> {
             state.jarvis_model_path.trim().to_string(),
         )]
     }
+}
+
+fn format_sidebar_bytes(bytes: u64) -> String {
+    if bytes == 0 {
+        return "—".to_string();
+    }
+
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit])
+    }
+}
+
+fn format_sidebar_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> String {
+    let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(timestamp);
+    local.format("%d %b %Y").to_string()
 }
 
 fn provider_details(prefix: &str, model: &str) -> Vec<ResourceDetail> {

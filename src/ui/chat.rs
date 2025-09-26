@@ -1,8 +1,13 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
-use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
+use crate::state::{
+    AppState, ChatMessage, InstalledLocalModel, LogStatus, MainView, PreferenceSection,
+    AVAILABLE_CUSTOM_ACTIONS,
+};
 use anyhow::Result;
+use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
+use std::{fs, path::Path};
 
 use super::theme;
 
@@ -1435,11 +1440,11 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
     }
 
     ui.add_space(12.0);
-    let installed: Vec<LocalModelIdentifier> = state
+    let installed: Vec<InstalledLocalModel> = state
         .installed_local_models
         .iter()
         .cloned()
-        .filter(|model| model.provider == provider)
+        .filter(|model| model.identifier.provider == provider)
         .collect();
 
     if installed.is_empty() {
@@ -1448,15 +1453,27 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
             "Todavía no hay modelos instalados desde este proveedor.",
         );
     } else {
-        ui.label("Modelos instalados:");
-        ui.add_space(4.0);
-        egui::Grid::new(format!("installed_models_{}", provider.key()))
-            .num_columns(1)
-            .spacing([12.0, 6.0])
+        ui.horizontal(|ui| {
+            ui.heading(
+                RichText::new("Modelos instalados")
+                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .size(16.0),
+            );
+            ui.add_space(ui.available_width());
+            ui.label(
+                RichText::new("Gestiona tus descargas locales y actívalas para Jarvis.")
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .size(11.0),
+            );
+        });
+        ui.add_space(6.0);
+        egui::ScrollArea::vertical()
+            .max_height(240.0)
+            .auto_shrink([false, false])
             .show(ui, |ui| {
-                for model in installed {
-                    ui.label(RichText::new(model.display_label()).color(theme::COLOR_TEXT_PRIMARY));
-                    ui.end_row();
+                for record in installed {
+                    draw_installed_model_card(ui, state, provider, &record);
+                    ui.add_space(10.0);
                 }
             });
     }
@@ -1474,17 +1491,20 @@ fn draw_provider_gallery(
     models: &[LocalModelCard],
     selected_model: Option<usize>,
 ) {
-    let columns = if ui.available_width() > 840.0 { 3 } else { 2 };
     let spacing = 16.0;
+    let min_card_width = 280.0;
 
     egui::ScrollArea::vertical()
-        .max_height(360.0)
+        .max_height(380.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            let available_width = ui.available_width();
+            let available_width = ui.available_width().max(min_card_width);
+            let mut columns =
+                ((available_width + spacing) / (min_card_width + spacing)).floor() as usize;
+            columns = columns.clamp(1, 3);
             let card_width = ((available_width - spacing * ((columns as f32) - 1.0))
                 / columns as f32)
-                .max(240.0);
+                .max(min_card_width);
 
             let mut base_index = 0usize;
             for chunk in models.chunks(columns) {
@@ -1653,6 +1673,186 @@ fn draw_model_card(
         });
 }
 
+fn draw_installed_model_card(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    provider: LocalModelProvider,
+    record: &InstalledLocalModel,
+) {
+    let is_active = state
+        .jarvis_active_model
+        .as_ref()
+        .map(|model| model == &record.identifier)
+        .unwrap_or(false);
+
+    let install_path = if record.install_path.trim().is_empty() {
+        Path::new(&state.jarvis_install_dir)
+            .join(record.identifier.sanitized_dir_name())
+            .display()
+            .to_string()
+    } else {
+        record.install_path.clone()
+    };
+
+    let path_display = truncate_middle(&install_path, 72);
+    let subtitle = format!(
+        "{} • Instalado el {}",
+        format_bytes(record.size_bytes),
+        format_timestamp(record.installed_at)
+    );
+
+    egui::Frame::none()
+        .fill(Color32::from_rgb(30, 32, 36))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(record.identifier.provider.display_name())
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(&record.identifier.model_id)
+                            .strong()
+                            .color(theme::COLOR_TEXT_PRIMARY),
+                    );
+                    if is_active {
+                        ui.add_space(10.0);
+                        ui.label(
+                            RichText::new("Activo")
+                                .color(theme::COLOR_SUCCESS)
+                                .size(12.0),
+                        );
+                    }
+                });
+
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(&subtitle)
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(12.0),
+                );
+
+                ui.label(
+                    RichText::new(&path_display)
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                )
+                .on_hover_text(&install_path);
+
+                ui.add_space(10.0);
+
+                if is_active {
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.add_sized(
+                            [ui.available_width(), 30.0],
+                            theme::secondary_button(
+                                RichText::new("Activo en Jarvis")
+                                    .color(Color32::from_rgb(240, 240, 240)),
+                            ),
+                        );
+                    });
+                } else {
+                    let button = theme::primary_button(
+                        RichText::new(format!("{} Activar en Jarvis", ICON_SEND))
+                            .color(Color32::from_rgb(240, 240, 240)),
+                    );
+                    if ui.add_sized([ui.available_width(), 30.0], button).clicked() {
+                        let status = activate_installed_model(state, &record.identifier);
+                        state.provider_state_mut(provider).install_status = Some(status);
+                    }
+                }
+            });
+        });
+}
+
+fn activate_installed_model(state: &mut AppState, identifier: &LocalModelIdentifier) -> String {
+    state.jarvis_selected_provider = identifier.provider;
+    state.jarvis_active_model = Some(identifier.clone());
+    state.jarvis_runtime = None;
+
+    let install_path = state
+        .installed_model(identifier)
+        .map(|record| record.install_path.clone())
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or_else(|| {
+            Path::new(&state.jarvis_install_dir)
+                .join(identifier.sanitized_dir_name())
+                .display()
+                .to_string()
+        });
+
+    state.jarvis_model_path = install_path.clone();
+
+    let mut status = format!(
+        "Modelo '{}' seleccionado para Jarvis.",
+        identifier.display_label()
+    );
+
+    state.push_activity_log(
+        LogStatus::Ok,
+        "Jarvis",
+        format!(
+            "Modelo '{}' configurado como activo.",
+            identifier.display_label()
+        ),
+    );
+
+    if state.jarvis_auto_start {
+        match state.ensure_jarvis_runtime() {
+            Ok(runtime) => {
+                let label = runtime.model_label();
+                status.push_str(&format!(" Jarvis se recargó con {}.", label));
+                state.push_activity_log(
+                    LogStatus::Ok,
+                    "Jarvis",
+                    format!(
+                        "Jarvis cargó {} tras activar {}.",
+                        label,
+                        identifier.display_label()
+                    ),
+                );
+            }
+            Err(err) => {
+                status.push_str(&format!(
+                    " No se pudo iniciar Jarvis automáticamente: {}.",
+                    err
+                ));
+                state.push_activity_log(
+                    LogStatus::Error,
+                    "Jarvis",
+                    format!(
+                        "El autoarranque falló tras activar '{}': {}",
+                        identifier.display_label(),
+                        err
+                    ),
+                );
+            }
+        }
+    }
+
+    state.jarvis_status = Some(status.clone());
+    state.persist_config();
+    status
+}
+
+fn deactivate_jarvis_model(state: &mut AppState) -> String {
+    state.jarvis_active_model = None;
+    state.jarvis_runtime = None;
+    state.jarvis_model_path.clear();
+
+    let status = "Jarvis quedó sin modelo activo.".to_string();
+    state.jarvis_status = Some(status.clone());
+    state.push_activity_log(LogStatus::Ok, "Jarvis", &status);
+    state.persist_config();
+    status
+}
+
 fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index: usize) {
     let (model, token) = {
         let provider_state = state.provider_state(provider);
@@ -1671,58 +1871,39 @@ fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index
             match crate::api::huggingface::download_model(&model, install_dir, token.as_deref()) {
                 Ok(path) => {
                     let identifier = LocalModelIdentifier::new(provider, &model.id);
-                    if !state
-                        .installed_local_models
-                        .iter()
-                        .any(|installed| installed == &identifier)
-                    {
-                        state.installed_local_models.push(identifier.clone());
-                    }
+                    let size_bytes = compute_directory_size(&path);
+                    let record = InstalledLocalModel {
+                        identifier: identifier.clone(),
+                        install_path: path.display().to_string(),
+                        size_bytes,
+                        installed_at: Utc::now(),
+                    };
+                    state.upsert_installed_model(record);
 
-                    state.jarvis_selected_provider = provider;
-                    state.jarvis_active_model = Some(identifier.clone());
-                    state.jarvis_runtime = None;
-                    state.jarvis_model_path = path.display().to_string();
-
-                    let mut message =
-                        format!("Modelo '{}' instalado en {}.", model.id, path.display());
-
-                    state.push_activity_log(
-                        crate::state::LogStatus::Ok,
-                        "Jarvis",
-                        format!("Modelo '{}' descargado en {}", model.id, path.display()),
+                    let activation_status = activate_installed_model(state, &identifier);
+                    let mut message = format!(
+                        "Modelo '{}' instalado en {} ({}).",
+                        model.id,
+                        path.display(),
+                        format_bytes(size_bytes)
                     );
 
-                    if state.jarvis_auto_start {
-                        match state.ensure_jarvis_runtime() {
-                            Ok(runtime) => {
-                                let label = runtime.model_label();
-                                let _ = runtime;
-                                message.push_str(&format!(" Jarvis se recargó con {}.", label));
-                                state.push_activity_log(
-                                    crate::state::LogStatus::Ok,
-                                    "Jarvis",
-                                    format!("Se instaló '{}' y Jarvis cargó {}.", model.id, label),
-                                );
-                            }
-                            Err(err) => {
-                                message.push_str(&format!(
-                                    " No se pudo reiniciar Jarvis automáticamente: {}.",
-                                    err
-                                ));
-                                state.push_activity_log(
-                                    crate::state::LogStatus::Error,
-                                    "Jarvis",
-                                    format!(
-                                        "El autoarranque falló tras instalar '{}': {}",
-                                        model.id, err
-                                    ),
-                                );
-                            }
-                        }
+                    if !activation_status.is_empty() {
+                        message.push(' ');
+                        message.push_str(&activation_status);
                     }
 
-                    state.persist_config();
+                    state.push_activity_log(
+                        LogStatus::Ok,
+                        "Jarvis",
+                        format!(
+                            "Modelo '{}' descargado en {} ({}).",
+                            model.id,
+                            path.display(),
+                            format_bytes(size_bytes)
+                        ),
+                    );
+
                     state.jarvis_status = Some(message.clone());
                     message
                 }
@@ -1730,7 +1911,7 @@ fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index
                     let status = format!("Fallo al instalar '{}': {}", model.id, err);
                     state.jarvis_status = Some(status.clone());
                     state.push_activity_log(
-                        crate::state::LogStatus::Error,
+                        LogStatus::Error,
                         "Jarvis",
                         format!("No se pudo descargar '{}': {}", model.id, err),
                     );
@@ -1937,6 +2118,78 @@ fn sample_catalog(provider: LocalModelProvider) -> Vec<LocalModelCard> {
     }
 }
 
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+
+    let mut value = bytes as f64;
+    let mut unit_index = 0usize;
+    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_index += 1;
+    }
+
+    if unit_index == 0 {
+        format!("{} {}", bytes, UNITS[unit_index])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit_index])
+    }
+}
+
+fn format_timestamp(timestamp: DateTime<Utc>) -> String {
+    let local: DateTime<Local> = DateTime::from(timestamp);
+    local.format("%Y-%m-%d %H:%M").to_string()
+}
+
+fn truncate_middle(value: &str, max_len: usize) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() <= max_len {
+        return value.to_string();
+    }
+
+    if max_len <= 3 {
+        return "…".to_string();
+    }
+
+    let keep = max_len.saturating_sub(3);
+    let front = keep / 2;
+    let back = keep - front;
+    let start: String = chars.iter().take(front).collect();
+    let end: String = chars
+        .iter()
+        .rev()
+        .take(back)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{}…{}", start, end)
+}
+
+fn compute_directory_size(path: &Path) -> u64 {
+    fn visit(path: &Path, total: &mut u64) {
+        match fs::metadata(path) {
+            Ok(metadata) if metadata.is_file() => {
+                *total += metadata.len();
+            }
+            Ok(metadata) if metadata.is_dir() => {
+                if let Ok(entries) = fs::read_dir(path) {
+                    for entry in entries.flatten() {
+                        visit(&entry.path(), total);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut total = 0u64;
+    visit(path, &mut total);
+    total
+}
+
 fn format_count(value: u64) -> String {
     if value >= 1_000_000 {
         let short = value as f64 / 1_000_000.0;
@@ -2039,17 +2292,19 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
         );
     } else {
         let mut provider = state.jarvis_selected_provider;
-        let available_providers: Vec<LocalModelProvider> = state
+        let mut available_providers: Vec<LocalModelProvider> = state
             .installed_local_models
             .iter()
-            .map(|model| model.provider)
+            .map(|model| model.identifier.provider)
             .collect();
+        available_providers.sort();
+        available_providers.dedup();
 
         if !available_providers.contains(&provider) {
             provider = state
                 .installed_local_models
                 .first()
-                .map(|model| model.provider)
+                .map(|model| model.identifier.provider)
                 .unwrap_or(LocalModelProvider::HuggingFace);
         }
 
@@ -2079,8 +2334,8 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
         let available_models: Vec<LocalModelIdentifier> = state
             .installed_local_models
             .iter()
-            .cloned()
-            .filter(|model| model.provider == provider)
+            .filter(|model| model.identifier.provider == provider)
+            .map(|model| model.identifier.clone())
             .collect();
 
         let mut selected_model = state
@@ -2108,39 +2363,65 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             });
 
         if selected_model != state.jarvis_active_model {
-            state.jarvis_active_model = selected_model.clone();
-            state.jarvis_runtime = None;
-
-            if let Some(model) = selected_model {
-                let path = std::path::Path::new(&state.jarvis_install_dir)
-                    .join(model.sanitized_dir_name());
-                state.jarvis_model_path = path.display().to_string();
-                state.jarvis_status = Some(format!(
-                    "Modelo '{}' seleccionado para Jarvis.",
-                    model.display_label()
-                ));
-
-                if state.jarvis_auto_start {
-                    match state.ensure_jarvis_runtime() {
-                        Ok(runtime) => {
-                            state.jarvis_status =
-                                Some(format!("Jarvis activo con {}.", runtime.model_label()));
-                        }
-                        Err(err) => {
-                            state.jarvis_status = Some(format!(
-                                "No se pudo iniciar Jarvis con {}: {}.",
-                                model.display_label(),
-                                err
-                            ));
-                        }
-                    }
-                }
+            if let Some(model) = selected_model.clone() {
+                let status = activate_installed_model(state, &model);
+                state.provider_state_mut(provider).install_status = Some(status);
             } else {
-                state.jarvis_status = Some("Jarvis quedó sin modelo activo.".to_string());
-                state.jarvis_model_path.clear();
+                let status = deactivate_jarvis_model(state);
+                state.provider_state_mut(provider).install_status = Some(status);
             }
+        }
 
-            state.persist_config();
+        if let Some(active) = state.jarvis_active_model.clone() {
+            if let Some(record) = state.installed_model(&active) {
+                ui.add_space(10.0);
+                ui.heading(
+                    RichText::new("Resumen del modelo activo")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .size(16.0),
+                );
+                ui.add_space(6.0);
+                let install_path = if record.install_path.trim().is_empty() {
+                    Path::new(&state.jarvis_install_dir)
+                        .join(record.identifier.sanitized_dir_name())
+                        .display()
+                        .to_string()
+                } else {
+                    record.install_path.clone()
+                };
+                let path_display = truncate_middle(&install_path, 80);
+
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(34, 38, 44))
+                    .stroke(theme::subtle_border())
+                    .rounding(egui::Rounding::same(12.0))
+                    .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+                    .show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.label(
+                                RichText::new(active.display_label())
+                                    .strong()
+                                    .color(theme::COLOR_TEXT_PRIMARY),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} · Instalado el {}",
+                                    format_bytes(record.size_bytes),
+                                    format_timestamp(record.installed_at)
+                                ))
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(12.0),
+                            );
+                            ui.label(
+                                RichText::new(path_display)
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            )
+                            .on_hover_text(install_path);
+                        });
+                    });
+            }
         }
     }
 

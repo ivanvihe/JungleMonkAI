@@ -1,5 +1,6 @@
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -24,14 +25,70 @@ impl Default for ProviderConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledModelConfig {
+    pub identifier: String,
+    #[serde(default)]
+    pub install_path: String,
+    #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(
+        with = "chrono::serde::ts_seconds",
+        default = "default_installed_timestamp"
+    )]
+    pub installed_at: DateTime<Utc>,
+}
+
+fn default_installed_timestamp() -> DateTime<Utc> {
+    Utc::now()
+}
+
+fn deserialize_installed_models<'de, D>(
+    deserializer: D,
+) -> Result<Vec<InstalledModelConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: serde_json::Value = Deserialize::deserialize(deserializer)?;
+    match raw {
+        serde_json::Value::Array(entries) => {
+            let mut models = Vec::with_capacity(entries.len());
+            for entry in entries {
+                match serde_json::from_value::<InstalledModelConfig>(entry.clone()) {
+                    Ok(model) => models.push(model),
+                    Err(_) => {
+                        if let Some(identifier) = entry.as_str() {
+                            models.push(InstalledModelConfig {
+                                identifier: identifier.to_string(),
+                                install_path: String::new(),
+                                size_bytes: 0,
+                                installed_at: Utc::now(),
+                            });
+                        } else {
+                            return Err(D::Error::custom("Formato inválido en installed_models"));
+                        }
+                    }
+                }
+            }
+            Ok(models)
+        }
+        serde_json::Value::Null => Ok(Vec::new()),
+        other => Err(D::Error::custom(format!(
+            "Se esperaba una lista de modelos instalados pero se recibió {}",
+            other
+        ))),
+    }
+}
+
 /// Preferencias para gestionar el agente local "Jarvis".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JarvisConfig {
     pub model_path: String,
     pub install_dir: String,
     pub auto_start: bool,
-    /// Modelos instalados codificados como `proveedor::identificador`.
-    pub installed_models: Vec<String>,
+    /// Modelos instalados codificados como `proveedor::identificador` junto con metadatos.
+    #[serde(default, deserialize_with = "deserialize_installed_models")]
+    pub installed_models: Vec<InstalledModelConfig>,
     #[serde(default)]
     pub active_model: Option<String>,
     #[serde(default = "JarvisConfig::default_alias")]

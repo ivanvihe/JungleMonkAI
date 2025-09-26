@@ -244,8 +244,16 @@ pub fn download_model(
     if modules_path.exists() {
         let module_data = fs::read_to_string(&modules_path)
             .with_context(|| format!("No se pudo leer {:?}", modules_path))?;
-        let modules: Vec<Value> = serde_json::from_str(&module_data)
-            .with_context(|| format!("modules.json inválido en {:?}", modules_path))?;
+        let modules: Vec<Value> = match serde_json::from_str(&module_data) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                eprintln!(
+                    "modules.json inválido en {:?}: {}. Continuando sin módulos opcionales.",
+                    modules_path, err
+                );
+                Vec::new()
+            }
+        };
 
         for module in modules {
             if let Some(path) = module.get("path").and_then(|value| value.as_str()) {

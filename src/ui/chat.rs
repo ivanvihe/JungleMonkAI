@@ -110,39 +110,24 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
         .rounding(egui::Rounding::same(16.0))
         .inner_margin(egui::Margin {
             left: 20.0,
-            right: 14.0,
+            right: 12.0,
             top: 20.0,
             bottom: 18.0,
         })
         .show(ui, |ui| {
             let available_height = ui.available_height();
-            let available_width = ui.available_width();
-            ui.set_width(available_width);
             ui.set_min_height(available_height);
+            ui.set_width(ui.available_width());
+
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    let total_width = ui.available_width();
-                    let feed_width = total_width.min(820.0);
-                    let horizontal_padding = ((total_width - feed_width) / 2.0).max(0.0);
-
-                    ui.horizontal(|ui| {
-                        if horizontal_padding > 0.0 {
-                            ui.add_space(horizontal_padding);
-                        }
-
-                        ui.vertical(|ui| {
-                            ui.set_width(feed_width);
-                            for (index, message) in state.chat_messages.iter().enumerate() {
-                                draw_message_bubble(ui, message, index, &mut pending_actions);
-                            }
-                        });
-
-                        if horizontal_padding > 0.0 {
-                            ui.add_space(horizontal_padding);
-                        }
-                    });
+                    let feed_width = ui.available_width();
+                    ui.set_width(feed_width);
+                    for (index, message) in state.chat_messages.iter().enumerate() {
+                        draw_message_bubble(ui, message, index, &mut pending_actions);
+                    }
                 });
         });
 
@@ -191,12 +176,12 @@ fn draw_message_bubble(
     ui.with_layout(layout, |ui| {
         let available_width = ui.available_width();
         let mut bubble_width = if available_width > 32.0 {
-            (available_width - 16.0).min(680.0)
+            (available_width - 16.0).max(available_width * 0.6)
         } else {
             available_width
         };
         if available_width > 320.0 {
-            bubble_width = bubble_width.max(320.0);
+            bubble_width = bubble_width.clamp(320.0, available_width);
         }
         bubble_width = bubble_width.min(available_width);
 

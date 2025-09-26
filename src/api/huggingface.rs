@@ -63,15 +63,11 @@ fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
                 | "text-embedding"
                 | "text-embeddings-inference"
                 | "embeddings"
+                | "text-generation"
+                | "text2text-generation"
         );
-        let compatible_by_tags = !supported
-            && has_embedding_hint
-            && matches!(
-                pipeline_lower.as_str(),
-                "text-generation" | "text2text-generation"
-            );
 
-        if !supported && !compatible_by_tags {
+        if !supported {
             return Some(format!(
                 "La pipeline declarada '{}' no es compatible con el runtime de incrustaciones de Jarvis.",
                 pipeline

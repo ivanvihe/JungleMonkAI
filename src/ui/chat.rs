@@ -28,6 +28,38 @@ enum PendingChatAction {
     Reuse(String),
 }
 
+fn desired_main_width(available_width: f32) -> f32 {
+    if available_width <= 0.0 {
+        return 0.0;
+    }
+    let comfortable = (available_width - 64.0).max(available_width * 0.82);
+    let min_target = available_width.min(360.0);
+    comfortable.max(min_target).min(available_width)
+}
+
+fn with_centered_main_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let available = ui.available_size();
+    let width = available.x.max(0.0);
+    let height = available.y.max(0.0);
+    ui.set_min_height(height);
+    let target_width = desired_main_width(width);
+    let side_padding = ((width - target_width) / 2.0).max(0.0);
+
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+        if side_padding > 0.0 {
+            ui.add_space(side_padding);
+        }
+        ui.vertical(|ui| {
+            ui.set_width(target_width);
+            ui.set_min_height(height);
+            add_contents(ui);
+        });
+        if side_padding > 0.0 {
+            ui.add_space(side_padding);
+        }
+    });
+}
+
 pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
     egui::CentralPanel::default()
         .frame(
@@ -48,59 +80,78 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
 }
 
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
-    let available = ui.available_size();
-    let horizontal_padding = 36.0;
-    let target_width = (available.x - horizontal_padding)
-        .max(available.x * 0.9)
-        .clamp(0.0, available.x);
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(target_width, available.y), egui::Sense::hover());
-    let mut content_ui = ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
-    content_ui.set_min_width(rect.width());
-    content_ui.set_max_width(rect.width());
-    content_ui.set_min_height(available.y);
-    content_ui.set_clip_rect(rect);
+    with_centered_main_surface(ui, |ui| {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(26, 28, 32))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(18.0))
+            .inner_margin(egui::Margin {
+                left: 18.0,
+                right: 18.0,
+                top: 18.0,
+                bottom: 16.0,
+            })
+            .show(ui, |ui| {
+                let available = ui.available_size();
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(available.x, available.y),
+                    egui::Sense::hover(),
+                );
+                let mut content_ui = ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
+                content_ui.set_min_height(rect.height());
+                content_ui.set_clip_rect(rect);
 
-    egui::TopBottomPanel::bottom("chat_input_panel")
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::none())
-        .show_inside(&mut content_ui, |ui| {
-            ui.add_space(6.0);
-            draw_chat_input(ui, state);
-        });
+                egui::TopBottomPanel::bottom("chat_input_panel")
+                    .resizable(false)
+                    .show_separator_line(false)
+                    .frame(egui::Frame::none())
+                    .show_inside(&mut content_ui, |ui| {
+                        ui.add_space(8.0);
+                        draw_chat_input(ui, state);
+                    });
 
-    egui::CentralPanel::default()
-        .frame(egui::Frame::none())
-        .show_inside(&mut content_ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.set_min_height(ui.available_height());
-            draw_chat_history(ui, state);
-        });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none())
+                    .show_inside(&mut content_ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.set_min_height(ui.available_height());
+                        draw_chat_history(ui, state);
+                    });
+            });
+    });
 }
 
 fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
-    egui::Frame::none()
-        .fill(Color32::from_rgb(32, 32, 32))
-        .stroke(theme::subtle_border())
-        .inner_margin(egui::Margin::symmetric(18.0, 14.0))
-        .show(ui, |ui| {
-            ui.heading(
-                RichText::new(state.selected_section.title())
-                    .color(theme::COLOR_TEXT_PRIMARY)
-                    .strong(),
-            );
-            ui.label(
-                RichText::new(state.selected_section.description()).color(theme::COLOR_TEXT_WEAK),
-            );
-            ui.add_space(10.0);
+    with_centered_main_surface(ui, |ui| {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(30, 32, 36))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(18.0))
+            .inner_margin(egui::Margin {
+                left: 20.0,
+                right: 20.0,
+                top: 20.0,
+                bottom: 18.0,
+            })
+            .show(ui, |ui| {
+                ui.heading(
+                    RichText::new(state.selected_section.title())
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+                ui.label(
+                    RichText::new(state.selected_section.description())
+                        .color(theme::COLOR_TEXT_WEAK),
+                );
+                ui.add_space(12.0);
 
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    draw_selected_section(ui, state);
-                });
-        });
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        draw_selected_section(ui, state);
+                    });
+            });
+    });
 }
 
 fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {

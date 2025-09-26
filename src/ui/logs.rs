@@ -150,44 +150,63 @@ fn draw_collapsed_logs(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
-    let header_bg = egui::Color32::from_rgb(40, 42, 48);
-    let row_even = egui::Color32::from_rgb(36, 38, 44);
-    let row_odd = egui::Color32::from_rgb(32, 34, 40);
+    let header_bg = egui::Color32::from_rgb(42, 44, 50);
+    let row_even = egui::Color32::from_rgb(34, 36, 42);
+    let row_odd = egui::Color32::from_rgb(30, 32, 38);
+
+    let min_height = ui.available_height().max(140.0);
 
     TableBuilder::new(ui)
-        .striped(false)
+        .striped(true)
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(Column::initial(64.0).resizable(true))
-        .column(Column::initial(160.0).resizable(true))
+        .column(Column::initial(72.0).at_least(64.0).resizable(true))
+        .column(Column::initial(160.0).at_least(120.0).resizable(true))
         .column(Column::remainder().resizable(true))
-        .column(Column::initial(140.0).resizable(true))
+        .column(Column::initial(150.0).at_least(120.0).resizable(true))
+        .min_scrolled_height(min_height)
         .resizable(true)
-        .header(36.0, |mut header| {
+        .header(30.0, |mut header| {
             header.col(|ui| {
                 header_cell(ui, header_bg, |ui| {
-                    ui.label(RichText::new("Estado").color(theme::COLOR_TEXT_WEAK));
+                    ui.label(
+                        RichText::new("Estado")
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .monospace(),
+                    );
                 });
             });
             header.col(|ui| {
                 header_cell(ui, header_bg, |ui| {
-                    ui.label(RichText::new("Origen").color(theme::COLOR_TEXT_WEAK));
+                    ui.label(
+                        RichText::new("Origen")
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .monospace(),
+                    );
                 });
             });
             header.col(|ui| {
                 header_cell(ui, header_bg, |ui| {
-                    ui.label(RichText::new("Detalle").color(theme::COLOR_TEXT_WEAK));
+                    ui.label(
+                        RichText::new("Detalle")
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .monospace(),
+                    );
                 });
             });
             header.col(|ui| {
                 header_cell(ui, header_bg, |ui| {
-                    ui.label(RichText::new("Hora").color(theme::COLOR_TEXT_WEAK));
+                    ui.label(
+                        RichText::new("Hora")
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .monospace(),
+                    );
                 });
             });
         })
         .body(|mut body| {
             for (index, entry) in state.activity_logs.iter().enumerate() {
                 let bg = if index % 2 == 0 { row_even } else { row_odd };
-                body.row(44.0, |mut row| {
+                body.row(32.0, |mut row| {
                     row.col(|ui| {
                         body_cell(ui, bg, |ui| {
                             ui.label(status_badge(entry.status));
@@ -198,28 +217,33 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                             ui.label(
                                 RichText::new(&entry.source)
                                     .color(theme::COLOR_TEXT_PRIMARY)
-                                    .strong(),
+                                    .monospace(),
                             );
                         });
                     });
                     row.col(|ui| {
                         body_cell(ui, bg, |ui| {
                             ui.scope(|ui| {
-                                ui.style_mut().wrap = Some(true);
-                                ui.add(
+                                ui.style_mut().wrap = Some(false);
+                                ui.add_sized(
+                                    [ui.available_width(), 0.0],
                                     Label::new(
                                         RichText::new(&entry.message)
-                                            .color(theme::COLOR_TEXT_PRIMARY),
+                                            .color(theme::COLOR_TEXT_PRIMARY)
+                                            .monospace(),
                                     )
-                                    .wrap(true)
-                                    .truncate(false),
+                                    .truncate(true),
                                 );
                             });
                         });
                     });
                     row.col(|ui| {
                         body_cell(ui, bg, |ui| {
-                            ui.label(RichText::new(&entry.timestamp).color(theme::COLOR_TEXT_WEAK));
+                            ui.label(
+                                RichText::new(&entry.timestamp)
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .monospace(),
+                            );
                         });
                     });
                 });
@@ -257,8 +281,8 @@ fn status_badge(status: LogStatus) -> RichText {
 fn header_cell(ui: &mut egui::Ui, color: egui::Color32, add_contents: impl FnOnce(&mut egui::Ui)) {
     Frame::none()
         .fill(color)
-        .rounding(Rounding::same(8.0))
-        .inner_margin(Margin::symmetric(12.0, 6.0))
+        .rounding(Rounding::same(6.0))
+        .inner_margin(Margin::symmetric(10.0, 4.0))
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 add_contents(ui);
@@ -269,8 +293,8 @@ fn header_cell(ui: &mut egui::Ui, color: egui::Color32, add_contents: impl FnOnc
 fn body_cell(ui: &mut egui::Ui, color: egui::Color32, add_contents: impl FnOnce(&mut egui::Ui)) {
     Frame::none()
         .fill(color)
-        .rounding(Rounding::same(8.0))
-        .inner_margin(Margin::symmetric(14.0, 10.0))
+        .rounding(Rounding::same(4.0))
+        .inner_margin(Margin::symmetric(10.0, 6.0))
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 add_contents(ui);

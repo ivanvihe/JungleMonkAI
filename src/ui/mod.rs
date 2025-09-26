@@ -15,8 +15,9 @@ pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
     }
     theme::apply(ctx);
     ctx.style_mut(|style| {
-        style.interaction.resize_grab_radius_side = 3.0;
-        style.interaction.resize_grab_radius_corner = 4.0;
+        style.interaction.resize_grab_radius_side = 6.0;
+        style.interaction.resize_grab_radius_corner = 8.0;
+        style.spacing.window_margin = egui::Margin::same(0.0);
     });
     header::draw_header(ctx, state);
     logs::draw_logs_panel(ctx, state);

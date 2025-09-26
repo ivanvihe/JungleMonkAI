@@ -43,7 +43,10 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
     }
 
     let panel_response = panel.show(ctx, |ui| {
-        ui.set_clip_rect(ui.max_rect());
+        let background_rect = ui.max_rect();
+        ui.painter()
+            .rect_filled(background_rect, 0.0, theme::COLOR_PANEL);
+        ui.set_clip_rect(background_rect);
         if state.logs_panel_expanded {
             draw_expanded_logs(ui, state);
         } else {

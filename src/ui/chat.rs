@@ -182,8 +182,9 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
     let mut pending_actions = Vec::new();
 
     let max_width = ui.available_width().min(580.0);
+    let target_height = ui.available_height();
     ui.allocate_ui_with_layout(
-        egui::vec2(max_width, 0.0),
+        egui::vec2(max_width, target_height),
         egui::Layout::top_down(egui::Align::LEFT),
         |ui| {
             ui.set_width(max_width);

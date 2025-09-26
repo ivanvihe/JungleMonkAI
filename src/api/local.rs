@@ -944,7 +944,7 @@ impl JarvisRuntime {
     }
 
     fn respond_status(&self, _prompt: &str, _score: f32) -> String {
-        let mut lines = vec![format!("Modelo activo: {}.", self.model_label())];
+        let mut lines = vec![self.runtime_overview()];
         if let Some(pipeline) = &self.pipeline_tag {
             lines.push(format!("Especialización del modelo: {}.", pipeline));
         }
@@ -952,6 +952,15 @@ impl JarvisRuntime {
             "Directorio de trabajo: {}",
             self.model_dir.display()
         ));
+        if self.encoder_ready {
+            lines.push(
+                "El runtime local está listo para generar respuestas semánticas basadas en embeddings.".to_string(),
+            );
+        } else {
+            lines.push(
+                "Por ahora responderé con metadatos hasta que descargues los pesos compatibles para el runtime local.".to_string(),
+            );
+        }
         lines.push(
             "Estoy listo para recibir instrucciones. Mencióname con el alias configurado y reacciono al instante.".to_string(),
         );

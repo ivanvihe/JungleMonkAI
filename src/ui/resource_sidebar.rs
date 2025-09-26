@@ -1,19 +1,15 @@
 use crate::state::AppState;
-use eframe::egui::{self, Color32, Frame, Label, Margin, RichText, Stroke};
+use eframe::egui::{self, Color32, Frame, Margin, RichText, Stroke};
 
 use super::theme;
 use std::path::Path;
 
-const ICON_SYSTEM: &str = "\u{f2db}"; // microchip
 const ICON_JARVIS: &str = "\u{f0a0}"; // hard-drive
-const ICON_OPENAI: &str = "\u{f544}"; // robot
-const ICON_CLAUDE: &str = "\u{e2ca}"; // wand-magic-sparkles
-const ICON_GROQ: &str = "\u{f0e7}"; // bolt
 const COLOR_WARNING: Color32 = Color32::from_rgb(255, 196, 0);
 const ICON_COLLAPSE_RIGHT: &str = "\u{f054}"; // chevron-right
 const ICON_EXPAND_LEFT: &str = "\u{f053}"; // chevron-left
 
-const RIGHT_PANEL_WIDTH: f32 = 320.0;
+const RIGHT_PANEL_WIDTH: f32 = 280.0;
 const COLLAPSED_HANDLE_WIDTH: f32 = 28.0;
 
 pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
@@ -56,9 +52,9 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin {
                     left: 18.0,
-                    right: 20.0,
-                    top: 20.0,
-                    bottom: 20.0,
+                    right: 18.0,
+                    top: 18.0,
+                    bottom: 18.0,
                 })
                 .rounding(egui::Rounding::same(14.0)),
         )
@@ -90,138 +86,29 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                 ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
                 ui.add_space(12.0);
 
-                let rows = resource_rows(state);
                 egui::ScrollArea::vertical()
                     .id_source("resource_summary_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        for row in rows.iter() {
-                            draw_resource_row(ui, row);
-                            ui.add_space(8.0);
-                        }
+                        draw_jarvis_card(ui, state);
+                        ui.add_space(12.0);
+                        draw_models_card(ui, state);
                     });
             });
         });
 }
 
-fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
-    let total_width = ui.available_width();
-    let row_width = (total_width * 0.9).max(total_width - 42.0).min(total_width);
-
-    ui.horizontal(|ui| {
-        ui.add_space(2.0);
-        ui.vertical(|ui| {
-            ui.set_width(row_width);
-            Frame::none()
-                .fill(Color32::from_rgb(28, 30, 36))
-                .stroke(theme::subtle_border())
-                .rounding(egui::Rounding::same(14.0))
-                .inner_margin(Margin::symmetric(12.0, 10.0))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    let available = ui.available_width();
-                    let status_width = (available * 0.32)
-                        .max(110.0)
-                        .min(available * 0.42)
-                        .min(190.0);
-
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
-
-                        ui.label(
-                            RichText::new(row.icon)
-                                .font(theme::icon_font(18.0))
-                                .color(theme::COLOR_PRIMARY),
-                        );
-
-                        let available_after_icon = ui.available_width();
-                        let text_width = (available_after_icon - status_width)
-                            .max(140.0)
-                            .min(available_after_icon);
-
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(text_width, 0.0),
-                            egui::Layout::top_down(egui::Align::LEFT),
-                            |ui| {
-                                ui.set_width(ui.available_width());
-                                ui.label(
-                                    RichText::new(row.name)
-                                        .color(theme::COLOR_TEXT_PRIMARY)
-                                        .strong(),
-                                );
-                            },
-                        );
-
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(status_width, 0.0),
-                            egui::Layout::top_down(egui::Align::RIGHT),
-                            |ui| {
-                                ui.set_width(status_width);
-                                ui.vertical_centered(|ui| {
-                                    ui.with_layout(
-                                        egui::Layout::left_to_right(egui::Align::Center),
-                                        |ui| {
-                                            let StatusIndicator::Led { color, status } =
-                                                &row.indicator;
-                                            draw_led(ui, *color, status);
-                                        },
-                                    );
-                                });
-                            },
-                        );
-                    });
-
-                    if !row.details.is_empty() {
-                        ui.add_space(10.0);
-                        ui.vertical(|ui| {
-                            ui.spacing_mut().item_spacing.y = 6.0;
-                            for detail in &row.details {
-                                if let Some(label) = &detail.label {
-                                    ui.label(
-                                        RichText::new(label)
-                                            .color(theme::COLOR_TEXT_WEAK)
-                                            .size(12.0),
-                                    );
-                                }
-                                ui.label(
-                                    RichText::new(&detail.value)
-                                        .color(theme::COLOR_TEXT_PRIMARY)
-                                        .size(13.0),
-                                );
-                            }
-                        });
-                    }
-                });
-        });
-        ui.add_space(2.0);
-    });
-}
-
-fn draw_led(ui: &mut egui::Ui, color: Color32, label: &str) {
-    ui.spacing_mut().item_spacing.x = 6.0;
+fn draw_led(ui: &mut egui::Ui, color: Color32, tooltip: &str) {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let center = rect.center();
     painter.circle_filled(center, 6.0, color);
     painter.circle_stroke(center, 6.0, Stroke::new(1.0, color.gamma_multiply(0.5)));
     painter.circle_stroke(center, 7.0, Stroke::new(1.2, color.gamma_multiply(0.3)));
-    response.on_hover_text(label);
-    let label_width = ui.available_width().max(0.0);
-    let label_widget = Label::new(
-        RichText::new(label)
-            .color(theme::COLOR_TEXT_PRIMARY)
-            .size(12.0),
-    )
-    .wrap(true);
-    ui.add_sized([label_width, 0.0], label_widget);
-}
-
-struct ResourceRow {
-    icon: &'static str,
-    name: &'static str,
-    details: Vec<ResourceDetail>,
-    indicator: StatusIndicator,
+    if !tooltip.trim().is_empty() {
+        response.on_hover_text(tooltip);
+    }
 }
 
 enum StatusIndicator {
@@ -249,63 +136,158 @@ impl ResourceDetail {
     }
 }
 
-fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
-    vec![
-        ResourceRow {
-            icon: ICON_SYSTEM,
-            name: "Sistema",
-            details: vec![
-                ResourceDetail::labeled(
-                    "Memoria",
-                    format!("{:.1} GB", state.resource_memory_limit_gb),
-                ),
-                ResourceDetail::labeled("Disco", format!("{:.1} GB", state.resource_disk_limit_gb)),
-            ],
-            indicator: StatusIndicator::Led {
-                color: theme::COLOR_SUCCESS,
-                status: "Operativo".to_string(),
-            },
-        },
-        ResourceRow {
-            icon: ICON_JARVIS,
-            name: "Jarvis",
-            details: jarvis_details(state),
-            indicator: jarvis_indicator(state),
-        },
-        ResourceRow {
-            icon: ICON_OPENAI,
-            name: "OpenAI",
-            details: provider_details("Modelo", &state.openai_default_model),
+struct ModelOverview {
+    handle: &'static str,
+    detail: String,
+    indicator: StatusIndicator,
+}
+
+fn draw_jarvis_card(ui: &mut egui::Ui, state: &AppState) {
+    Frame::none()
+        .fill(Color32::from_rgb(28, 30, 36))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+
+            let indicator = jarvis_indicator(state);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.label(
+                    RichText::new(ICON_JARVIS)
+                        .font(theme::icon_font(22.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Jarvis")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new("Runtime de incrustaciones")
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    draw_status_led(ui, &indicator);
+                });
+            });
+
+            let details = jarvis_details(state);
+            if !details.is_empty() {
+                ui.add_space(10.0);
+                ui.spacing_mut().item_spacing.y = 6.0;
+                for detail in &details {
+                    if let Some(label) = &detail.label {
+                        ui.label(
+                            RichText::new(label)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(12.0),
+                        );
+                    }
+                    ui.label(
+                        RichText::new(&detail.value)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(13.0),
+                    );
+                }
+            }
+        });
+}
+
+fn draw_models_card(ui: &mut egui::Ui, state: &AppState) {
+    let entries = vec![
+        ModelOverview {
+            handle: "@gpt",
+            detail: provider_model_caption(&state.openai_default_model),
             indicator: provider_indicator(
                 state.openai_test_status.as_ref(),
-                state.config.openai.api_key.as_ref().map(|s| s.as_str()),
+                state.config.openai.api_key.as_deref(),
                 "OpenAI",
                 "Pendiente de prueba",
             ),
         },
-        ResourceRow {
-            icon: ICON_CLAUDE,
-            name: "Claude",
-            details: provider_details("Modelo", &state.claude_default_model),
+        ModelOverview {
+            handle: "@claude",
+            detail: provider_model_caption(&state.claude_default_model),
             indicator: provider_indicator(
                 state.anthropic_test_status.as_ref(),
-                state.config.anthropic.api_key.as_ref().map(|s| s.as_str()),
+                state.config.anthropic.api_key.as_deref(),
                 "Anthropic",
                 "Pendiente de prueba",
             ),
         },
-        ResourceRow {
-            icon: ICON_GROQ,
-            name: "Groq",
-            details: provider_details("Modelo", &state.groq_default_model),
+        ModelOverview {
+            handle: "@groq",
+            detail: provider_model_caption(&state.groq_default_model),
             indicator: provider_indicator(
                 state.groq_test_status.as_ref(),
-                state.config.groq.api_key.as_ref().map(|s| s.as_str()),
+                state.config.groq.api_key.as_deref(),
                 "Groq",
                 "Pendiente de prueba",
             ),
         },
-    ]
+    ];
+
+    Frame::none()
+        .fill(Color32::from_rgb(28, 30, 36))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(
+                RichText::new("Modelos conectados")
+                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .strong(),
+            );
+
+            for (index, entry) in entries.iter().enumerate() {
+                if index > 0 {
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+                } else {
+                    ui.add_space(8.0);
+                }
+
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.label(
+                        RichText::new(entry.handle)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        draw_status_led(ui, &entry.indicator);
+                    });
+                });
+
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(&entry.detail)
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(12.0),
+                );
+            }
+        });
+}
+
+fn draw_status_led(ui: &mut egui::Ui, indicator: &StatusIndicator) {
+    let StatusIndicator::Led { color, status } = indicator;
+    draw_led(ui, *color, status);
+}
+
+fn provider_model_caption(model: &str) -> String {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        "[sin modelo configurado]".to_string()
+    } else {
+        format!("[{}]", trimmed)
+    }
 }
 
 fn jarvis_indicator(state: &AppState) -> StatusIndicator {
@@ -401,14 +383,6 @@ fn format_sidebar_bytes(bytes: u64) -> String {
 fn format_sidebar_timestamp(timestamp: chrono::DateTime<chrono::Utc>) -> String {
     let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(timestamp);
     local.format("%d %b %Y").to_string()
-}
-
-fn provider_details(prefix: &str, model: &str) -> Vec<ResourceDetail> {
-    if model.trim().is_empty() {
-        vec![ResourceDetail::labeled(prefix, "Sin modelo")]
-    } else {
-        vec![ResourceDetail::labeled(prefix, model.trim().to_string())]
-    }
 }
 
 fn provider_indicator(

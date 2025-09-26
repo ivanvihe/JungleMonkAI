@@ -584,7 +584,7 @@ impl Default for AppState {
             },
             jarvis_respond_without_alias: config.jarvis.respond_without_alias,
             claude_default_model: if config.anthropic.default_model.is_empty() {
-                "claude-3-opus".to_string()
+                "claude-3-opus-20240229".to_string()
             } else {
                 config.anthropic.default_model.clone()
             },

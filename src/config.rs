@@ -106,7 +106,7 @@ impl Default for AppConfig {
         Self {
             anthropic: ProviderConfig {
                 api_key: None,
-                default_model: "claude-3-opus".to_string(),
+                default_model: "claude-3-opus-20240229".to_string(),
                 alias: "claude".to_string(),
             },
             openai: ProviderConfig {

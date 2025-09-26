@@ -36,7 +36,7 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin {
                     left: 18.0,
-                    right: 10.0,
+                    right: 0.0,
                     top: 18.0,
                     bottom: 14.0,
                 }),
@@ -335,23 +335,18 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                 let mut should_send = false;
 
-                let text_height = 110.0;
+                let text_height = 82.0;
                 let enter_pressed = ui.input(|input| {
                     input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
                 });
 
-                let available_width = ui.available_width();
-                let spacing = 12.0;
-                let button_width = 56.0;
-                let text_width = (available_width - button_width - spacing).max(140.0);
-
                 let text_response = ui
                     .allocate_ui_with_layout(
-                        egui::vec2(text_width, text_height),
+                        egui::vec2(ui.available_width(), text_height),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
                             let text_edit = egui::TextEdit::multiline(&mut state.current_chat_input)
-                                .desired_rows(4)
+                                .desired_rows(3)
                                 .hint_text(
                                     "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
                                 )
@@ -363,48 +358,62 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                                 .fill(Color32::from_rgb(30, 32, 38))
                                 .stroke(theme::subtle_border())
                                 .rounding(egui::Rounding::same(12.0))
-                                .inner_margin(egui::Margin::symmetric(14.0, 12.0));
+                                .inner_margin(egui::Margin::symmetric(14.0, 10.0));
 
                             text_frame
                                 .show(ui, |ui| {
-                                    let width = ui.available_width();
-                                    ui.add_sized([width, text_height], text_edit)
+                                    ui.set_height(text_height);
+                                    ui.spacing_mut().item_spacing.x = 12.0;
+
+                                    ui.horizontal(|ui| {
+                                        let button_width = 34.0;
+                                        let available = ui.available_width();
+                                        let text_size = [
+                                            (available - button_width).max(120.0),
+                                            text_height - 20.0,
+                                        ];
+                                        let text_response =
+                                            ui.add_sized(text_size, text_edit);
+
+                                        let (button_rect, send_response) = ui
+                                            .allocate_exact_size(
+                                                egui::vec2(
+                                                    button_width,
+                                                    text_response
+                                                        .rect
+                                                        .height()
+                                                        .max(28.0),
+                                                ),
+                                                egui::Sense::click(),
+                                            );
+                                        let send_response = send_response
+                                            .on_hover_text("Enviar mensaje")
+                                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                        let painter = ui.painter_at(button_rect);
+                                        painter.text(
+                                            button_rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            ICON_SEND,
+                                            theme::icon_font(20.0),
+                                            Color32::from_rgb(240, 240, 240),
+                                        );
+
+                                        (text_response, send_response)
+                                    })
+                                    .inner
                                 })
                                 .inner
                         },
                     )
                     .inner;
 
+                let (text_response, send_response) = text_response;
+
                 if text_response.has_focus() && enter_pressed {
                     should_send = true;
                     ui.ctx()
                         .memory_mut(|mem| mem.request_focus(text_response.id));
                 }
-
-                ui.add_space(spacing);
-
-                let (send_rect, mut send_response) =
-                    ui.allocate_exact_size(egui::vec2(button_width, text_height), egui::Sense::click());
-                let send_fill = if send_response.hovered() {
-                    Color32::from_rgb(58, 140, 232)
-                } else {
-                    Color32::from_rgb(46, 112, 196)
-                };
-                send_response = send_response.on_hover_text("Enviar mensaje");
-                let painter = ui.painter_at(send_rect);
-                painter.rect_filled(send_rect, egui::Rounding::same(12.0), send_fill);
-                painter.rect_stroke(
-                    send_rect,
-                    egui::Rounding::same(12.0),
-                    theme::subtle_border(),
-                );
-                painter.text(
-                    send_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    ICON_SEND,
-                    theme::icon_font(24.0),
-                    Color32::from_rgb(240, 240, 240),
-                );
 
                 if send_response.clicked() {
                     should_send = true;

@@ -4,6 +4,7 @@ use eframe::egui::{self, Color32, RichText};
 use super::theme;
 
 const ICON_CHAT: &str = "\u{f086}"; // comments
+const ICON_LOGS: &str = "\u{f0f6}"; // file-lines
 const ICON_RESOURCES: &str = "\u{f1b3}"; // cubes
 const ICON_SYSTEM: &str = "\u{f2db}"; // microchip
 const ICON_PROVIDERS: &str = "\u{f6ff}"; // network-wired
@@ -136,6 +137,14 @@ const NAV_TREE: &[NavNode] = &[
         label: "Chat Multimodal",
         icon: ICON_CHAT,
         view: Some(MainView::ChatMultimodal),
+        section: None,
+        children: &[],
+    },
+    NavNode {
+        id: "logs",
+        label: "Registros & tareas",
+        icon: ICON_LOGS,
+        view: Some(MainView::Logs),
         section: None,
         children: &[],
     },

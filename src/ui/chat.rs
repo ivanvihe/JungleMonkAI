@@ -90,14 +90,14 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                     bottom: 14.0,
                 })
                 .show(&mut frame_ui, |ui| {
-                    logs::draw_logs_panel(ui, state);
+                    ui.set_width(ui.available_width());
+                    ui.set_min_height(ui.available_height());
 
-                    egui::CentralPanel::default()
-                        .frame(egui::Frame::none())
-                        .show_inside(ui, |ui| match state.active_main_view {
-                            MainView::ChatMultimodal => draw_chat_view(ui, state),
-                            MainView::Preferences => draw_preferences_view(ui, state),
-                        });
+                    match state.active_main_view {
+                        MainView::ChatMultimodal => draw_chat_view(ui, state),
+                        MainView::Preferences => draw_preferences_view(ui, state),
+                        MainView::Logs => logs::draw_logs_view(ui, state),
+                    }
                 });
         });
 }

@@ -140,6 +140,7 @@ impl Default for PreferenceSection {
 pub enum MainView {
     ChatMultimodal,
     Preferences,
+    Logs,
 }
 
 impl Default for MainView {
@@ -495,8 +496,6 @@ pub struct AppState {
     pub groq_test_status: Option<String>,
     /// Ramas expandidas del árbol de navegación.
     pub expanded_nav_nodes: BTreeSet<&'static str>,
-    /// Determina si el panel de logs inferior está visible.
-    pub logs_panel_expanded: bool,
     /// Controla si el panel lateral izquierdo está visible.
     pub left_panel_visible: bool,
     /// Controla si el panel lateral derecho está visible.
@@ -505,8 +504,6 @@ pub struct AppState {
     pub left_panel_width: f32,
     /// Ancho actual del panel lateral derecho.
     pub right_panel_width: f32,
-    /// Altura recordada del panel inferior de registros.
-    pub logs_panel_height: f32,
     /// Registros de actividad recientes.
     pub activity_logs: Vec<LogEntry>,
     /// Canal para recibir respuestas de proveedores remotos.
@@ -711,12 +708,10 @@ impl Default for AppState {
             },
             groq_test_status: None,
             expanded_nav_nodes,
-            logs_panel_expanded: true,
             left_panel_visible: true,
             right_panel_visible: true,
             left_panel_width: 280.0,
             right_panel_width: 320.0,
-            logs_panel_height: 200.0,
             activity_logs: default_logs(),
             provider_response_rx,
             provider_response_tx,

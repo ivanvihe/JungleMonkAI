@@ -242,11 +242,612 @@ impl MainTab {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RemoteProviderKind {
     Anthropic,
     OpenAi,
     Groq,
+}
+
+impl RemoteProviderKind {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            RemoteProviderKind::Anthropic => "Anthropic · Claude",
+            RemoteProviderKind::OpenAi => "OpenAI · GPT",
+            RemoteProviderKind::Groq => "Groq",
+        }
+    }
+
+    pub fn short_code(self) -> &'static str {
+        match self {
+            RemoteProviderKind::Anthropic => "anthropic",
+            RemoteProviderKind::OpenAi => "openai",
+            RemoteProviderKind::Groq => "groq",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RemoteModelKey {
+    pub provider: RemoteProviderKind,
+    pub id: String,
+}
+
+impl RemoteModelKey {
+    pub fn new(provider: RemoteProviderKind, id: impl Into<String>) -> Self {
+        Self {
+            provider,
+            id: id.into(),
+        }
+    }
+
+    pub fn as_display(&self) -> String {
+        format!("{} · {}", self.provider.display_name(), self.id)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteModelCard {
+    pub key: RemoteModelKey,
+    pub title: String,
+    pub description: String,
+    pub context_tokens: u32,
+    pub max_output_tokens: u32,
+    pub input_cost_per_million: f32,
+    pub output_cost_per_million: f32,
+    pub latency_ms: u32,
+    pub tags: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub favorite_hint: String,
+    pub quick_actions: Vec<String>,
+    pub multimodal: bool,
+}
+
+impl RemoteModelCard {
+    pub fn sample(
+        provider: RemoteProviderKind,
+        id: &str,
+        title: &str,
+        description: &str,
+        context_tokens: u32,
+        max_output_tokens: u32,
+        input_cost_per_million: f32,
+        output_cost_per_million: f32,
+        latency_ms: u32,
+        tags: Vec<&str>,
+        capabilities: Vec<&str>,
+        favorite_hint: &str,
+        quick_actions: Vec<&str>,
+        multimodal: bool,
+    ) -> Self {
+        Self {
+            key: RemoteModelKey::new(provider, id),
+            title: title.to_string(),
+            description: description.to_string(),
+            context_tokens,
+            max_output_tokens,
+            input_cost_per_million,
+            output_cost_per_million,
+            latency_ms,
+            tags: tags.into_iter().map(|tag| tag.to_string()).collect(),
+            capabilities: capabilities
+                .into_iter()
+                .map(|cap| cap.to_string())
+                .collect(),
+            favorite_hint: favorite_hint.to_string(),
+            quick_actions: quick_actions
+                .into_iter()
+                .map(|action| action.to_string())
+                .collect(),
+            multimodal,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RemoteCatalogFilters {
+    pub search: String,
+    pub max_cost: Option<f32>,
+    pub min_context: Option<u32>,
+    pub favorites_only: bool,
+    pub multimodal_only: bool,
+    pub tag_filters: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteCatalogState {
+    pub provider_cards: BTreeMap<RemoteProviderKind, Vec<RemoteModelCard>>,
+    pub filters: BTreeMap<RemoteProviderKind, RemoteCatalogFilters>,
+    pub favorites: BTreeSet<RemoteModelKey>,
+    pub comparison: Vec<RemoteModelKey>,
+    pub quick_test_prompt: String,
+    pub last_status: Option<String>,
+}
+
+impl Default for RemoteCatalogState {
+    fn default() -> Self {
+        let mut provider_cards: BTreeMap<RemoteProviderKind, Vec<RemoteModelCard>> =
+            BTreeMap::new();
+
+        provider_cards.insert(
+            RemoteProviderKind::Anthropic,
+            vec![
+                RemoteModelCard::sample(
+                    RemoteProviderKind::Anthropic,
+                    "claude-3-opus-20240229",
+                    "Claude 3 Opus",
+                    "Modelo premium multimodal orientado a razonamiento profundo y tareas estratégicas.",
+                    200_000,
+                    4096,
+                    15.0,
+                    75.0,
+                    1800,
+                    vec!["razonamiento", "multimodal", "premium"],
+                    vec!["análisis", "long context"],
+                    "Ideal para conversaciones críticas y generación de estrategias.",
+                    vec!["Generar informe", "Analizar conversación"],
+                    true,
+                ),
+                RemoteModelCard::sample(
+                    RemoteProviderKind::Anthropic,
+                    "claude-3-sonnet-20240229",
+                    "Claude 3 Sonnet",
+                    "Equilibrio entre coste y capacidades; recomendado para asistentes diarios.",
+                    200_000,
+                    4096,
+                    8.0,
+                    24.0,
+                    1200,
+                    vec!["balanced", "multimodal"],
+                    vec!["coding", "drafting"],
+                    "Selecciona Sonnet cuando busques velocidad sin sacrificar precisión.",
+                    vec!["Redactar resumen", "Generar unit tests"],
+                    true,
+                ),
+                RemoteModelCard::sample(
+                    RemoteProviderKind::Anthropic,
+                    "claude-3-haiku-20240307",
+                    "Claude 3 Haiku",
+                    "Respuesta ágil para experiencias conversacionales en tiempo real.",
+                    200_000,
+                    4096,
+                    2.0,
+                    10.0,
+                    450,
+                    vec!["ligero", "realtime"],
+                    vec!["chatbots", "streaming"],
+                    "Comparte este modelo con tus integraciones móviles para latencias reducidas.",
+                    vec!["Responder FAQ", "Validar intención"],
+                    true,
+                ),
+            ],
+        );
+
+        provider_cards.insert(
+            RemoteProviderKind::OpenAi,
+            vec![
+                RemoteModelCard::sample(
+                    RemoteProviderKind::OpenAi,
+                    "gpt-4.1-mini",
+                    "GPT-4.1 Mini",
+                    "Modelo ágil con cobertura multimodal y precios contenidos.",
+                    128_000,
+                    4096,
+                    3.0,
+                    15.0,
+                    900,
+                    vec!["multimodal", "fast"],
+                    vec!["summaries", "prototyping"],
+                    "Escoge Mini para asistentes interactivos o generación de borradores rápidos.",
+                    vec!["Resumir hilo", "Generar story"],
+                    true,
+                ),
+                RemoteModelCard::sample(
+                    RemoteProviderKind::OpenAi,
+                    "gpt-4.1",
+                    "GPT-4.1",
+                    "Capacidades completas con respuestas extensas y razonamiento confiable.",
+                    300_000,
+                    8192,
+                    30.0,
+                    60.0,
+                    1500,
+                    vec!["razonamiento", "enterprise"],
+                    vec!["analysis", "synthesis"],
+                    "Úsalo para revisiones detalladas y planes de proyecto.",
+                    vec!["Auditar código", "Planificar roadmap"],
+                    true,
+                ),
+                RemoteModelCard::sample(
+                    RemoteProviderKind::OpenAi,
+                    "o1-preview",
+                    "o1 preview",
+                    "Modelo orientado a planificación paso a paso con cadenas de pensamiento explícitas.",
+                    200_000,
+                    4096,
+                    6.0,
+                    18.0,
+                    2200,
+                    vec!["deliberativo", "planificación"],
+                    vec!["reasoning", "research"],
+                    "Aprovecha este modelo para dividir tareas complejas en pasos accionables.",
+                    vec!["Crear plan de experimentos", "Refinar prompts"],
+                    false,
+                ),
+            ],
+        );
+
+        provider_cards.insert(
+            RemoteProviderKind::Groq,
+            vec![
+                RemoteModelCard::sample(
+                    RemoteProviderKind::Groq,
+                    "llama3-70b-8192",
+                    "Llama 3 70B Instruct",
+                    "Inferencia acelerada en hardware Groq para respuestas en milisegundos.",
+                    8_192,
+                    4096,
+                    0.7,
+                    0.9,
+                    230,
+                    vec!["latencia-baja", "open"],
+                    vec!["code", "assistants"],
+                    "Excelente para herramientas de desarrollo con respuestas instantáneas.",
+                    vec!["Explicar código", "Responder tests"],
+                    false,
+                ),
+                RemoteModelCard::sample(
+                    RemoteProviderKind::Groq,
+                    "mixtral-8x7b-32768",
+                    "Mixtral 8x7B",
+                    "Modelo mixture-of-experts servido en Groq para tareas analíticas.",
+                    32_768,
+                    4096,
+                    0.9,
+                    1.1,
+                    260,
+                    vec!["moe", "razonamiento"],
+                    vec!["analysis", "summaries"],
+                    "Selecciona Mixtral para análisis de datos y evaluación de hipótesis rápidas.",
+                    vec!["Resumir logs", "Describir métricas"],
+                    false,
+                ),
+                RemoteModelCard::sample(
+                    RemoteProviderKind::Groq,
+                    "gemma-7b-it",
+                    "Gemma 7B Instruct",
+                    "Modelo ligero optimizado en Groq para bots conversacionales y QA interno.",
+                    8_192,
+                    2048,
+                    0.2,
+                    0.3,
+                    190,
+                    vec!["ligero", "qa"],
+                    vec!["support", "chat"],
+                    "Ideal para FAQs, agentes de soporte y automatizaciones de TI.",
+                    vec!["Responder ticket", "Clasificar bug"],
+                    false,
+                ),
+            ],
+        );
+
+        Self {
+            provider_cards,
+            filters: BTreeMap::new(),
+            favorites: BTreeSet::new(),
+            comparison: Vec::new(),
+            quick_test_prompt: String::new(),
+            last_status: None,
+        }
+    }
+}
+
+impl RemoteCatalogState {
+    pub fn filters_mut(&mut self, provider: RemoteProviderKind) -> &mut RemoteCatalogFilters {
+        self.filters
+            .entry(provider)
+            .or_insert_with(RemoteCatalogFilters::default)
+    }
+
+    pub fn filters(&self, provider: RemoteProviderKind) -> RemoteCatalogFilters {
+        self.filters.get(&provider).cloned().unwrap_or_default()
+    }
+
+    pub fn cards_for(&self, provider: RemoteProviderKind) -> &[RemoteModelCard] {
+        self.provider_cards
+            .get(&provider)
+            .map(|cards| cards.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn cards_for_mut(&mut self, provider: RemoteProviderKind) -> &mut Vec<RemoteModelCard> {
+        self.provider_cards.entry(provider).or_default()
+    }
+
+    pub fn is_favorite(&self, key: &RemoteModelKey) -> bool {
+        self.favorites.contains(key)
+    }
+
+    pub fn toggle_favorite(&mut self, key: RemoteModelKey) {
+        if !self.favorites.remove(&key) {
+            self.favorites.insert(key);
+        }
+    }
+
+    pub fn in_comparison(&self, key: &RemoteModelKey) -> bool {
+        self.comparison.iter().any(|entry| entry == key)
+    }
+
+    pub fn toggle_comparison(&mut self, key: RemoteModelKey) {
+        if let Some(pos) = self.comparison.iter().position(|entry| entry == &key) {
+            self.comparison.remove(pos);
+        } else {
+            if self.comparison.len() >= 3 {
+                self.comparison.remove(0);
+            }
+            self.comparison.push(key);
+        }
+    }
+
+    pub fn filtered_cards(&self, provider: RemoteProviderKind) -> Vec<&RemoteModelCard> {
+        let filters = self.filters(provider);
+        self.cards_for(provider)
+            .iter()
+            .filter(|card| {
+                if filters.favorites_only && !self.is_favorite(&card.key) {
+                    return false;
+                }
+
+                if filters.multimodal_only && !card.multimodal {
+                    return false;
+                }
+
+                if let Some(max_cost) = filters.max_cost {
+                    if card.input_cost_per_million > max_cost
+                        && card.output_cost_per_million > max_cost
+                    {
+                        return false;
+                    }
+                }
+
+                if let Some(min_context) = filters.min_context {
+                    if card.context_tokens < min_context {
+                        return false;
+                    }
+                }
+
+                if !filters.tag_filters.is_empty()
+                    && !filters
+                        .tag_filters
+                        .iter()
+                        .all(|tag| card.tags.iter().any(|ct| ct.eq_ignore_ascii_case(tag)))
+                {
+                    return false;
+                }
+
+                if filters.search.trim().is_empty() {
+                    return true;
+                }
+
+                let haystack = format!(
+                    "{} {} {}",
+                    card.title,
+                    card.description,
+                    card.tags.join(" ")
+                )
+                .to_lowercase();
+                haystack.contains(&filters.search.to_lowercase())
+            })
+            .collect()
+    }
+
+    pub fn all_tags(&self, provider: RemoteProviderKind) -> BTreeSet<String> {
+        let mut tags = BTreeSet::new();
+        for card in self.cards_for(provider) {
+            for tag in &card.tags {
+                tags.insert(tag.to_string());
+            }
+        }
+        tags
+    }
+
+    pub fn update_status(&mut self, status: Option<String>) {
+        self.last_status = status;
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LocalLibraryState {
+    pub filter: String,
+    pub show_only_ready: bool,
+    pub selection: Option<LocalModelIdentifier>,
+    pub operation_feedback: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct KnowledgeResourceCard {
+    pub title: String,
+    pub subtitle: String,
+    pub resource_type: String,
+    pub last_synced: String,
+    pub tags: Vec<String>,
+    pub link: Option<String>,
+}
+
+impl KnowledgeResourceCard {
+    pub fn new(
+        title: impl Into<String>,
+        subtitle: impl Into<String>,
+        resource_type: impl Into<String>,
+        last_synced: impl Into<String>,
+        tags: Vec<&str>,
+        link: Option<String>,
+    ) -> Self {
+        Self {
+            title: title.into(),
+            subtitle: subtitle.into(),
+            resource_type: resource_type.into(),
+            last_synced: last_synced.into(),
+            tags: tags.into_iter().map(|tag| tag.to_string()).collect(),
+            link,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PersonalizationResourcesState {
+    pub memories: Vec<KnowledgeResourceCard>,
+    pub profiles: Vec<KnowledgeResourceCard>,
+    pub contexts: Vec<KnowledgeResourceCard>,
+}
+
+impl PersonalizationResourcesState {
+    pub fn from_sources(
+        profiles: &[String],
+        projects: &[String],
+        github_repositories: &[String],
+    ) -> Self {
+        let memories = vec![
+            KnowledgeResourceCard::new(
+                "Memoria conversacional",
+                "Persistencia automática de hechos clave compartidos con el asistente.",
+                "Memoria",
+                "Actualizado cada sesión",
+                vec!["contexto", "resumen"],
+                None,
+            ),
+            KnowledgeResourceCard::new(
+                "Knowledge Base local",
+                "Colección de notas sincronizadas desde /workspace/notes para respuestas rápidas.",
+                "Repositorio",
+                "Hace 2 h",
+                vec!["markdown", "offline"],
+                Some("file:///workspace/notes".to_string()),
+            ),
+        ];
+
+        let profiles_cards: Vec<_> = profiles
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| {
+                KnowledgeResourceCard::new(
+                    format!("Perfil #{idx} · {name}"),
+                    "Preferencias preconfiguradas de tono, idioma y formato de entrega.",
+                    "Perfil",
+                    "Sincronizado al guardar",
+                    vec!["config", "perfil"],
+                    None,
+                )
+            })
+            .collect();
+
+        let mut contexts = Vec::new();
+        for project in projects {
+            contexts.push(KnowledgeResourceCard::new(
+                project,
+                "Resumen ejecutivo del proyecto seguido por JungleMonkAI.",
+                "Proyecto",
+                "Hace 1 h",
+                vec!["prioridad", "roadmap"],
+                None,
+            ));
+        }
+
+        for repo in github_repositories {
+            contexts.push(KnowledgeResourceCard::new(
+                repo,
+                "Repositorio conectado como fuente de conocimiento navegable.",
+                "GitHub",
+                "Sync pendiente",
+                vec!["github", "code"],
+                Some(format!("https://github.com/{repo}")),
+            ));
+        }
+
+        Self {
+            memories,
+            profiles: profiles_cards,
+            contexts,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ModelRouteSuggestion {
+    pub title: String,
+    pub description: String,
+    pub provider: RemoteProviderKind,
+    pub tags: Vec<String>,
+}
+
+impl ModelRouteSuggestion {
+    pub fn new(
+        title: impl Into<String>,
+        description: impl Into<String>,
+        provider: RemoteProviderKind,
+        tags: Vec<&str>,
+    ) -> Self {
+        Self {
+            title: title.into(),
+            description: description.into(),
+            provider,
+            tags: tags.into_iter().map(|tag| tag.to_string()).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ChatRoutingState {
+    pub active_thread_provider: RemoteProviderKind,
+    pub message_override: Option<RemoteProviderKind>,
+    pub route_every_message: bool,
+    pub suggestions: Vec<ModelRouteSuggestion>,
+    pub status: Option<String>,
+}
+
+impl Default for ChatRoutingState {
+    fn default() -> Self {
+        Self {
+            active_thread_provider: RemoteProviderKind::Anthropic,
+            message_override: None,
+            route_every_message: true,
+            suggestions: vec![
+                ModelRouteSuggestion::new(
+                    "Código y diffs",
+                    "Envía a Groq para validar cambios y obtener tiempos de respuesta mínimos.",
+                    RemoteProviderKind::Groq,
+                    vec!["code", "latencia"],
+                ),
+                ModelRouteSuggestion::new(
+                    "Resumen ejecutivo",
+                    "OpenAI ofrece mejor compresión semántica en resúmenes largos.",
+                    RemoteProviderKind::OpenAi,
+                    vec!["resumen", "informes"],
+                ),
+                ModelRouteSuggestion::new(
+                    "Análisis profundo",
+                    "Claude Opus prioriza razonamiento para auditorías o decisiones críticas.",
+                    RemoteProviderKind::Anthropic,
+                    vec!["razonamiento", "auditoría"],
+                ),
+            ],
+            status: None,
+        }
+    }
+}
+
+impl ChatRoutingState {
+    pub fn set_override(&mut self, provider: RemoteProviderKind) {
+        self.message_override = Some(provider);
+    }
+
+    pub fn take_override(&mut self) -> Option<RemoteProviderKind> {
+        self.message_override.take()
+    }
+
+    pub fn update_status(&mut self, status: Option<String>) {
+        self.status = status;
+    }
 }
 
 #[derive(Debug)]
@@ -591,6 +1192,16 @@ pub struct AppState {
     pub groq_alias: String,
     /// Mensaje de prueba de conexión con Groq.
     pub groq_test_status: Option<String>,
+    /// Estado del catálogo remoto unificado.
+    pub remote_catalog: RemoteCatalogState,
+    /// Estado de la biblioteca local de Jarvis.
+    pub local_library: LocalLibraryState,
+    /// Recursos de personalización navegables.
+    pub personalization_resources: PersonalizationResourcesState,
+    /// Mensajes informativos para acciones de personalización.
+    pub personalization_feedback: Option<String>,
+    /// Preferencias de enrutamiento por hilo en el chat.
+    pub chat_routing: ChatRoutingState,
     /// Ancho actual del panel lateral izquierdo.
     pub left_panel_width: f32,
     /// Controla si el panel lateral derecho está visible.
@@ -704,6 +1315,11 @@ impl Default for AppState {
             .filter(|idx| projects.get(*idx).is_some())
             .or(Some(0));
 
+        let personalization_resources =
+            PersonalizationResourcesState::from_sources(&profiles, &projects, &Vec::new());
+        let remote_catalog = RemoteCatalogState::default();
+        let chat_routing = ChatRoutingState::default();
+
         let mut state = Self {
             show_settings_modal: false,
             search_buffer: String::new(),
@@ -791,6 +1407,11 @@ impl Default for AppState {
                 config.groq.alias.clone()
             },
             groq_test_status: None,
+            remote_catalog,
+            local_library: LocalLibraryState::default(),
+            personalization_resources,
+            personalization_feedback: None,
+            chat_routing,
             left_panel_width: 280.0,
             right_panel_visible: true,
             right_panel_width: 280.0,
@@ -820,6 +1441,8 @@ impl Default for AppState {
                 }
             }
         }
+
+        state.refresh_personalization_resources();
 
         state
     }
@@ -1195,6 +1818,54 @@ impl AppState {
         status
     }
 
+    pub fn uninstall_local_model(&mut self, identifier: &LocalModelIdentifier) -> Option<String> {
+        if let Some(position) = self.installed_local_models.iter().position(|model| {
+            model.identifier.provider == identifier.provider
+                && model.identifier.model_id == identifier.model_id
+        }) {
+            let removed = self.installed_local_models.remove(position);
+            if self
+                .jarvis_active_model
+                .as_ref()
+                .map(|active| {
+                    active.provider == identifier.provider && active.model_id == identifier.model_id
+                })
+                .unwrap_or(false)
+            {
+                self.jarvis_active_model = None;
+                self.jarvis_runtime = None;
+            }
+            self.persist_config();
+            let label = removed.identifier.display_label();
+            let status = format!("Modelo '{}' eliminado de la biblioteca local.", label);
+            self.push_activity_log(LogStatus::Warning, "Jarvis", status.clone());
+            Some(status)
+        } else {
+            None
+        }
+    }
+
+    pub fn mark_local_model_updated(
+        &mut self,
+        identifier: &LocalModelIdentifier,
+    ) -> Option<String> {
+        if let Some(entry) = self.installed_local_models.iter_mut().find(|model| {
+            model.identifier.provider == identifier.provider
+                && model.identifier.model_id == identifier.model_id
+        }) {
+            entry.installed_at = Utc::now();
+            self.persist_config();
+            let message = format!(
+                "Modelo '{}' actualizado correctamente.",
+                identifier.display_label()
+            );
+            self.push_activity_log(LogStatus::Ok, "Jarvis", message.clone());
+            Some(message)
+        } else {
+            None
+        }
+    }
+
     pub fn queue_huggingface_install(
         &mut self,
         model: LocalModelCard,
@@ -1536,6 +2207,14 @@ impl AppState {
         }
     }
 
+    pub fn refresh_personalization_resources(&mut self) {
+        self.personalization_resources = PersonalizationResourcesState::from_sources(
+            &self.profiles,
+            &self.projects,
+            &self.github_repositories,
+        );
+    }
+
     fn jarvis_model_directory(&self) -> Option<PathBuf> {
         let direct_path = self.jarvis_model_path.trim();
         if !direct_path.is_empty() {
@@ -1791,6 +2470,53 @@ impl AppState {
             RemoteProviderKind::Anthropic => &mut self.anthropic_test_status,
             RemoteProviderKind::OpenAi => &mut self.openai_test_status,
             RemoteProviderKind::Groq => &mut self.groq_test_status,
+        }
+    }
+
+    fn invoke_provider_kind(&mut self, provider: RemoteProviderKind, prompt: String) {
+        match provider {
+            RemoteProviderKind::Anthropic => self.invoke_anthropic(prompt),
+            RemoteProviderKind::OpenAi => self.invoke_openai(prompt),
+            RemoteProviderKind::Groq => self.invoke_groq(prompt),
+        }
+    }
+
+    pub fn execute_remote_quick_test(&mut self, key: RemoteModelKey) -> Option<String> {
+        let prompt = self.remote_catalog.quick_test_prompt.trim().to_string();
+        if prompt.is_empty() {
+            return Some("Escribe un prompt de prueba antes de lanzar la simulación.".to_string());
+        }
+
+        let label = key.as_display();
+        let formatted = format!("[quick-test:{}]\n{}", key.id, prompt);
+        self.remote_catalog
+            .update_status(Some(format!("Enviando prueba rápida a {}…", label)));
+        self.invoke_provider_kind(key.provider, formatted);
+        Some(format!("Prueba rápida enviada a {}.", label))
+    }
+
+    pub fn try_route_selected_provider(&mut self, input: &str) -> bool {
+        if input.trim().is_empty() {
+            return false;
+        }
+
+        let target = if let Some(provider) = self.chat_routing.take_override() {
+            Some(provider)
+        } else if self.chat_routing.route_every_message {
+            Some(self.chat_routing.active_thread_provider)
+        } else {
+            None
+        };
+
+        if let Some(provider) = target {
+            self.invoke_provider_kind(provider, input.to_string());
+            self.chat_routing.update_status(Some(format!(
+                "Mensaje enviado a {}",
+                provider.display_name()
+            )));
+            true
+        } else {
+            false
         }
     }
 

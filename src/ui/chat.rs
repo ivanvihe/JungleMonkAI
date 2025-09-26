@@ -1,8 +1,9 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
-    format_bytes, AppState, ChatMessage, InstalledLocalModel, LogStatus, MainView, PreferencePanel,
-    RemoteProviderKind, ResourceSection, AVAILABLE_CUSTOM_ACTIONS,
+    format_bytes, AppState, ChatMessage, InstalledLocalModel, KnowledgeResourceCard, LogStatus,
+    MainView, PreferencePanel, RemoteModelCard, RemoteModelKey, RemoteProviderKind,
+    ResourceSection, AVAILABLE_CUSTOM_ACTIONS,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
@@ -23,9 +24,24 @@ const ICON_CODE: &str = "\u{f121}"; // code
 const ICON_PREMIUM: &str = "\u{f521}"; // crown
 const ICON_FREE: &str = "\u{f06b}"; // gift
 const ICON_DOWNLOAD: &str = "\u{f019}"; // download
+const ICON_STAR: &str = "\u{f005}"; // star
+const ICON_COMPARE: &str = "\u{f24e}"; // balance-scale
+const ICON_LIGHTNING: &str = "\u{f0e7}"; // bolt
+const ICON_FILTER: &str = "\u{f0b0}"; // filter
+const ICON_TABLE: &str = "\u{f0ce}"; // table
+const ICON_LINK: &str = "\u{f0c1}"; // link
+const ICON_FOLDER: &str = "\u{f07c}"; // folder-open
+const ICON_FILE_DOC: &str = "\u{f15b}"; // file
 
 const QUICK_MENTIONS: [(&str, &str); 3] =
     [("@claude", "@claude"), ("@gpt", "@gpt"), ("@groq", "@groq")];
+
+const QUICK_COMMANDS: [(&str, &str); 4] = [
+    ("/summary", "Resumen"),
+    ("/diff", "Diff"),
+    ("/tests", "Tests"),
+    ("@jarvis test", "@jarvis test"),
+];
 
 enum PendingChatAction {
     Mention(String),
@@ -306,7 +322,13 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
                             let feed_width = ui.available_width().min(540.0);
                             ui.set_width(feed_width);
                             for (index, message) in state.chat_messages.iter().enumerate() {
-                                draw_message_bubble(ui, message, index, &mut pending_actions);
+                                draw_message_bubble(
+                                    ui,
+                                    state,
+                                    message,
+                                    index,
+                                    &mut pending_actions,
+                                );
                             }
                         });
                 });
@@ -316,8 +338,129 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
     apply_pending_actions(state, pending_actions);
 }
 
+fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.label(
+            RichText::new("Proveedor activo")
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(12.0),
+        );
+
+        let mut provider = state.chat_routing.active_thread_provider;
+        egui::ComboBox::from_id_source("chat_routing_provider")
+            .selected_text(provider.display_name())
+            .show_ui(ui, |ui| {
+                for candidate in [
+                    RemoteProviderKind::Anthropic,
+                    RemoteProviderKind::OpenAi,
+                    RemoteProviderKind::Groq,
+                ] {
+                    ui.selectable_value(&mut provider, candidate, candidate.display_name());
+                }
+            });
+
+        if provider != state.chat_routing.active_thread_provider {
+            state.chat_routing.active_thread_provider = provider;
+            state.chat_routing.update_status(Some(format!(
+                "Hilo configurado para {}",
+                provider.display_name()
+            )));
+        }
+
+        let mut toggle = state.chat_routing.route_every_message;
+        if ui
+            .checkbox(&mut toggle, "Enviar automáticamente")
+            .on_hover_text("Si está activo, cada mensaje se enviará al proveedor seleccionado")
+            .changed()
+        {
+            state.chat_routing.route_every_message = toggle;
+            if toggle {
+                state.chat_routing.update_status(Some(format!(
+                    "Todos los mensajes usarán {}",
+                    provider.display_name()
+                )));
+            } else {
+                state
+                    .chat_routing
+                    .update_status(Some("Selecciona proveedor por mensaje.".to_string()));
+            }
+        }
+
+        let lightning = egui::Button::new(
+            RichText::new(ICON_LIGHTNING)
+                .font(theme::icon_font(14.0))
+                .color(Color32::from_rgb(240, 240, 240)),
+        )
+        .min_size(egui::vec2(32.0, 24.0))
+        .fill(Color32::from_rgb(44, 46, 54))
+        .rounding(egui::Rounding::same(8.0));
+
+        if ui
+            .add(lightning)
+            .on_hover_text("Enviar solo el próximo mensaje con este proveedor")
+            .clicked()
+        {
+            state.chat_routing.set_override(provider);
+            state.chat_routing.update_status(Some(format!(
+                "El siguiente mensaje usará {}",
+                provider.display_name()
+            )));
+        }
+    });
+
+    if let Some(status) = &state.chat_routing.status {
+        ui.add_space(4.0);
+        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+    }
+
+    if !state.chat_routing.suggestions.is_empty() {
+        ui.add_space(6.0);
+        let suggestions = state.chat_routing.suggestions.clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for suggestion in &suggestions {
+                let response = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(&suggestion.title)
+                                .color(Color32::from_rgb(240, 240, 240))
+                                .size(12.0),
+                        )
+                        .fill(Color32::from_rgb(44, 46, 54))
+                        .rounding(egui::Rounding::same(10.0)),
+                    )
+                    .on_hover_text(&suggestion.description);
+
+                if response.clicked() {
+                    let provider = suggestion.provider;
+                    let title = suggestion.title.clone();
+                    state.chat_routing.active_thread_provider = provider;
+                    state.chat_routing.set_override(provider);
+                    state.chat_routing.update_status(Some(format!(
+                        "Sugerencia aplicada: {} via {}",
+                        title,
+                        provider.display_name()
+                    )));
+                }
+            }
+        });
+    }
+}
+
+fn insert_quick_token(state: &mut AppState, token: &str) {
+    if !state.current_chat_input.is_empty() && !state.current_chat_input.ends_with(' ') {
+        state.current_chat_input.push(' ');
+    }
+    state.current_chat_input.push_str(token);
+    if !token.ends_with(' ') {
+        state.current_chat_input.push(' ');
+    }
+}
+
 fn draw_message_bubble(
     ui: &mut egui::Ui,
+    state: &AppState,
     message: &ChatMessage,
     index: usize,
     pending_actions: &mut Vec<PendingChatAction>,
@@ -377,9 +520,10 @@ fn draw_message_bubble(
         let response = frame.show(ui, |ui| {
             ui.set_width(bubble_width);
             ui.vertical(|ui| {
-                draw_message_header(ui, message, icon, accent, pending_actions);
+                draw_message_header(ui, state, message, icon, accent, pending_actions);
                 ui.add_space(6.0);
                 draw_message_body(ui, message, accent);
+                draw_developer_artifacts(ui, message);
             });
         });
 
@@ -394,6 +538,7 @@ fn draw_message_bubble(
 
 fn draw_message_header(
     ui: &mut egui::Ui,
+    state: &AppState,
     message: &ChatMessage,
     icon: &str,
     accent: Color32,
@@ -416,6 +561,10 @@ fn draw_message_header(
                 .strong()
                 .color(theme::COLOR_TEXT_PRIMARY),
         );
+        if message.sender != "User" && message.sender != "System" {
+            let provider = state.chat_routing.active_thread_provider.display_name();
+            ui.label(RichText::new(provider).color(accent).size(12.0).italics());
+        }
         ui.label(
             RichText::new(ICON_CLOCK)
                 .font(theme::icon_font(12.0))
@@ -536,46 +685,43 @@ fn render_markdown_blocks(ui: &mut egui::Ui, blocks: &[MarkdownBlock], accent: C
             MarkdownBlock::CodeBlock { language, code } => {
                 draw_code_block(ui, language, code);
             }
+            MarkdownBlock::Table { headers, rows } => {
+                draw_markdown_table(ui, headers, rows);
+            }
         }
     }
 }
 
 fn draw_code_block(ui: &mut egui::Ui, language: &str, code: &str) {
     let code_string = code.trim_end_matches('\n').to_string();
+    let header_label = if language.trim().is_empty() {
+        "Bloque de código".to_string()
+    } else {
+        format!("{}", language)
+    };
 
-    egui::Frame::none()
-        .fill(Color32::from_rgb(32, 34, 40))
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 72, 92)))
-        .rounding(egui::Rounding::same(10.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.vertical(|ui| {
+    egui::CollapsingHeader::new(
+        RichText::new(format!("{} {}", ICON_CODE, header_label))
+            .color(theme::COLOR_TEXT_PRIMARY)
+            .strong()
+            .size(13.0),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(32, 34, 40))
+            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 72, 92)))
+            .rounding(egui::Rounding::same(10.0))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    if !language.trim().is_empty() {
-                        ui.label(
-                            RichText::new(language)
-                                .monospace()
-                                .color(theme::COLOR_TEXT_WEAK)
-                                .size(13.0),
-                        );
-                    } else {
-                        ui.label(
-                            RichText::new("Bloque de código")
-                                .color(theme::COLOR_TEXT_WEAK)
-                                .size(13.0)
-                                .italics(),
-                        );
-                    }
                     ui.add_space(ui.available_width());
                     if code_copy_button(ui).clicked() {
                         ui.output_mut(|out| out.copied_text = code_string.clone());
                     }
                 });
-
                 ui.add_space(6.0);
-
                 let mut code_buffer = code_string.clone();
                 let rows = code_buffer.lines().count().max(1);
                 ui.add(
@@ -587,7 +733,7 @@ fn draw_code_block(ui: &mut egui::Ui, language: &str, code: &str) {
                         .desired_width(f32::INFINITY),
                 );
             });
-        });
+    });
 }
 
 fn code_copy_button(ui: &mut egui::Ui) -> egui::Response {
@@ -601,6 +747,181 @@ fn code_copy_button(ui: &mut egui::Ui) -> egui::Response {
     .rounding(egui::Rounding::same(6.0));
 
     ui.add(button).on_hover_text("Copiar bloque de código")
+}
+
+fn draw_markdown_table(ui: &mut egui::Ui, headers: &[String], rows: &[Vec<String>]) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(32, 34, 40))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 72, 92)))
+        .rounding(egui::Rounding::same(10.0))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("{} Tabla", ICON_TABLE))
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong()
+                        .size(13.0),
+                );
+                ui.add_space(ui.available_width());
+                if code_copy_button(ui).clicked() {
+                    let mut buffer = String::new();
+                    buffer.push('|');
+                    buffer.push_str(&headers.join("|"));
+                    buffer.push('|');
+                    buffer.push('\n');
+                    buffer.push('|');
+                    buffer.push_str(&headers.iter().map(|_| "---").collect::<Vec<_>>().join("|"));
+                    buffer.push('|');
+                    buffer.push('\n');
+                    for row in rows {
+                        buffer.push('|');
+                        buffer.push_str(&row.join("|"));
+                        buffer.push('|');
+                        buffer.push('\n');
+                    }
+                    ui.output_mut(|out| out.copied_text = buffer);
+                }
+            });
+
+            ui.add_space(6.0);
+            ui.push_id(("markdown_table", headers.len(), rows.len()), |ui| {
+                egui::Grid::new("markdown_table_grid")
+                    .striped(true)
+                    .spacing(egui::vec2(12.0, 4.0))
+                    .show(ui, |ui| {
+                        for header in headers {
+                            ui.label(
+                                RichText::new(header)
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .strong(),
+                            );
+                        }
+                        ui.end_row();
+
+                        for row in rows {
+                            for cell in row {
+                                ui.label(
+                                    RichText::new(cell).color(theme::COLOR_TEXT_WEAK).size(12.0),
+                                );
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        });
+}
+
+fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage) {
+    if message.sender == "User" || message.sender == "System" || message.is_pending() {
+        return;
+    }
+
+    let blocks = parse_markdown_blocks(&message.text);
+    let diff_block = extract_diff_block(&blocks);
+    let preview_block = extract_preview_block(&blocks);
+    let summary = extract_summary(&message.text);
+
+    if diff_block.is_none() && preview_block.is_none() && summary.is_none() {
+        return;
+    }
+
+    ui.add_space(10.0);
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 38, 44))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(10.0))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("Herramientas de desarrollo")
+                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .strong()
+                    .size(13.0),
+            );
+
+            if let Some(summary) = summary {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(ICON_QUOTE)
+                            .font(theme::icon_font(12.0))
+                            .color(theme::COLOR_PRIMARY),
+                    );
+                    ui.label(
+                        RichText::new(summary)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(12.0),
+                    );
+                });
+            }
+
+            if let Some(diff) = diff_block {
+                ui.add_space(6.0);
+                egui::CollapsingHeader::new(
+                    RichText::new(format!("{} Diferencias detectadas", ICON_COMPARE))
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong()
+                        .size(12.0),
+                )
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(ui.available_width());
+                        if code_copy_button(ui).clicked() {
+                            ui.output_mut(|out| out.copied_text = diff.clone());
+                        }
+                    });
+                    let preview: String = diff
+                        .lines()
+                        .take(20)
+                        .map(|line| line.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    ui.add(
+                        egui::TextEdit::multiline(&mut preview.clone())
+                            .font(egui::FontId::monospace(13.0))
+                            .desired_rows(6)
+                            .frame(false)
+                            .interactive(false)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            }
+
+            if let Some((language, code)) = preview_block {
+                ui.add_space(6.0);
+                egui::CollapsingHeader::new(
+                    RichText::new(format!("{} Vista previa de {}", ICON_FILE_DOC, language))
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong()
+                        .size(12.0),
+                )
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(ui.available_width());
+                        if code_copy_button(ui).clicked() {
+                            ui.output_mut(|out| out.copied_text = code.clone());
+                        }
+                    });
+                    let snippet: String = code
+                        .lines()
+                        .take(20)
+                        .map(|line| line.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    ui.add(
+                        egui::TextEdit::multiline(&mut snippet.clone())
+                            .font(egui::FontId::monospace(13.0))
+                            .desired_rows(6)
+                            .frame(false)
+                            .interactive(false)
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+            }
+        });
 }
 
 fn render_formatted_text(ui: &mut egui::Ui, text: &str, color: Color32, size: f32) {
@@ -638,6 +959,9 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
     let mut code_lines: Vec<String> = Vec::new();
     let mut code_language = String::new();
     let mut in_code_block = false;
+    let mut in_table = false;
+    let mut table_headers: Vec<String> = Vec::new();
+    let mut table_rows: Vec<Vec<String>> = Vec::new();
 
     let flush_paragraph = |blocks: &mut Vec<MarkdownBlock>, paragraph: &mut Vec<String>| {
         if paragraph.is_empty() {
@@ -666,6 +990,12 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
         let trimmed_start = line.trim_start();
         let trimmed = line.trim();
 
+        let is_table_candidate =
+            trimmed.contains('|') && trimmed.chars().filter(|ch| *ch == '|').count() >= 2;
+        let is_table_separator = trimmed
+            .chars()
+            .all(|ch| matches!(ch, '|' | '-' | ':' | ' '));
+
         if in_code_block {
             if trimmed_start.starts_with("```") {
                 let code = code_lines.join("\n");
@@ -685,6 +1015,47 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
         if trimmed_start.starts_with("```") {
             flush_paragraph(&mut blocks, &mut paragraph);
             flush_list(&mut blocks, &mut list_items);
+            flush_table_block(
+                &mut blocks,
+                &mut table_headers,
+                &mut table_rows,
+                &mut in_table,
+            );
+            code_language = trimmed_start[3..].trim().to_string();
+            in_code_block = true;
+            code_lines.clear();
+            continue;
+        }
+
+        if in_table && (!is_table_candidate || trimmed.is_empty()) {
+            flush_table_block(
+                &mut blocks,
+                &mut table_headers,
+                &mut table_rows,
+                &mut in_table,
+            );
+        }
+
+        if is_table_candidate && !is_table_separator {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            flush_list(&mut blocks, &mut list_items);
+            let cells = parse_table_cells(trimmed_start);
+            if !in_table {
+                table_headers = cells;
+                in_table = true;
+            } else {
+                table_rows.push(cells);
+            }
+            continue;
+        }
+
+        if in_table && is_table_separator {
+            continue;
+        }
+
+        if trimmed_start.starts_with("```") {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            flush_list(&mut blocks, &mut list_items);
             code_language = trimmed_start[3..].trim().to_string();
             in_code_block = true;
             code_lines.clear();
@@ -694,6 +1065,12 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
         if trimmed.is_empty() {
             flush_paragraph(&mut blocks, &mut paragraph);
             flush_list(&mut blocks, &mut list_items);
+            flush_table_block(
+                &mut blocks,
+                &mut table_headers,
+                &mut table_rows,
+                &mut in_table,
+            );
             continue;
         }
 
@@ -706,6 +1083,12 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
             let content = trimmed_start[hash_count..].trim();
             flush_paragraph(&mut blocks, &mut paragraph);
             flush_list(&mut blocks, &mut list_items);
+            flush_table_block(
+                &mut blocks,
+                &mut table_headers,
+                &mut table_rows,
+                &mut in_table,
+            );
             blocks.push(MarkdownBlock::Heading {
                 level: hash_count.min(6),
                 text: content.to_string(),
@@ -725,6 +1108,12 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
             continue;
         }
 
+        flush_table_block(
+            &mut blocks,
+            &mut table_headers,
+            &mut table_rows,
+            &mut in_table,
+        );
         paragraph.push(trimmed.to_string());
     }
 
@@ -738,8 +1127,109 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
 
     flush_paragraph(&mut blocks, &mut paragraph);
     flush_list(&mut blocks, &mut list_items);
+    flush_table_block(
+        &mut blocks,
+        &mut table_headers,
+        &mut table_rows,
+        &mut in_table,
+    );
 
     blocks
+}
+
+fn flush_table_block(
+    blocks: &mut Vec<MarkdownBlock>,
+    headers: &mut Vec<String>,
+    rows: &mut Vec<Vec<String>>,
+    in_table: &mut bool,
+) {
+    if *in_table {
+        blocks.push(MarkdownBlock::Table {
+            headers: headers.clone(),
+            rows: rows.clone(),
+        });
+        headers.clear();
+        rows.clear();
+        *in_table = false;
+    }
+}
+
+fn parse_table_cells(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+fn extract_diff_block(blocks: &[MarkdownBlock]) -> Option<String> {
+    for block in blocks {
+        if let MarkdownBlock::CodeBlock { language, code } = block {
+            if language.trim().eq_ignore_ascii_case("diff") {
+                return Some(code.clone());
+            }
+        }
+    }
+    None
+}
+
+fn extract_preview_block(blocks: &[MarkdownBlock]) -> Option<(String, String)> {
+    for block in blocks {
+        if let MarkdownBlock::CodeBlock { language, code } = block {
+            if language.trim().eq_ignore_ascii_case("diff") {
+                continue;
+            }
+            if !code.trim().is_empty() {
+                return Some((language.clone(), code.clone()));
+            }
+        }
+    }
+    None
+}
+
+fn extract_summary(text: &str) -> Option<String> {
+    let mut lines = text.lines().peekable();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_lowercase();
+        if lower.starts_with("resumen")
+            || lower.contains("resumen semántico")
+            || lower.starts_with("summary")
+        {
+            let mut summary = String::new();
+            if let Some(index) = trimmed.find(':') {
+                let remainder = trimmed[index + 1..].trim();
+                if !remainder.is_empty() {
+                    summary.push_str(remainder);
+                }
+            }
+
+            while let Some(peek) = lines.peek() {
+                if peek.trim().is_empty()
+                    || peek.trim_start().starts_with("```")
+                    || peek.trim_start().starts_with('#')
+                {
+                    break;
+                }
+                let next_line = lines.next().unwrap();
+                if !summary.is_empty() {
+                    summary.push(' ');
+                }
+                summary.push_str(next_line.trim());
+                if summary.len() > 320 {
+                    break;
+                }
+            }
+
+            if summary.is_empty() {
+                continue;
+            }
+
+            return Some(summary);
+        }
+    }
+
+    None
 }
 
 fn parse_inline_segments(text: &str) -> Vec<InlineSegment> {
@@ -824,10 +1314,20 @@ struct InlineSegment {
 
 #[derive(Debug)]
 enum MarkdownBlock {
-    Heading { level: usize, text: String },
+    Heading {
+        level: usize,
+        text: String,
+    },
     Paragraph(String),
     BulletList(Vec<String>),
-    CodeBlock { language: String, code: String },
+    CodeBlock {
+        language: String,
+        code: String,
+    },
+    Table {
+        headers: Vec<String>,
+        rows: Vec<Vec<String>>,
+    },
 }
 
 fn apply_pending_actions(state: &mut AppState, actions: Vec<PendingChatAction>) {
@@ -862,6 +1362,8 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                     let full_width = ui.available_width().min(560.0);
                     ui.set_width(full_width);
                     ui.vertical(|ui| {
+                        draw_model_routing_bar(ui, state);
+                        ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
                             if let Some(tag) = state.jarvis_mention_tag() {
@@ -880,6 +1382,16 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                             if quick_chip_with_icon(ui, ICON_CODE, "Insertar bloque de código").clicked() {
                                 insert_code_template(state);
+                            }
+                        });
+
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            for (command, label) in QUICK_COMMANDS {
+                                if quick_chip(ui, label).clicked() {
+                                    insert_quick_token(state, command);
+                                }
                             }
                         });
 
@@ -1004,6 +1516,10 @@ fn submit_chat_message(state: &mut AppState) {
             return;
         }
 
+        if state.try_route_selected_provider(&input) {
+            return;
+        }
+
         if state.try_invoke_jarvis_alias(&input) {
             return;
         }
@@ -1033,29 +1549,510 @@ fn draw_selected_preference(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_selected_resource(ui: &mut egui::Ui, state: &mut AppState, section: ResourceSection) {
     match section {
         ResourceSection::LocalCatalog(provider) => draw_local_provider(ui, state, provider),
-        ResourceSection::RemoteCatalog(kind) => match kind {
-            RemoteProviderKind::Anthropic => {
-                let anthropic_key = state.config.anthropic.api_key.clone().unwrap_or_default();
-                let trimmed = anthropic_key.trim().to_string();
-                draw_claude_catalog(ui, state, trimmed.as_str());
-            }
-            RemoteProviderKind::OpenAi => {
-                draw_remote_catalog_placeholder(
-                    ui,
-                    "OpenAI",
-                    "La sincronización del catálogo estará disponible en la siguiente iteración.",
-                );
-            }
-            RemoteProviderKind::Groq => {
-                draw_remote_catalog_placeholder(
-                    ui,
-                    "Groq",
-                    "Estamos preparando la exploración de modelos Groq acelerados.",
-                );
-            }
-        },
-        ResourceSection::InstalledLocal => draw_installed_local_overview(ui, state),
+        ResourceSection::RemoteCatalog(kind) => draw_remote_provider_catalog(ui, state, kind),
+        ResourceSection::InstalledLocal => draw_local_library_overview(ui, state),
     }
+}
+
+fn draw_remote_provider_catalog(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    provider: RemoteProviderKind,
+) {
+    match provider {
+        RemoteProviderKind::Anthropic => {
+            let anthropic_key = state.config.anthropic.api_key.clone().unwrap_or_default();
+            let trimmed = anthropic_key.trim().to_string();
+            draw_claude_catalog(ui, state, trimmed.as_str());
+            ui.add_space(18.0);
+            draw_remote_catalog_explorer(ui, state, provider);
+        }
+        RemoteProviderKind::OpenAi | RemoteProviderKind::Groq => {
+            draw_remote_catalog_explorer(ui, state, provider);
+        }
+    }
+}
+
+fn draw_remote_catalog_explorer(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    provider: RemoteProviderKind,
+) {
+    let provider_label = provider.display_name();
+    ui.heading(
+        RichText::new(format!("{} · Galería enriquecida", provider_label))
+            .color(theme::COLOR_TEXT_PRIMARY)
+            .strong()
+            .size(18.0),
+    );
+    ui.label(
+        RichText::new(
+            "Compara capacidades, costos y lanza pruebas rápidas directamente desde JungleMonkAI.",
+        )
+        .color(theme::COLOR_TEXT_WEAK)
+        .size(12.0),
+    );
+
+    ui.add_space(10.0);
+    let tags = state.remote_catalog.all_tags(provider);
+    let mut reset_status = false;
+
+    {
+        let filters = state.remote_catalog.filters_mut(provider);
+
+        ui.horizontal(|ui| {
+            let search_width = (ui.available_width() - 140.0).max(200.0);
+            let search_response = ui.add_sized(
+                [search_width, 30.0],
+                egui::TextEdit::singleline(&mut filters.search)
+                    .hint_text("Buscar por nombre, tags o capacidades"),
+            );
+            if search_response.changed() {
+                reset_status = true;
+            }
+
+            if ui
+                .add_sized([120.0, 30.0], egui::Button::new("Limpiar filtros"))
+                .clicked()
+            {
+                *filters = Default::default();
+                reset_status = true;
+            }
+        });
+
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let mut cost_enabled = filters.max_cost.is_some();
+            if ui
+                .checkbox(&mut cost_enabled, "Coste ≤ USD / 1M tokens")
+                .changed()
+            {
+                if cost_enabled {
+                    filters.max_cost = Some(filters.max_cost.unwrap_or(15.0));
+                } else {
+                    filters.max_cost = None;
+                }
+            }
+
+            if cost_enabled {
+                let mut value = filters.max_cost.unwrap_or(15.0);
+                if ui
+                    .add(
+                        egui::Slider::new(&mut value, 0.5..=120.0)
+                            .logarithmic(true)
+                            .text("USD / 1M"),
+                    )
+                    .changed()
+                {
+                    filters.max_cost = Some(value);
+                }
+            }
+
+            let mut context_enabled = filters.min_context.is_some();
+            if ui
+                .checkbox(&mut context_enabled, "Contexto mínimo")
+                .changed()
+            {
+                if context_enabled {
+                    filters.min_context = Some(filters.min_context.unwrap_or(8192));
+                } else {
+                    filters.min_context = None;
+                }
+            }
+
+            if context_enabled {
+                let mut value = filters.min_context.unwrap_or(8192) as f32;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut value, 4096.0..=400_000.0)
+                            .logarithmic(true)
+                            .text("tokens"),
+                    )
+                    .changed()
+                {
+                    filters.min_context = Some(value.round() as u32);
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut filters.favorites_only, "Solo favoritos");
+            ui.checkbox(&mut filters.multimodal_only, "Solo multimodal");
+        });
+
+        if !tags.is_empty() {
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.label(
+                    RichText::new(format!("{} Tags", ICON_FILTER))
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+                for tag in &tags {
+                    let selected = filters.tag_filters.contains(tag);
+                    if selectable_chip(ui, tag, selected).clicked() {
+                        if selected {
+                            filters.tag_filters.remove(tag);
+                        } else {
+                            filters.tag_filters.insert(tag.clone());
+                        }
+                        reset_status = true;
+                    }
+                }
+                if !filters.tag_filters.is_empty()
+                    && ui
+                        .button(RichText::new("Limpiar tags").size(11.0))
+                        .clicked()
+                {
+                    filters.tag_filters.clear();
+                    reset_status = true;
+                }
+            });
+        }
+    }
+
+    if reset_status {
+        state.remote_catalog.update_status(None);
+    }
+
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        let prompt_width = (ui.available_width() - 140.0).max(200.0);
+        ui.add_sized(
+            [prompt_width, 30.0],
+            egui::TextEdit::singleline(&mut state.remote_catalog.quick_test_prompt)
+                .hint_text("Prompt para 'Probar' (ej. Resume los últimos commits)"),
+        );
+        if ui
+            .add_sized([120.0, 30.0], egui::Button::new("Limpiar prompt"))
+            .clicked()
+        {
+            state.remote_catalog.quick_test_prompt.clear();
+        }
+    });
+
+    if let Some(status) = &state.remote_catalog.last_status {
+        ui.add_space(6.0);
+        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+    }
+
+    ui.add_space(8.0);
+    let cards: Vec<RemoteModelCard> = {
+        let refs = state.remote_catalog.filtered_cards(provider);
+        refs.into_iter().cloned().collect()
+    };
+    if cards.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Ajusta los filtros o actualiza tus credenciales para mostrar modelos disponibles.",
+        );
+    } else {
+        ui.horizontal(|ui| {
+            ui.heading(
+                RichText::new(format!("{} resultados", cards.len()))
+                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .size(16.0),
+            );
+            ui.add_space(ui.available_width());
+            ui.label(
+                RichText::new(
+                    "Utiliza 'Probar' para lanzar una solicitud con el prompt configurado.",
+                )
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(11.0),
+            );
+        });
+        ui.add_space(8.0);
+        draw_remote_model_gallery(ui, state, &cards);
+    }
+
+    draw_remote_comparison(ui, state);
+}
+
+fn draw_remote_model_gallery(ui: &mut egui::Ui, state: &mut AppState, cards: &[RemoteModelCard]) {
+    let spacing = 18.0;
+    let min_card_width = 280.0;
+
+    egui::ScrollArea::vertical()
+        .id_source("remote_models_gallery")
+        .max_height(420.0)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let available_width = ui.available_width().max(min_card_width);
+            let mut columns =
+                ((available_width + spacing) / (min_card_width + spacing)).floor() as usize;
+            columns = columns.clamp(1, 3);
+            let card_width = ((available_width - spacing * ((columns as f32) - 1.0))
+                / columns as f32)
+                .max(min_card_width);
+
+            for chunk in cards.chunks(columns) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = spacing;
+                    for card in chunk {
+                        let (rect, _) = ui
+                            .allocate_at_least(egui::vec2(card_width, 240.0), egui::Sense::hover());
+                        let mut card_ui =
+                            ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
+                        draw_remote_model_card(&mut card_ui, state, card);
+                    }
+
+                    if chunk.len() < columns {
+                        for _ in chunk.len()..columns {
+                            ui.add_space(card_width);
+                        }
+                    }
+                });
+                ui.add_space(spacing);
+            }
+        });
+}
+
+fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &RemoteModelCard) {
+    let is_favorite = state.remote_catalog.is_favorite(&card.key);
+    let in_comparison = state.remote_catalog.in_comparison(&card.key);
+    let fill = if is_favorite {
+        Color32::from_rgb(44, 40, 60)
+    } else {
+        Color32::from_rgb(34, 38, 44)
+    };
+
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(70, 80, 96)))
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.label(
+                        RichText::new(&card.title)
+                            .strong()
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(16.0),
+                    );
+                    ui.add_space(ui.available_width());
+                    if card.multimodal {
+                        ui.label(
+                            RichText::new("Multimodal")
+                                .color(theme::COLOR_PRIMARY)
+                                .size(11.0),
+                        );
+                    }
+                });
+
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(&card.description)
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(12.0),
+                );
+
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "Contexto: {} tokens · Salida máx: {} tokens",
+                            card.context_tokens, card.max_output_tokens
+                        ))
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .size(11.0),
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "Coste entrada: {} · salida: {} · Latencia ≈ {} ms",
+                            format_cost_label(card.input_cost_per_million),
+                            format_cost_label(card.output_cost_per_million),
+                            card.latency_ms
+                        ))
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                    );
+                });
+
+                if !card.capabilities.is_empty() {
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        for capability in &card.capabilities {
+                            ui.label(
+                                RichText::new(capability)
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                        }
+                    });
+                }
+
+                if !card.tags.is_empty() {
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        for tag in &card.tags {
+                            selectable_chip(ui, tag, false);
+                        }
+                    });
+                }
+
+                if !card.quick_actions.is_empty() {
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        for action in &card.quick_actions {
+                            ui.label(
+                                RichText::new(action)
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                        }
+                    });
+                }
+
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(&card.favorite_hint)
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    let mut favorite_toggled = false;
+                    if selectable_chip(ui, "Favorito", is_favorite).clicked() {
+                        favorite_toggled = true;
+                    }
+                    if favorite_toggled {
+                        state.remote_catalog.toggle_favorite(card.key.clone());
+                        let now_favorite = !is_favorite;
+                        let status = if now_favorite {
+                            format!("{} marcado como favorito.", card.title)
+                        } else {
+                            format!("{} eliminado de favoritos.", card.title)
+                        };
+                        state.remote_catalog.update_status(Some(status));
+                    }
+
+                    if selectable_chip(ui, "Comparar", in_comparison).clicked() {
+                        state.remote_catalog.toggle_comparison(card.key.clone());
+                        state.remote_catalog.update_status(Some(format!(
+                            "{} {} en la tabla comparativa.",
+                            card.title,
+                            if in_comparison {
+                                "eliminado"
+                            } else {
+                                "añadido"
+                            }
+                        )));
+                    }
+
+                    ui.add_space(ui.available_width());
+
+                    let test_label = RichText::new(format!("{} Probar", ICON_LIGHTNING))
+                        .color(Color32::from_rgb(240, 240, 240));
+                    if ui
+                        .add(theme::primary_button(test_label).min_size(egui::vec2(110.0, 32.0)))
+                        .clicked()
+                    {
+                        let status = state.execute_remote_quick_test(card.key.clone());
+                        if let Some(status) = status {
+                            state.remote_catalog.update_status(Some(status));
+                        }
+                    }
+                });
+            });
+        });
+}
+
+fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
+    if state.remote_catalog.comparison.is_empty() {
+        return;
+    }
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(6.0);
+    ui.heading(
+        RichText::new("Comparativa rápida")
+            .color(theme::COLOR_TEXT_PRIMARY)
+            .size(16.0)
+            .strong(),
+    );
+    ui.add_space(6.0);
+
+    ui.push_id("remote_comparison_grid", |ui| {
+        egui::Grid::new("remote_comparison")
+            .striped(true)
+            .spacing(egui::vec2(12.0, 6.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("Modelo").strong());
+                ui.label(RichText::new("Contexto").strong());
+                ui.label(RichText::new("Costos").strong());
+                ui.label(RichText::new("Proveedor").strong());
+                ui.label(RichText::new("Acciones").strong());
+                ui.end_row();
+
+                let mut removals = Vec::new();
+                for key in &state.remote_catalog.comparison {
+                    if let Some(card) = remote_card_by_key(state, key) {
+                        ui.label(
+                            RichText::new(&card.title)
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .size(12.0),
+                        );
+                        ui.label(
+                            RichText::new(format!("{} tokens", card.context_tokens))
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "{} / {}",
+                                format_cost_label(card.input_cost_per_million),
+                                format_cost_label(card.output_cost_per_million)
+                            ))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                        );
+                        ui.label(
+                            RichText::new(card.key.provider.display_name())
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                        if ui.button(RichText::new("Quitar").size(11.0)).clicked() {
+                            removals.push(card.key.clone());
+                        }
+                        ui.end_row();
+                    }
+                }
+
+                for key in removals {
+                    state.remote_catalog.toggle_comparison(key);
+                }
+            });
+    });
+}
+
+fn format_cost_label(value: f32) -> String {
+    if value < 1.0 {
+        format!("${:.3}", value)
+    } else {
+        format!("${:.2}", value)
+    }
+}
+
+fn remote_card_by_key<'a>(
+    state: &'a AppState,
+    key: &RemoteModelKey,
+) -> Option<&'a RemoteModelCard> {
+    state
+        .remote_catalog
+        .cards_for(key.provider)
+        .iter()
+        .find(|card| card.key == *key)
 }
 
 fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
@@ -1071,6 +2068,7 @@ fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
             state.selected_github_repo = None;
             state.github_connection_status =
                 Some("Please enter a valid GitHub token before syncing.".to_string());
+            state.refresh_personalization_resources();
         } else {
             match github::fetch_user_and_repositories(&state.github_token) {
                 Ok(data) => {
@@ -1079,10 +2077,15 @@ fn draw_system_github(ui: &mut egui::Ui, state: &mut AppState) {
                     state.selected_github_repo = None;
                     state.github_connection_status =
                         Some(format!("GitHub data loaded for {}.", data.username));
+                    state.refresh_personalization_resources();
                 }
                 Err(err) => {
+                    state.github_username = None;
+                    state.github_repositories.clear();
+                    state.selected_github_repo = None;
                     state.github_connection_status =
                         Some(format!("Failed to sync GitHub: {}", err));
+                    state.refresh_personalization_resources();
                 }
             }
         }
@@ -1342,6 +2345,15 @@ fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {
             state.memory_retention_days
         ),
     );
+
+    ui.add_space(10.0);
+    let memory_cards = state.personalization_resources.memories.clone();
+    draw_personalization_cards(
+        ui,
+        state,
+        &memory_cards,
+        "Aún no hay memorias configuradas.",
+    );
 }
 
 fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
@@ -1373,6 +2385,7 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
                 state.profiles.push(new_profile);
                 state.selected_profile = Some(state.profiles.len() - 1);
                 state.persist_config();
+                state.refresh_personalization_resources();
             }
         }
         if ui.button("Delete profile").clicked() {
@@ -1385,6 +2398,7 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
                         state.selected_profile = Some(state.profiles.len() - 1);
                     }
                     state.persist_config();
+                    state.refresh_personalization_resources();
                 }
             }
         }
@@ -1393,6 +2407,15 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
     ui.colored_label(
         ui.visuals().weak_text_color(),
         "Profiles let you quickly change between workspace presets.",
+    );
+
+    ui.add_space(10.0);
+    let profile_cards = state.personalization_resources.profiles.clone();
+    draw_personalization_cards(
+        ui,
+        state,
+        &profile_cards,
+        "Crea tu primer perfil para empezar a personalizar respuestas.",
     );
 }
 
@@ -1423,12 +2446,128 @@ fn draw_customization_projects(ui: &mut egui::Ui, state: &mut AppState) {
         state.projects.push(new_project);
         state.selected_project = Some(state.projects.len() - 1);
         state.persist_config();
+        state.refresh_personalization_resources();
     }
 
     ui.colored_label(
         ui.visuals().weak_text_color(),
         "Projects determine what repositories and documents are prioritised.",
     );
+
+    ui.add_space(10.0);
+    let context_cards = state.personalization_resources.contexts.clone();
+    draw_personalization_cards(
+        ui,
+        state,
+        &context_cards,
+        "Sin proyectos ni repos conectados. Sincroniza GitHub o agrega proyectos prioritarios.",
+    );
+}
+
+fn draw_personalization_cards(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    cards: &[KnowledgeResourceCard],
+    empty_message: &str,
+) {
+    if cards.is_empty() {
+        ui.colored_label(theme::COLOR_TEXT_WEAK, empty_message);
+        return;
+    }
+
+    for card in cards {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(34, 38, 44))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(12.0))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(&card.title)
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .strong()
+                                .size(14.0),
+                        );
+                        ui.add_space(ui.available_width());
+                        ui.label(
+                            RichText::new(&card.resource_type)
+                                .color(theme::COLOR_PRIMARY)
+                                .size(11.0),
+                        );
+                    });
+                    ui.label(
+                        RichText::new(&card.subtitle)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                    ui.label(
+                        RichText::new(format!("Última sincronización: {}", card.last_synced))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(10.0),
+                    );
+
+                    if !card.tags.is_empty() {
+                        ui.add_space(6.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            for tag in &card.tags {
+                                selectable_chip(ui, tag, false);
+                            }
+                        });
+                    }
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if let Some(link) = &card.link {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(format!("{} Copiar", ICON_LINK))
+                                            .color(Color32::from_rgb(240, 240, 240))
+                                            .size(11.0),
+                                    )
+                                    .min_size(egui::vec2(80.0, 26.0))
+                                    .fill(Color32::from_rgb(44, 46, 54))
+                                    .rounding(egui::Rounding::same(8.0)),
+                                )
+                                .clicked()
+                            {
+                                ui.output_mut(|out| out.copied_text = link.clone());
+                                state.personalization_feedback =
+                                    Some(format!("Enlace copiado: {}", card.title));
+                            }
+                        }
+
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(format!("{} Sincronizar", ICON_LIGHTNING))
+                                        .color(Color32::from_rgb(240, 240, 240))
+                                        .size(11.0),
+                                )
+                                .min_size(egui::vec2(110.0, 26.0))
+                                .fill(Color32::from_rgb(70, 80, 96))
+                                .rounding(egui::Rounding::same(8.0)),
+                            )
+                            .clicked()
+                        {
+                            state.personalization_feedback = Some(format!(
+                                "{} marcado para sincronización contextual.",
+                                card.title
+                            ));
+                        }
+                    });
+                });
+            });
+
+        ui.add_space(8.0);
+    }
+
+    if let Some(status) = &state.personalization_feedback {
+        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+    }
 }
 
 fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalModelProvider) {
@@ -2226,6 +3365,26 @@ fn quick_chip_with_icon(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::R
     response.on_hover_text(tooltip)
 }
 
+fn selectable_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+    let fill = if selected {
+        theme::COLOR_PRIMARY
+    } else {
+        Color32::from_rgb(44, 46, 54)
+    };
+    let text_color = if selected {
+        Color32::from_rgb(24, 28, 34)
+    } else {
+        Color32::from_rgb(240, 240, 240)
+    };
+
+    let button = egui::Button::new(RichText::new(label).color(text_color).size(11.0))
+        .min_size(egui::vec2(0.0, 24.0))
+        .fill(fill)
+        .rounding(egui::Rounding::same(10.0));
+
+    ui.add(button)
+}
+
 fn insert_mention(state: &mut AppState, mention: &str) {
     let trimmed = state.current_chat_input.trim();
     if trimmed.starts_with(mention) {
@@ -2614,24 +3773,7 @@ fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &
     }
 }
 
-fn draw_remote_catalog_placeholder(ui: &mut egui::Ui, provider: &str, message: &str) {
-    ui.vertical(|ui| {
-        ui.label(
-            RichText::new(format!("{provider} · Catálogo en preparación"))
-                .color(theme::COLOR_TEXT_PRIMARY)
-                .strong(),
-        );
-        ui.add_space(6.0);
-        ui.colored_label(theme::COLOR_TEXT_WEAK, message);
-        ui.add_space(4.0);
-        ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
-            "Configura las credenciales del proveedor en Preferencias › Proveedores para habilitar la consulta.",
-        );
-    });
-}
-
-fn draw_installed_local_overview(ui: &mut egui::Ui, state: &AppState) {
+fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
     if state.installed_local_models.is_empty() {
         ui.colored_label(
             theme::COLOR_TEXT_WEAK,
@@ -2640,14 +3782,76 @@ fn draw_installed_local_overview(ui: &mut egui::Ui, state: &AppState) {
         return;
     }
 
-    for model in &state.installed_local_models {
-        let provider_name = model.identifier.provider.display_name();
-        let size_label = format_bytes(model.size_bytes);
-        let installed_at = model
+    {
+        let library = &mut state.local_library;
+        ui.horizontal(|ui| {
+            let filter_width = (ui.available_width() - 160.0).max(200.0);
+            ui.add_sized(
+                [filter_width, 28.0],
+                egui::TextEdit::singleline(&mut library.filter)
+                    .hint_text("Buscar modelo o proveedor"),
+            );
+            if ui
+                .add_sized([140.0, 28.0], egui::Button::new("Limpiar búsqueda"))
+                .clicked()
+            {
+                library.filter.clear();
+            }
+        });
+
+        ui.add_space(4.0);
+        if ui
+            .checkbox(
+                &mut library.show_only_ready,
+                "Solo modelos con ruta disponible",
+            )
+            .changed()
+        {
+            // no-op, el filtro se aplica al refrescar la vista
+        }
+
+        if let Some(status) = &library.operation_feedback {
+            ui.add_space(6.0);
+            ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+        }
+    }
+
+    ui.add_space(8.0);
+    let filter_lower = state.local_library.filter.to_lowercase();
+    let show_only_ready = state.local_library.show_only_ready;
+    let installed = state.installed_local_models.clone();
+    let mut removals: Vec<LocalModelIdentifier> = Vec::new();
+    let mut pending_feedback: Option<String> = None;
+
+    for record in installed.iter() {
+        let label = record.identifier.display_label();
+        let provider_name = record.identifier.provider.display_name();
+        let size_label = format_bytes(record.size_bytes);
+        let installed_at = record
             .installed_at
             .with_timezone(&Local)
             .format("%Y-%m-%d %H:%M")
             .to_string();
+        let is_active = state
+            .jarvis_active_model
+            .as_ref()
+            .map(|active| {
+                active.provider == record.identifier.provider
+                    && active.model_id == record.identifier.model_id
+            })
+            .unwrap_or(false);
+        let is_ready = !record.install_path.trim().is_empty();
+
+        if !filter_lower.is_empty()
+            && !label.to_lowercase().contains(&filter_lower)
+            && !provider_name.to_lowercase().contains(&filter_lower)
+        {
+            continue;
+        }
+
+        if show_only_ready && !is_ready {
+            continue;
+        }
 
         egui::Frame::none()
             .fill(Color32::from_rgb(34, 38, 44))
@@ -2657,17 +3861,27 @@ fn draw_installed_local_overview(ui: &mut egui::Ui, state: &AppState) {
             .show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
                         ui.label(
                             RichText::new(provider_name)
                                 .color(theme::COLOR_PRIMARY)
                                 .strong(),
                         );
-                        ui.add_space(8.0);
-                        ui.label(
-                            RichText::new(&model.identifier.model_id)
-                                .color(theme::COLOR_TEXT_PRIMARY),
-                        );
+                        if is_active {
+                            ui.label(
+                                RichText::new("Activo")
+                                    .color(theme::COLOR_PRIMARY)
+                                    .size(11.0)
+                                    .italics(),
+                            );
+                        }
                     });
+
+                    ui.label(
+                        RichText::new(label)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(13.0),
+                    );
 
                     ui.add_space(4.0);
                     ui.label(
@@ -2676,19 +3890,52 @@ fn draw_installed_local_overview(ui: &mut egui::Ui, state: &AppState) {
                             size_label, installed_at
                         ))
                         .color(theme::COLOR_TEXT_WEAK)
-                        .size(12.0),
+                        .size(11.0),
                     );
 
-                    ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(format!("Ruta: {}", model.install_path))
-                            .color(theme::COLOR_TEXT_WEAK)
-                            .size(11.0),
-                    );
+                    if !record.install_path.trim().is_empty() {
+                        ui.label(
+                            RichText::new(format!("Ruta: {}", record.install_path))
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(10.0),
+                        );
+                    }
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Activar").clicked() {
+                            let status = state.activate_jarvis_model(&record.identifier);
+                            pending_feedback = Some(status);
+                        }
+
+                        if ui.button("Actualizar").clicked() {
+                            if let Some(status) = state.mark_local_model_updated(&record.identifier)
+                            {
+                                pending_feedback = Some(status);
+                            }
+                        }
+
+                        if ui
+                            .button(RichText::new("Eliminar").color(theme::COLOR_DANGER))
+                            .clicked()
+                        {
+                            removals.push(record.identifier.clone());
+                        }
+                    });
                 });
             });
 
         ui.add_space(10.0);
+    }
+
+    for identifier in removals {
+        if let Some(status) = state.uninstall_local_model(&identifier) {
+            pending_feedback = Some(status);
+        }
+    }
+
+    if let Some(feedback) = pending_feedback {
+        state.local_library.operation_feedback = Some(feedback);
     }
 }
 

@@ -1,9 +1,9 @@
 use crate::{
     api::{claude::AnthropicModel, local::JarvisRuntime},
-    config::AppConfig,
+    config::{AppConfig, InstalledModelConfig},
     local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider},
 };
-use chrono::Local;
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -162,6 +162,34 @@ pub struct LocalProviderState {
     pub models: Vec<LocalModelCard>,
     pub selected_model: Option<usize>,
     pub install_status: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InstalledLocalModel {
+    pub identifier: LocalModelIdentifier,
+    pub install_path: String,
+    pub size_bytes: u64,
+    pub installed_at: DateTime<Utc>,
+}
+
+impl InstalledLocalModel {
+    pub fn from_config(config: &InstalledModelConfig) -> Self {
+        Self {
+            identifier: LocalModelIdentifier::parse(&config.identifier),
+            install_path: config.install_path.clone(),
+            size_bytes: config.size_bytes,
+            installed_at: config.installed_at,
+        }
+    }
+
+    pub fn to_config(&self) -> InstalledModelConfig {
+        InstalledModelConfig {
+            identifier: self.identifier.serialize(),
+            install_path: self.install_path.clone(),
+            size_bytes: self.size_bytes,
+            installed_at: self.installed_at,
+        }
+    }
 }
 
 impl LocalProviderState {
@@ -405,7 +433,7 @@ pub struct AppState {
     /// Mensaje de estado sobre la configuración local de Jarvis.
     pub jarvis_status: Option<String>,
     /// Modelos instalados para Jarvis.
-    pub installed_local_models: Vec<LocalModelIdentifier>,
+    pub installed_local_models: Vec<InstalledLocalModel>,
     /// Proveedor seleccionado en la sección de configuración local.
     pub jarvis_selected_provider: LocalModelProvider,
     /// Identificador del modelo activo para Jarvis.
@@ -514,19 +542,25 @@ impl Default for AppState {
             local_provider_states.insert(provider, provider_state);
         }
 
-        let installed_local_models: Vec<LocalModelIdentifier> = config
+        let mut installed_local_models: Vec<InstalledLocalModel> = config
             .jarvis
             .installed_models
             .iter()
-            .map(|entry| LocalModelIdentifier::parse(entry))
+            .map(InstalledLocalModel::from_config)
             .collect();
+
+        installed_local_models.sort_by(|a, b| b.installed_at.cmp(&a.installed_at));
 
         let jarvis_active_model = config
             .jarvis
             .active_model
             .as_ref()
             .map(|entry| LocalModelIdentifier::parse(entry))
-            .or_else(|| installed_local_models.first().cloned());
+            .or_else(|| {
+                installed_local_models
+                    .first()
+                    .map(|model| model.identifier.clone())
+            });
 
         let jarvis_selected_provider = jarvis_active_model
             .as_ref()
@@ -956,6 +990,30 @@ impl AppState {
             .expect("estado del proveedor no inicializado")
     }
 
+    pub fn upsert_installed_model(&mut self, record: InstalledLocalModel) {
+        if let Some(existing) = self
+            .installed_local_models
+            .iter_mut()
+            .find(|entry| entry.identifier == record.identifier)
+        {
+            *existing = record;
+        } else {
+            self.installed_local_models.push(record);
+        }
+
+        self.installed_local_models
+            .sort_by(|a, b| b.installed_at.cmp(&a.installed_at));
+    }
+
+    pub fn installed_model(
+        &self,
+        identifier: &LocalModelIdentifier,
+    ) -> Option<&InstalledLocalModel> {
+        self.installed_local_models
+            .iter()
+            .find(|model| &model.identifier == identifier)
+    }
+
     pub fn update_async_tasks(&mut self) -> bool {
         let mut updated = false;
 
@@ -1074,7 +1132,7 @@ impl AppState {
         self.config.jarvis.installed_models = self
             .installed_local_models
             .iter()
-            .map(LocalModelIdentifier::serialize)
+            .map(InstalledLocalModel::to_config)
             .collect();
         self.config.jarvis.active_model = self
             .jarvis_active_model
@@ -1135,6 +1193,13 @@ impl AppState {
     }
 
     fn jarvis_model_directory_for(&self, model: &LocalModelIdentifier) -> PathBuf {
+        if let Some(record) = self.installed_model(model) {
+            let path = Path::new(&record.install_path);
+            if path.is_dir() {
+                return path.to_path_buf();
+            }
+        }
+
         Path::new(&self.jarvis_install_dir).join(model.sanitized_dir_name())
     }
 

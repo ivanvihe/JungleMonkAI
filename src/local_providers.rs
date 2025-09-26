@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Proveedores soportados para instalar modelos locales en Jarvis.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum LocalModelProvider {
     HuggingFace,
     GithubModels,
@@ -88,7 +89,7 @@ impl fmt::Display for LocalModelProvider {
 }
 
 /// Representa una tarjeta dentro de la galería de modelos.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LocalModelCard {
     pub provider: LocalModelProvider,
     pub id: String,
@@ -128,7 +129,7 @@ impl Default for LocalModelCard {
 }
 
 /// Identificador serializable de un modelo local instalado.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct LocalModelIdentifier {
     pub provider: LocalModelProvider,
     pub model_id: String,

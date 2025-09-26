@@ -1,8 +1,8 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
-    format_bytes, AppState, ChatMessage, InstalledLocalModel, LogStatus, MainView,
-    PreferenceSection, AVAILABLE_CUSTOM_ACTIONS,
+    format_bytes, AppState, ChatMessage, InstalledLocalModel, LogStatus, MainView, PreferencePanel,
+    RemoteProviderKind, ResourceSection, AVAILABLE_CUSTOM_ACTIONS,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
@@ -96,6 +96,7 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                     match state.active_main_view {
                         MainView::ChatMultimodal => draw_chat_view(ui, state),
                         MainView::Preferences => draw_preferences_view(ui, state),
+                        MainView::ResourceBrowser => draw_resource_view(ui, state),
                         MainView::Logs => logs::draw_logs_view(ui, state),
                     }
                 });
@@ -157,23 +158,108 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                 bottom: 18.0,
             })
             .show(ui, |ui| {
+                let metadata = state.selected_preference.metadata();
+                let breadcrumb_text = if metadata.breadcrumb.is_empty() {
+                    String::new()
+                } else {
+                    metadata.breadcrumb.join(" › ")
+                };
+
+                if !breadcrumb_text.is_empty() {
+                    ui.label(
+                        RichText::new(breadcrumb_text)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                }
+
+                let heading = metadata
+                    .breadcrumb
+                    .last()
+                    .copied()
+                    .unwrap_or(metadata.title);
+
                 ui.heading(
-                    RichText::new(state.selected_section.title())
+                    RichText::new(heading)
                         .color(theme::COLOR_TEXT_PRIMARY)
                         .strong(),
                 );
-                ui.label(
-                    RichText::new(state.selected_section.description())
-                        .color(theme::COLOR_TEXT_WEAK),
-                );
+                ui.label(RichText::new(metadata.description).color(theme::COLOR_TEXT_WEAK));
                 ui.add_space(12.0);
 
                 egui::ScrollArea::vertical()
                     .id_source("preferences_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        draw_selected_section(ui, state);
+                        draw_selected_preference(ui, state);
                     });
+            });
+    });
+}
+
+fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
+    with_centered_main_surface(ui, |ui| {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(30, 32, 36))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(18.0))
+            .inner_margin(egui::Margin {
+                left: 20.0,
+                right: 20.0,
+                top: 20.0,
+                bottom: 18.0,
+            })
+            .show(ui, |ui| {
+                if let Some(section) = state.selected_resource {
+                    let metadata = section.metadata();
+                    let breadcrumb_text = if metadata.breadcrumb.is_empty() {
+                        String::new()
+                    } else {
+                        metadata.breadcrumb.join(" › ")
+                    };
+
+                    if !breadcrumb_text.is_empty() {
+                        ui.label(
+                            RichText::new(breadcrumb_text)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(12.0),
+                        );
+                    }
+
+                    let heading = metadata
+                        .breadcrumb
+                        .last()
+                        .copied()
+                        .unwrap_or(metadata.title);
+
+                    ui.heading(
+                        RichText::new(heading)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new(metadata.description)
+                            .color(theme::COLOR_TEXT_WEAK),
+                    );
+                    ui.add_space(12.0);
+
+                    egui::ScrollArea::vertical()
+                        .id_source("resources_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            draw_selected_resource(ui, state, section);
+                        });
+                } else {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(80.0);
+                        ui.label(
+                            RichText::new(
+                                "Selecciona un recurso en el panel izquierdo para explorar su contenido.",
+                            )
+                            .color(theme::COLOR_TEXT_WEAK),
+                        );
+                    });
+                }
             });
     });
 }
@@ -919,37 +1005,47 @@ fn submit_chat_message(state: &mut AppState) {
     }
 }
 
-fn draw_selected_section(ui: &mut egui::Ui, state: &mut AppState) {
-    match state.selected_section {
-        PreferenceSection::SystemGithub => draw_system_github(ui, state),
-        PreferenceSection::SystemCache => draw_system_cache(ui, state),
-        PreferenceSection::SystemResources => draw_system_resources(ui, state),
-        PreferenceSection::CustomizationCommands => draw_custom_commands(ui, state),
-        PreferenceSection::CustomizationMemory => draw_customization_memory(ui, state),
-        PreferenceSection::CustomizationProfiles => draw_customization_profiles(ui, state),
-        PreferenceSection::CustomizationProjects => draw_customization_projects(ui, state),
-        PreferenceSection::ModelsLocalHuggingFace => {
-            draw_local_provider(ui, state, LocalModelProvider::HuggingFace)
-        }
-        PreferenceSection::ModelsLocalGithub => {
-            draw_local_provider(ui, state, LocalModelProvider::GithubModels)
-        }
-        PreferenceSection::ModelsLocalReplicate => {
-            draw_local_provider(ui, state, LocalModelProvider::Replicate)
-        }
-        PreferenceSection::ModelsLocalOllama => {
-            draw_local_provider(ui, state, LocalModelProvider::Ollama)
-        }
-        PreferenceSection::ModelsLocalOpenRouter => {
-            draw_local_provider(ui, state, LocalModelProvider::OpenRouter)
-        }
-        PreferenceSection::ModelsLocalModelscope => {
-            draw_local_provider(ui, state, LocalModelProvider::Modelscope)
-        }
-        PreferenceSection::ModelsLocalSettings => draw_local_settings(ui, state),
-        PreferenceSection::ModelsProviderAnthropic => draw_provider_anthropic(ui, state),
-        PreferenceSection::ModelsProviderOpenAi => draw_provider_openai(ui, state),
-        PreferenceSection::ModelsProviderGroq => draw_provider_groq(ui, state),
+fn draw_selected_preference(ui: &mut egui::Ui, state: &mut AppState) {
+    match state.selected_preference {
+        PreferencePanel::SystemGithub => draw_system_github(ui, state),
+        PreferencePanel::SystemCache => draw_system_cache(ui, state),
+        PreferencePanel::SystemResources => draw_system_resources(ui, state),
+        PreferencePanel::CustomizationCommands => draw_custom_commands(ui, state),
+        PreferencePanel::CustomizationMemory => draw_customization_memory(ui, state),
+        PreferencePanel::CustomizationProfiles => draw_customization_profiles(ui, state),
+        PreferencePanel::CustomizationProjects => draw_customization_projects(ui, state),
+        PreferencePanel::ProvidersAnthropic => draw_provider_anthropic(ui, state),
+        PreferencePanel::ProvidersOpenAi => draw_provider_openai(ui, state),
+        PreferencePanel::ProvidersGroq => draw_provider_groq(ui, state),
+        PreferencePanel::LocalJarvis => draw_local_settings(ui, state),
+    }
+}
+
+fn draw_selected_resource(ui: &mut egui::Ui, state: &mut AppState, section: ResourceSection) {
+    match section {
+        ResourceSection::LocalCatalog(provider) => draw_local_provider(ui, state, provider),
+        ResourceSection::RemoteCatalog(kind) => match kind {
+            RemoteProviderKind::Anthropic => {
+                let anthropic_key = state.config.anthropic.api_key.clone().unwrap_or_default();
+                let trimmed = anthropic_key.trim().to_string();
+                draw_claude_catalog(ui, state, trimmed.as_str());
+            }
+            RemoteProviderKind::OpenAi => {
+                draw_remote_catalog_placeholder(
+                    ui,
+                    "OpenAI",
+                    "La sincronización del catálogo estará disponible en la siguiente iteración.",
+                );
+            }
+            RemoteProviderKind::Groq => {
+                draw_remote_catalog_placeholder(
+                    ui,
+                    "Groq",
+                    "Estamos preparando la exploración de modelos Groq acelerados.",
+                );
+            }
+        },
+        ResourceSection::InstalledLocal => draw_installed_local_overview(ui, state),
     }
 }
 
@@ -2404,13 +2500,14 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     let anthropic_key = state.config.anthropic.api_key.clone().unwrap_or_default();
+    let anthropic_key_trimmed = anthropic_key.trim().to_string();
 
     if ui.button("Test connection").clicked() {
-        if anthropic_key.trim().is_empty() {
+        if anthropic_key_trimmed.is_empty() {
             state.anthropic_test_status = Some("Enter an API key before testing.".to_string());
         } else {
             match crate::api::claude::send_message(
-                anthropic_key.trim(),
+                anthropic_key_trimmed.as_str(),
                 &state.claude_default_model,
                 "Responde únicamente con la palabra 'pong'.",
             ) {
@@ -2432,6 +2529,10 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
 
+    draw_claude_catalog(ui, state, anthropic_key_trimmed.as_str());
+}
+
+fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &str) {
     ui.add_space(16.0);
     ui.separator();
     ui.add_space(10.0);
@@ -2464,11 +2565,11 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     if refresh_triggered {
-        if anthropic_key.trim().is_empty() {
+        if anthropic_key.is_empty() {
             state.claude_models_status =
                 Some("Ingresa una API key válida antes de solicitar el catálogo.".to_string());
         } else {
-            match crate::api::claude::list_models(anthropic_key.trim()) {
+            match crate::api::claude::list_models(anthropic_key) {
                 Ok(models) => {
                     let count = models.len();
                     state.claude_available_models = models;
@@ -2501,6 +2602,84 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
     } else {
         let models = state.claude_available_models.clone();
         draw_claude_models_gallery(ui, state, &models);
+    }
+}
+
+fn draw_remote_catalog_placeholder(ui: &mut egui::Ui, provider: &str, message: &str) {
+    ui.vertical(|ui| {
+        ui.label(
+            RichText::new(format!("{provider} · Catálogo en preparación"))
+                .color(theme::COLOR_TEXT_PRIMARY)
+                .strong(),
+        );
+        ui.add_space(6.0);
+        ui.colored_label(theme::COLOR_TEXT_WEAK, message);
+        ui.add_space(4.0);
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Configura las credenciales del proveedor en Preferencias › Proveedores para habilitar la consulta.",
+        );
+    });
+}
+
+fn draw_installed_local_overview(ui: &mut egui::Ui, state: &AppState) {
+    if state.installed_local_models.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Aún no hay modelos instalados. Usa una galería local para descargar uno y aparecerá aquí.",
+        );
+        return;
+    }
+
+    for model in &state.installed_local_models {
+        let provider_name = model.identifier.provider.display_name();
+        let size_label = format_bytes(model.size_bytes);
+        let installed_at = model
+            .installed_at
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M")
+            .to_string();
+
+        egui::Frame::none()
+            .fill(Color32::from_rgb(34, 38, 44))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(12.0))
+            .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(provider_name)
+                                .color(theme::COLOR_PRIMARY)
+                                .strong(),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(&model.identifier.model_id)
+                                .color(theme::COLOR_TEXT_PRIMARY),
+                        );
+                    });
+
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "Tamaño: {} · Instalado: {}",
+                            size_label, installed_at
+                        ))
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(12.0),
+                    );
+
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(format!("Ruta: {}", model.install_path))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                });
+            });
+
+        ui.add_space(10.0);
     }
 }
 

@@ -11,7 +11,9 @@ const COLLAPSED_HEIGHT: f32 = 28.0;
 const MIN_EXPANDED_HEIGHT: f32 = 100.0;
 const MAX_EXPANDED_HEIGHT: f32 = 360.0;
 
-pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
+pub fn draw_logs_panel(ui: &mut egui::Ui, state: &mut AppState) {
+    let ctx = ui.ctx().clone();
+
     let mut panel = egui::TopBottomPanel::bottom("logs_panel")
         .show_separator_line(false)
         .frame(if state.logs_panel_expanded {
@@ -33,7 +35,7 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
         panel = panel.exact_height(COLLAPSED_HEIGHT).resizable(false);
     }
 
-    let panel_response = panel.show(ctx, |ui| {
+    let panel_response = panel.show_inside(ui, |ui| {
         let background_rect = ui.max_rect();
         ui.painter()
             .rect_filled(background_rect, 0.0, theme::COLOR_PANEL);

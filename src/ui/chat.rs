@@ -9,7 +9,7 @@ use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
 use std::{fs, path::Path};
 
-use super::theme;
+use super::{logs, theme};
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -78,9 +78,15 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                     bottom: 14.0,
                 }),
         )
-        .show(ctx, |ui| match state.active_main_view {
-            MainView::ChatMultimodal => draw_chat_view(ui, state),
-            MainView::Preferences => draw_preferences_view(ui, state),
+        .show(ctx, |ui| {
+            logs::draw_logs_panel(ui, state);
+
+            egui::CentralPanel::default()
+                .frame(egui::Frame::none())
+                .show_inside(ui, |ui| match state.active_main_view {
+                    MainView::ChatMultimodal => draw_chat_view(ui, state),
+                    MainView::Preferences => draw_preferences_view(ui, state),
+                });
         });
 }
 

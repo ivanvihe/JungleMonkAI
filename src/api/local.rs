@@ -47,6 +47,40 @@ struct JarvisEncoder {
     mean_pooling: bool,
 }
 
+fn collect_safetensor_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let entries = fs::read_dir(dir)
+        .with_context(|| format!("No se pudo listar el directorio del modelo {:?}", dir))?;
+    let mut files: Vec<PathBuf> = Vec::new();
+
+    for entry in entries {
+        let entry = entry
+            .with_context(|| format!("No se pudo acceder a un archivo dentro de {:?}", dir))?;
+        let metadata = entry.file_type().with_context(|| {
+            format!(
+                "No se pudo determinar el tipo de archivo de {:?}",
+                entry.path()
+            )
+        })?;
+        if !metadata.is_file() {
+            continue;
+        }
+
+        let path = entry.path();
+        let is_safetensors = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("safetensors"))
+            .unwrap_or(false);
+
+        if is_safetensors {
+            files.push(path);
+        }
+    }
+
+    files.sort();
+    Ok(files)
+}
+
 const JARVIS_BLUEPRINTS: &[JarvisPersonaBlueprint] = &[
     JarvisPersonaBlueprint {
         label: "greeting",
@@ -123,17 +157,19 @@ impl JarvisEncoder {
         let config: BertConfig = serde_json::from_str(&config_data)
             .with_context(|| format!("No se pudo parsear {:?}", config_path))?;
 
-        let weights_path = model_dir.join("model.safetensors");
-        if !weights_path.exists() {
+        let safetensor_files = collect_safetensor_files(model_dir)?;
+        if safetensor_files.is_empty() {
             bail!(
-                "No se encontró el archivo de pesos {:?}. Descarga el modelo completo.",
-                weights_path
+                "No se encontró ningún archivo '.safetensors' en {:?}. Descarga el modelo completo.",
+                model_dir
             );
         }
 
+        let weight_refs: Vec<&Path> = safetensor_files.iter().map(|path| path.as_path()).collect();
+
         let device = Device::Cpu;
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)
+            VarBuilder::from_mmaped_safetensors(&weight_refs, DType::F32, &device)
                 .context("No se pudo mapear los pesos del modelo local")?
         };
         let model = BertModel::load(vb, &config)
@@ -284,7 +320,13 @@ impl JarvisEncoder {
 impl JarvisRuntime {
     /// Carga el runtime apuntando al directorio del modelo instalado.
     pub fn load(model_dir: impl Into<PathBuf>, model_id: Option<String>) -> Result<Self> {
-        let model_dir = model_dir.into();
+        let mut model_dir = model_dir.into();
+        if model_dir.is_file() {
+            if let Some(parent) = model_dir.parent() {
+                model_dir = parent.to_path_buf();
+            }
+        }
+
         if !model_dir.exists() {
             bail!(
                 "El directorio del modelo local {:?} no existe. Instálalo desde Hugging Face.",
@@ -292,7 +334,14 @@ impl JarvisRuntime {
             );
         }
 
-        let required_files = ["config.json", "tokenizer.json", "model.safetensors"];
+        if !model_dir.is_dir() {
+            bail!(
+                "La ruta del modelo local {:?} no es un directorio válido.",
+                model_dir
+            );
+        }
+
+        let required_files = ["config.json", "tokenizer.json"];
         for file in required_files {
             let path = model_dir.join(file);
             if !path.exists() {
@@ -302,6 +351,13 @@ impl JarvisRuntime {
                     file
                 );
             }
+        }
+
+        if collect_safetensor_files(&model_dir)?.is_empty() {
+            bail!(
+                "El modelo local en {:?} no incluye archivos '.safetensors'. Reinstálalo o descarga una versión compatible.",
+                model_dir
+            );
         }
 
         let metadata_path = model_dir.join("metadata.json");

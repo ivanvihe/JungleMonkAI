@@ -1,7 +1,9 @@
 use anyhow::{anyhow, bail, Context, Result};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
-use candle_transformers::models::bert::{BertModel, Config as BertConfig};
+use candle_transformers::models::bert::{
+    BertModel, Config as BertConfig, HiddenAct, PositionEmbeddingType,
+};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -81,6 +83,139 @@ fn collect_safetensor_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+fn adapt_bert_config(value: &Value) -> Option<BertConfig> {
+    let obj = value.as_object()?;
+
+    fn extract_usize(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<usize> {
+        keys.iter().find_map(|key| {
+            obj.get(*key)
+                .and_then(|value| {
+                    value.as_u64().or_else(|| {
+                        value.as_f64().and_then(|num| {
+                            if num.is_finite() && num >= 0.0 {
+                                Some(num.round() as u64)
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+                .map(|num| num as usize)
+        })
+    }
+
+    fn extract_f64(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<f64> {
+        keys.iter().find_map(|key| {
+            obj.get(*key)
+                .and_then(|value| value.as_f64().or_else(|| value.as_u64().map(|n| n as f64)))
+        })
+    }
+
+    fn extract_bool(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<bool> {
+        keys.iter()
+            .find_map(|key| obj.get(*key).and_then(|value| value.as_bool()))
+    }
+
+    fn extract_string<'a>(
+        obj: &'a serde_json::Map<String, Value>,
+        keys: &[&str],
+    ) -> Option<&'a str> {
+        keys.iter()
+            .find_map(|key| obj.get(*key).and_then(|value| value.as_str()))
+    }
+
+    let mut config = BertConfig::default();
+
+    config.vocab_size = extract_usize(obj, &["vocab_size", "n_vocab", "vocab"])?;
+    config.hidden_size = extract_usize(obj, &["hidden_size", "n_embd", "d_model", "model_dim"])?;
+    config.num_hidden_layers = extract_usize(obj, &["num_hidden_layers", "n_layer", "num_layers"])?;
+    config.num_attention_heads = extract_usize(
+        obj,
+        &["num_attention_heads", "n_head", "num_attention_heads_train"],
+    )?;
+    config.intermediate_size = extract_usize(
+        obj,
+        &[
+            "intermediate_size",
+            "n_inner",
+            "ffn_hidden_size",
+            "mlp_hidden_size",
+        ],
+    )?;
+
+    if let Some(act) = extract_string(obj, &["hidden_act", "activation", "activation_function"]) {
+        config.hidden_act = match act.to_ascii_lowercase().as_str() {
+            "relu" => HiddenAct::Relu,
+            "gelu" | "gelu_new" | "gelu_pytorch_tanh" => HiddenAct::Gelu,
+            "gelu_approximate" | "gelu_fast" => HiddenAct::GeluApproximate,
+            _ => config.hidden_act,
+        };
+    }
+
+    if let Some(dropout) = extract_f64(
+        obj,
+        &[
+            "hidden_dropout_prob",
+            "hidden_dropout",
+            "resid_pdrop",
+            "dropout_prob",
+        ],
+    ) {
+        config.hidden_dropout_prob = dropout;
+    }
+
+    if let Some(max_pos) = extract_usize(
+        obj,
+        &[
+            "max_position_embeddings",
+            "n_positions",
+            "max_seq_len",
+            "seq_length",
+        ],
+    ) {
+        config.max_position_embeddings = max_pos;
+    }
+
+    if let Some(type_vocab) = extract_usize(obj, &["type_vocab_size", "token_type_vocab_size"]) {
+        config.type_vocab_size = type_vocab;
+    }
+
+    if let Some(init_range) =
+        extract_f64(obj, &["initializer_range", "init_std", "weight_init_std"])
+    {
+        config.initializer_range = init_range;
+    }
+
+    if let Some(eps) = extract_f64(obj, &["layer_norm_eps", "layer_norm_epsilon", "norm_eps"]) {
+        config.layer_norm_eps = eps;
+    }
+
+    if let Some(pad_id) = extract_usize(obj, &["pad_token_id", "padding_token_id", "pad_id"]) {
+        config.pad_token_id = pad_id;
+    }
+
+    if let Some(position_type) = extract_string(obj, &["position_embedding_type"]) {
+        config.position_embedding_type = match position_type.to_ascii_lowercase().as_str() {
+            "absolute" => PositionEmbeddingType::Absolute,
+            _ => config.position_embedding_type,
+        };
+    }
+
+    if let Some(use_cache) = extract_bool(obj, &["use_cache"]) {
+        config.use_cache = use_cache;
+    }
+
+    if let Some(dropout) = extract_f64(obj, &["classifier_dropout", "classifier_dropout_prob"]) {
+        config.classifier_dropout = Some(dropout);
+    }
+
+    if let Some(model_type) = extract_string(obj, &["model_type", "architecture", "architect"]) {
+        config.model_type = Some(model_type.to_string());
+    }
+
+    Some(config)
+}
+
 const JARVIS_BLUEPRINTS: &[JarvisPersonaBlueprint] = &[
     JarvisPersonaBlueprint {
         label: "greeting",
@@ -154,8 +289,17 @@ impl JarvisEncoder {
         let config_path = model_dir.join("config.json");
         let config_data = fs::read_to_string(&config_path)
             .with_context(|| format!("No se pudo leer {:?}", config_path))?;
-        let config: BertConfig = serde_json::from_str(&config_data)
-            .with_context(|| format!("No se pudo parsear {:?}", config_path))?;
+        let config: BertConfig = match serde_json::from_str(&config_data) {
+            Ok(config) => config,
+            Err(primary_err) => {
+                let value: Value = serde_json::from_str(&config_data).with_context(|| {
+                    format!("No se pudo interpretar {:?} como JSON", config_path)
+                })?;
+                adapt_bert_config(&value).ok_or_else(|| {
+                    anyhow!("No se pudo parsear {:?}: {}", config_path, primary_err)
+                })?
+            }
+        };
 
         let safetensor_files = collect_safetensor_files(model_dir)?;
         if safetensor_files.is_empty() {

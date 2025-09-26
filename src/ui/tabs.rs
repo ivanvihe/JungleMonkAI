@@ -89,12 +89,18 @@ fn draw_tab_button(ui: &mut egui::Ui, state: &mut AppState, definition: &TabDefi
     );
     let text_width = galley.rect.width().ceil();
 
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(text_width.max(96.0), 28.0), Sense::click());
+    let button_width = (text_width + 32.0).max(112.0);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(button_width, 30.0), Sense::click());
 
     let painter = ui.painter_at(rect);
     let mut label_ui = ui.child_ui(rect, egui::Layout::left_to_right(egui::Align::Center));
     label_ui.add_space(2.0);
+    label_ui.label(
+        RichText::new(definition.icon)
+            .font(theme::icon_font(14.0))
+            .color(text_color),
+    );
+    label_ui.add_space(6.0);
     label_ui.label(
         RichText::new(definition.label)
             .color(text_color)
@@ -119,35 +125,4 @@ fn draw_tab_button(ui: &mut egui::Ui, state: &mut AppState, definition: &TabDefi
     if !definition.tooltip.is_empty() {
         response.on_hover_text(definition.tooltip);
     }
-}
-
-pub fn draw_sidebar_icons(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.vertical_centered(|ui| {
-        ui.set_width(ui.available_width());
-        ui.add_space(12.0);
-
-        for definition in MAIN_TABS {
-            let is_active = state.active_main_tab == definition.tab;
-            let color = if is_active {
-                theme::COLOR_PRIMARY
-            } else {
-                theme::COLOR_TEXT_WEAK
-            };
-
-            let button = egui::Label::new(
-                RichText::new(definition.icon)
-                    .font(theme::icon_font(16.0))
-                    .color(color),
-            )
-            .sense(Sense::click());
-
-            let response = ui.add_sized([24.0, 24.0], button);
-            if response.clicked() {
-                state.set_active_tab(definition.tab);
-            }
-            response.on_hover_text(definition.tooltip);
-
-            ui.add_space(10.0);
-        }
-    });
 }

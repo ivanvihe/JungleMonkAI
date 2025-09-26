@@ -49,9 +49,15 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
 
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available = ui.available_size();
-    let (rect, _) = ui.allocate_exact_size(available, egui::Sense::hover());
+    let horizontal_padding = 36.0;
+    let target_width = (available.x - horizontal_padding)
+        .max(available.x * 0.9)
+        .clamp(0.0, available.x);
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(target_width, available.y), egui::Sense::hover());
     let mut content_ui = ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
-    content_ui.set_min_width(available.x);
+    content_ui.set_min_width(rect.width());
+    content_ui.set_max_width(rect.width());
     content_ui.set_min_height(available.y);
     content_ui.set_clip_rect(rect);
 

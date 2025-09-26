@@ -2,7 +2,7 @@ use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
 use anyhow::Result;
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, Color32, RichText, Spinner};
 
 use super::{logs, theme};
 
@@ -187,15 +187,11 @@ fn draw_message_bubble(
             ui.vertical(|ui| {
                 draw_message_header(ui, message, icon, accent, pending_actions);
                 ui.add_space(6.0);
-                ui.label(
-                    RichText::new(&message.text)
-                        .color(theme::COLOR_TEXT_PRIMARY)
-                        .size(15.0),
-                );
+                draw_message_body(ui, message, accent);
             });
         });
 
-        if response.response.double_clicked() && !is_user {
+        if response.response.double_clicked() && !is_user && !message.is_pending() {
             pending_actions.push(PendingChatAction::Mention(format!(
                 "@{}",
                 message.sender.to_lowercase()
@@ -249,12 +245,14 @@ fn draw_message_actions(
     message: &ChatMessage,
     pending_actions: &mut Vec<PendingChatAction>,
 ) {
-    if message_action_button(ui, ICON_COPY, "Copiar mensaje al portapapeles").clicked() {
+    let enabled = !message.is_pending();
+
+    if message_action_button(ui, ICON_COPY, "Copiar mensaje al portapapeles", enabled).clicked() {
         let text = message.text.clone();
         ui.output_mut(|out| out.copied_text = text);
     }
 
-    if message_action_button(ui, ICON_QUOTE, "Citar mensaje en el input").clicked() {
+    if message_action_button(ui, ICON_QUOTE, "Citar mensaje en el input", enabled).clicked() {
         let mut quoted = message
             .text
             .lines()
@@ -265,12 +263,17 @@ fn draw_message_actions(
         pending_actions.push(PendingChatAction::Quote(quoted));
     }
 
-    if message_action_button(ui, ICON_PIN, "Reutilizar este mensaje").clicked() {
+    if message_action_button(ui, ICON_PIN, "Reutilizar este mensaje", enabled).clicked() {
         pending_actions.push(PendingChatAction::Reuse(message.text.clone()));
     }
 }
 
-fn message_action_button(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
+fn message_action_button(
+    ui: &mut egui::Ui,
+    icon: &str,
+    tooltip: &str,
+    enabled: bool,
+) -> egui::Response {
     let button = egui::Button::new(
         RichText::new(icon)
             .font(theme::icon_font(13.0))
@@ -280,8 +283,359 @@ fn message_action_button(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::
     .fill(Color32::from_rgb(44, 46, 54))
     .rounding(egui::Rounding::same(6.0));
 
-    let response = ui.add(button);
+    let response = ui.add_enabled(enabled, button);
     response.on_hover_text(tooltip)
+}
+
+fn draw_message_body(ui: &mut egui::Ui, message: &ChatMessage, accent: Color32) {
+    if message.is_pending() {
+        ui.horizontal(|ui| {
+            ui.add(Spinner::new().size(18.0));
+            ui.label(
+                RichText::new(&message.text)
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .italics()
+                    .size(14.0),
+            );
+        });
+        return;
+    }
+
+    let blocks = parse_markdown_blocks(&message.text);
+    if blocks.is_empty() {
+        render_formatted_text(ui, &message.text, theme::COLOR_TEXT_PRIMARY, 15.0);
+    } else {
+        render_markdown_blocks(ui, &blocks, accent);
+    }
+}
+
+fn render_markdown_blocks(ui: &mut egui::Ui, blocks: &[MarkdownBlock], accent: Color32) {
+    let mut first = true;
+    for block in blocks {
+        if !first {
+            ui.add_space(6.0);
+        }
+        first = false;
+
+        match block {
+            MarkdownBlock::Heading { level, text } => {
+                let size = match level {
+                    1 => 20.0,
+                    2 => 18.0,
+                    3 => 16.0,
+                    _ => 15.0,
+                };
+                ui.label(RichText::new(text).color(accent).strong().size(size));
+            }
+            MarkdownBlock::Paragraph(text) => {
+                render_formatted_text(ui, text, theme::COLOR_TEXT_PRIMARY, 15.0);
+            }
+            MarkdownBlock::BulletList(items) => {
+                ui.vertical(|ui| {
+                    for item in items {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            ui.label(RichText::new("•").color(accent).strong().size(16.0));
+                            render_formatted_text(ui, item, theme::COLOR_TEXT_PRIMARY, 15.0);
+                        });
+                    }
+                });
+            }
+            MarkdownBlock::CodeBlock { language, code } => {
+                draw_code_block(ui, language, code);
+            }
+        }
+    }
+}
+
+fn draw_code_block(ui: &mut egui::Ui, language: &str, code: &str) {
+    let code_string = code.trim_end_matches('\n').to_string();
+
+    egui::Frame::none()
+        .fill(Color32::from_rgb(32, 34, 40))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 72, 92)))
+        .rounding(egui::Rounding::same(10.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if !language.trim().is_empty() {
+                        ui.label(
+                            RichText::new(language)
+                                .monospace()
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(13.0),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new("Bloque de código")
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(13.0)
+                                .italics(),
+                        );
+                    }
+                    ui.add_space(ui.available_width());
+                    if code_copy_button(ui).clicked() {
+                        ui.output_mut(|out| out.copied_text = code_string.clone());
+                    }
+                });
+
+                ui.add_space(6.0);
+
+                let mut code_buffer = code_string.clone();
+                let rows = code_buffer.lines().count().max(1);
+                ui.add(
+                    egui::TextEdit::multiline(&mut code_buffer)
+                        .font(egui::FontId::monospace(14.0))
+                        .desired_rows(rows)
+                        .frame(false)
+                        .interactive(false)
+                        .desired_width(f32::INFINITY),
+                );
+            });
+        });
+}
+
+fn code_copy_button(ui: &mut egui::Ui) -> egui::Response {
+    let button = egui::Button::new(
+        RichText::new(ICON_COPY)
+            .font(theme::icon_font(14.0))
+            .color(Color32::from_rgb(230, 230, 230)),
+    )
+    .min_size(egui::vec2(32.0, 26.0))
+    .fill(Color32::from_rgb(45, 47, 56))
+    .rounding(egui::Rounding::same(6.0));
+
+    ui.add(button).on_hover_text("Copiar bloque de código")
+}
+
+fn render_formatted_text(ui: &mut egui::Ui, text: &str, color: Color32, size: f32) {
+    let segments = parse_inline_segments(text);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        for segment in segments {
+            if segment.text.is_empty() {
+                continue;
+            }
+
+            let mut rich = RichText::new(segment.text).color(color).size(size);
+            if segment.bold {
+                rich = rich.strong();
+            }
+            if segment.italic {
+                rich = rich.italics();
+            }
+            if segment.code {
+                rich = rich
+                    .monospace()
+                    .background_color(Color32::from_rgb(40, 44, 54))
+                    .color(Color32::from_rgb(220, 220, 220));
+            }
+
+            ui.label(rich);
+        }
+    });
+}
+
+fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
+    let mut blocks = Vec::new();
+    let mut paragraph: Vec<String> = Vec::new();
+    let mut list_items: Vec<String> = Vec::new();
+    let mut code_lines: Vec<String> = Vec::new();
+    let mut code_language = String::new();
+    let mut in_code_block = false;
+
+    let flush_paragraph = |blocks: &mut Vec<MarkdownBlock>, paragraph: &mut Vec<String>| {
+        if paragraph.is_empty() {
+            return;
+        }
+        let mut combined = String::new();
+        for (index, line) in paragraph.iter().enumerate() {
+            if index > 0 {
+                combined.push(' ');
+            }
+            combined.push_str(line);
+        }
+        paragraph.clear();
+        blocks.push(MarkdownBlock::Paragraph(combined));
+    };
+
+    let flush_list = |blocks: &mut Vec<MarkdownBlock>, list_items: &mut Vec<String>| {
+        if list_items.is_empty() {
+            return;
+        }
+        blocks.push(MarkdownBlock::BulletList(list_items.clone()));
+        list_items.clear();
+    };
+
+    for line in text.lines() {
+        let trimmed_start = line.trim_start();
+        let trimmed = line.trim();
+
+        if in_code_block {
+            if trimmed_start.starts_with("```") {
+                let code = code_lines.join("\n");
+                blocks.push(MarkdownBlock::CodeBlock {
+                    language: code_language.clone(),
+                    code,
+                });
+                code_lines.clear();
+                code_language.clear();
+                in_code_block = false;
+            } else {
+                code_lines.push(line.to_string());
+            }
+            continue;
+        }
+
+        if trimmed_start.starts_with("```") {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            flush_list(&mut blocks, &mut list_items);
+            code_language = trimmed_start[3..].trim().to_string();
+            in_code_block = true;
+            code_lines.clear();
+            continue;
+        }
+
+        if trimmed.is_empty() {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            flush_list(&mut blocks, &mut list_items);
+            continue;
+        }
+
+        if trimmed_start.starts_with('#') {
+            let hash_count = trimmed_start
+                .chars()
+                .take_while(|ch| *ch == '#')
+                .count()
+                .max(1);
+            let content = trimmed_start[hash_count..].trim();
+            flush_paragraph(&mut blocks, &mut paragraph);
+            flush_list(&mut blocks, &mut list_items);
+            blocks.push(MarkdownBlock::Heading {
+                level: hash_count.min(6),
+                text: content.to_string(),
+            });
+            continue;
+        }
+
+        if let Some(stripped) = trimmed_start.strip_prefix("- ") {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            list_items.push(stripped.trim().to_string());
+            continue;
+        }
+
+        if let Some(stripped) = trimmed_start.strip_prefix("* ") {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            list_items.push(stripped.trim().to_string());
+            continue;
+        }
+
+        paragraph.push(trimmed.to_string());
+    }
+
+    if in_code_block {
+        let code = code_lines.join("\n");
+        blocks.push(MarkdownBlock::CodeBlock {
+            language: code_language,
+            code,
+        });
+    }
+
+    flush_paragraph(&mut blocks, &mut paragraph);
+    flush_list(&mut blocks, &mut list_items);
+
+    blocks
+}
+
+fn parse_inline_segments(text: &str) -> Vec<InlineSegment> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut bold = false;
+    let mut italic = false;
+    let mut code = false;
+    let mut index = 0;
+    let bytes = text.as_bytes();
+
+    while index < bytes.len() {
+        if !code && text[index..].starts_with("**") {
+            if !current.is_empty() {
+                segments.push(InlineSegment {
+                    text: current.clone(),
+                    bold,
+                    italic,
+                    code,
+                });
+                current.clear();
+            }
+            bold = !bold;
+            index += 2;
+            continue;
+        }
+
+        if !code && text[index..].starts_with('*') {
+            if !current.is_empty() {
+                segments.push(InlineSegment {
+                    text: current.clone(),
+                    bold,
+                    italic,
+                    code,
+                });
+                current.clear();
+            }
+            italic = !italic;
+            index += 1;
+            continue;
+        }
+
+        if text[index..].starts_with('`') {
+            if !current.is_empty() {
+                segments.push(InlineSegment {
+                    text: current.clone(),
+                    bold,
+                    italic,
+                    code,
+                });
+                current.clear();
+            }
+            code = !code;
+            index += 1;
+            continue;
+        }
+
+        let ch = text[index..].chars().next().unwrap();
+        current.push(ch);
+        index += ch.len_utf8();
+    }
+
+    if !current.is_empty() {
+        segments.push(InlineSegment {
+            text: current,
+            bold,
+            italic,
+            code,
+        });
+    }
+
+    segments
+}
+
+#[derive(Clone)]
+struct InlineSegment {
+    text: String,
+    bold: bool,
+    italic: bool,
+    code: bool,
+}
+
+#[derive(Debug)]
+enum MarkdownBlock {
+    Heading { level: usize, text: String },
+    Paragraph(String),
+    BulletList(Vec<String>),
+    CodeBlock { language: String, code: String },
 }
 
 fn apply_pending_actions(state: &mut AppState, actions: Vec<PendingChatAction>) {

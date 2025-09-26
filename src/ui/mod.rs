@@ -10,6 +10,9 @@ pub mod sidebar;
 pub mod theme;
 
 pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
+    if state.update_async_tasks() {
+        ctx.request_repaint();
+    }
     theme::apply(ctx);
     header::draw_header(ctx, state);
     sidebar::draw_sidebar(ctx, state);

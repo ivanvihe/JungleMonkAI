@@ -12,18 +12,8 @@ const MIN_EXPANDED_HEIGHT: f32 = 100.0;
 const MAX_EXPANDED_HEIGHT: f32 = 360.0;
 
 pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
-    let target_height = state
-        .logs_panel_height
-        .clamp(MIN_EXPANDED_HEIGHT, MAX_EXPANDED_HEIGHT);
-    let animation = ctx.animate_bool(
-        egui::Id::new("logs_panel_animation"),
-        state.logs_panel_expanded,
-    );
-    let current_height = egui::lerp(COLLAPSED_HEIGHT..=target_height, animation);
-
     let mut panel = egui::TopBottomPanel::bottom("logs_panel")
         .show_separator_line(false)
-        .default_height(current_height)
         .frame(if state.logs_panel_expanded {
             expanded_frame()
         } else {
@@ -31,15 +21,16 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
         });
 
     if state.logs_panel_expanded {
+        let remembered = state
+            .logs_panel_height
+            .clamp(MIN_EXPANDED_HEIGHT, MAX_EXPANDED_HEIGHT);
         panel = panel
+            .default_height(remembered)
             .min_height(MIN_EXPANDED_HEIGHT)
             .max_height(MAX_EXPANDED_HEIGHT)
             .resizable(true);
     } else {
-        panel = panel
-            .min_height(COLLAPSED_HEIGHT)
-            .max_height(COLLAPSED_HEIGHT)
-            .resizable(false);
+        panel = panel.exact_height(COLLAPSED_HEIGHT).resizable(false);
     }
 
     let panel_response = panel.show(ctx, |ui| {
@@ -55,10 +46,13 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
     });
 
     if state.logs_panel_expanded {
-        let measured_height = panel_response.response.rect.height();
+        let measured_height = panel_response
+            .response
+            .rect
+            .height()
+            .clamp(MIN_EXPANDED_HEIGHT, MAX_EXPANDED_HEIGHT);
         if (measured_height - state.logs_panel_height).abs() > f32::EPSILON {
-            state.logs_panel_height =
-                measured_height.clamp(MIN_EXPANDED_HEIGHT, MAX_EXPANDED_HEIGHT);
+            state.logs_panel_height = measured_height;
         }
     }
 
@@ -81,12 +75,6 @@ pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
         0.0,
         theme::COLOR_PRIMARY.gamma_multiply(0.25),
     );
-
-    if (animation < 1.0 && state.logs_panel_expanded)
-        || (animation > 0.0 && !state.logs_panel_expanded)
-    {
-        ctx.request_repaint();
-    }
 }
 
 fn draw_expanded_logs(ui: &mut egui::Ui, state: &mut AppState) {

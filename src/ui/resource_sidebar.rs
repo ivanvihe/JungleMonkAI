@@ -29,10 +29,11 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                 .rounding(egui::Rounding::same(14.0)),
         )
         .show(ctx, |ui| {
-            ui.set_clip_rect(ui.max_rect());
             let available_height = ui.available_height();
+            let clip_rect = ui.max_rect();
+            ui.set_clip_rect(clip_rect);
             ui.set_min_height(available_height);
-            ui.set_width(ui.available_width());
+            ui.set_width(clip_rect.width());
 
             ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
                 ui.set_width(ui.available_width());
@@ -51,7 +52,7 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                         ui.set_width(ui.available_width());
                         for row in rows.iter() {
                             draw_resource_row(ui, row);
-                            ui.add_space(10.0);
+                            ui.add_space(8.0);
                         }
                     });
             });
@@ -65,7 +66,7 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
 
 fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
     let total_width = ui.available_width();
-    let row_width = (total_width - 8.0).max(total_width * 0.94);
+    let row_width = (total_width * 0.9).max(total_width - 42.0).min(total_width);
 
     ui.horizontal(|ui| {
         ui.add_space(2.0);
@@ -75,17 +76,17 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                 .fill(Color32::from_rgb(28, 30, 36))
                 .stroke(theme::subtle_border())
                 .rounding(egui::Rounding::same(14.0))
-                .inner_margin(Margin::symmetric(14.0, 12.0))
+                .inner_margin(Margin::symmetric(12.0, 10.0))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     let available = ui.available_width();
-                    let status_width = (available * 0.33)
-                        .max(120.0)
-                        .min(available * 0.45)
-                        .min(220.0);
+                    let status_width = (available * 0.32)
+                        .max(110.0)
+                        .min(available * 0.42)
+                        .min(190.0);
 
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
+                        ui.spacing_mut().item_spacing.x = 10.0;
 
                         ui.label(
                             RichText::new(row.icon)
@@ -95,7 +96,7 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
 
                         let available_after_icon = ui.available_width();
                         let text_width = (available_after_icon - status_width)
-                            .max(150.0)
+                            .max(140.0)
                             .min(available_after_icon);
 
                         ui.allocate_ui_with_layout(
@@ -130,15 +131,24 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                         );
                     });
 
-                    if !row.tags.is_empty() {
+                    if !row.details.is_empty() {
                         ui.add_space(10.0);
-                        ui.scope(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
-                            ui.horizontal_wrapped(|ui| {
-                                for tag in &row.tags {
-                                    draw_tag_chip(ui, tag);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 6.0;
+                            for detail in &row.details {
+                                if let Some(label) = &detail.label {
+                                    ui.label(
+                                        RichText::new(label)
+                                            .color(theme::COLOR_TEXT_WEAK)
+                                            .size(12.0),
+                                    );
                                 }
-                            });
+                                ui.label(
+                                    RichText::new(&detail.value)
+                                        .color(theme::COLOR_TEXT_PRIMARY)
+                                        .size(13.0),
+                                );
+                            }
                         });
                     }
                 });
@@ -166,28 +176,10 @@ fn draw_led(ui: &mut egui::Ui, color: Color32, label: &str) {
     ui.add_sized([label_width, 0.0], label_widget);
 }
 
-fn draw_tag_chip(ui: &mut egui::Ui, text: &str) {
-    Frame::none()
-        .fill(Color32::from_rgb(40, 42, 48))
-        .stroke(egui::Stroke::new(
-            1.0,
-            theme::COLOR_PRIMARY.gamma_multiply(0.35),
-        ))
-        .rounding(egui::Rounding::same(10.0))
-        .inner_margin(Margin::symmetric(10.0, 4.0))
-        .show(ui, |ui| {
-            ui.label(
-                RichText::new(text)
-                    .color(theme::COLOR_TEXT_WEAK)
-                    .monospace(),
-            );
-        });
-}
-
 struct ResourceRow {
     icon: &'static str,
     name: &'static str,
-    tags: Vec<String>,
+    details: Vec<ResourceDetail>,
     indicator: StatusIndicator,
 }
 
@@ -195,16 +187,38 @@ enum StatusIndicator {
     Led { color: Color32, status: String },
 }
 
+struct ResourceDetail {
+    label: Option<String>,
+    value: String,
+}
+
+impl ResourceDetail {
+    fn value(value: impl Into<String>) -> Self {
+        Self {
+            label: None,
+            value: value.into(),
+        }
+    }
+
+    fn labeled(label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            label: Some(label.into()),
+            value: value.into(),
+        }
+    }
+}
+
 fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
     vec![
         ResourceRow {
             icon: ICON_SYSTEM,
             name: "Sistema",
-            tags: vec![
-                "Memoria".to_string(),
-                format!("{:.1} GB", state.resource_memory_limit_gb),
-                "Disco".to_string(),
-                format!("{:.1} GB", state.resource_disk_limit_gb),
+            details: vec![
+                ResourceDetail::labeled(
+                    "Memoria",
+                    format!("{:.1} GB", state.resource_memory_limit_gb),
+                ),
+                ResourceDetail::labeled("Disco", format!("{:.1} GB", state.resource_disk_limit_gb)),
             ],
             indicator: StatusIndicator::Led {
                 color: theme::COLOR_SUCCESS,
@@ -214,13 +228,13 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_JARVIS,
             name: "Jarvis",
-            tags: jarvis_tags(state),
+            details: jarvis_details(state),
             indicator: jarvis_indicator(state),
         },
         ResourceRow {
             icon: ICON_OPENAI,
             name: "OpenAI",
-            tags: provider_tags("Modelo", &state.openai_default_model),
+            details: provider_details("Modelo", &state.openai_default_model),
             indicator: provider_indicator(
                 state.openai_test_status.as_ref(),
                 state.config.openai.api_key.as_ref().map(|s| s.as_str()),
@@ -231,7 +245,7 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_CLAUDE,
             name: "Claude",
-            tags: provider_tags("Modelo", &state.claude_default_model),
+            details: provider_details("Modelo", &state.claude_default_model),
             indicator: provider_indicator(
                 state.anthropic_test_status.as_ref(),
                 state.config.anthropic.api_key.as_ref().map(|s| s.as_str()),
@@ -242,7 +256,7 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_GROQ,
             name: "Groq",
-            tags: provider_tags("Modelo", &state.groq_default_model),
+            details: provider_details("Modelo", &state.groq_default_model),
             indicator: provider_indicator(
                 state.groq_test_status.as_ref(),
                 state.config.groq.api_key.as_ref().map(|s| s.as_str()),
@@ -271,14 +285,13 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
     }
 }
 
-fn jarvis_tags(state: &AppState) -> Vec<String> {
+fn jarvis_details(state: &AppState) -> Vec<ResourceDetail> {
     if let Some(model) = &state.jarvis_active_model {
         let trimmed_path = state.jarvis_model_path.trim();
         if trimmed_path.is_empty() {
             return vec![
-                model.display_label(),
-                "Ruta".to_string(),
-                "Sin configurar".to_string(),
+                ResourceDetail::labeled("Modelo", model.display_label()),
+                ResourceDetail::labeled("Ruta", "Sin configurar"),
             ];
         }
 
@@ -289,22 +302,28 @@ fn jarvis_tags(state: &AppState) -> Vec<String> {
             .map(|name| name.to_string())
             .unwrap_or_else(|| trimmed_path.to_string());
 
-        vec![model.display_label(), display]
-    } else if state.jarvis_model_path.trim().is_empty() {
-        vec!["Sin modelo".to_string(), "Configurar ruta".to_string()]
-    } else {
         vec![
-            "Ruta".to_string(),
-            state.jarvis_model_path.trim().to_string(),
+            ResourceDetail::labeled("Modelo", model.display_label()),
+            ResourceDetail::labeled("Ruta", display),
         ]
+    } else if state.jarvis_model_path.trim().is_empty() {
+        vec![
+            ResourceDetail::value("Sin modelo"),
+            ResourceDetail::labeled("Ruta", "Configurar"),
+        ]
+    } else {
+        vec![ResourceDetail::labeled(
+            "Ruta",
+            state.jarvis_model_path.trim().to_string(),
+        )]
     }
 }
 
-fn provider_tags(prefix: &str, model: &str) -> Vec<String> {
+fn provider_details(prefix: &str, model: &str) -> Vec<ResourceDetail> {
     if model.trim().is_empty() {
-        vec![prefix.to_string(), "Sin modelo".to_string()]
+        vec![ResourceDetail::labeled(prefix, "Sin modelo")]
     } else {
-        vec![prefix.to_string(), model.trim().to_string()]
+        vec![ResourceDetail::labeled(prefix, model.trim().to_string())]
     }
 }
 

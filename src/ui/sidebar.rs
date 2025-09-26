@@ -48,10 +48,16 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                 .rounding(egui::Rounding::same(14.0)),
         )
         .show(ctx, |ui| {
-            ui.set_clip_rect(ui.max_rect());
+            let available_height = ui.available_height();
+            let clip_rect = ui.max_rect();
+            ui.set_clip_rect(clip_rect);
+            ui.set_min_height(available_height);
+            ui.set_width(clip_rect.width());
+
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
                     ui.add_space(4.0);
                     for node in NAV_TREE {
                         draw_nav_node(ui, state, node, 0);

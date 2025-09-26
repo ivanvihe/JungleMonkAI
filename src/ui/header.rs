@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, Color32, Frame, Margin, RichText, Rounding};
 
 use crate::state::AppState;
 
@@ -6,16 +6,21 @@ use super::theme;
 
 pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
     egui::TopBottomPanel::top("global_header")
-        .exact_height(56.0)
+        .exact_height(64.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_HEADER)
                 .stroke(theme::subtle_border())
-                .inner_margin(egui::Margin::symmetric(12.0, 6.0)),
+                .inner_margin(egui::Margin {
+                    left: 18.0,
+                    right: 18.0,
+                    top: 10.0,
+                    bottom: 10.0,
+                }),
         )
         .show(ctx, |ui| {
             ui.set_height(44.0);
-            ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
 
                 draw_logo(ui);
@@ -26,10 +31,24 @@ pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
                         .strong(),
                 );
 
+                ui.add_space(12.0);
                 ui.separator();
-                ui.add_space(4.0);
-                draw_search(ui, state);
-                ui.add_space(ui.available_width());
+                ui.add_space(16.0);
+
+                let available = ui.available_width();
+                let search_width = available.clamp(240.0, 420.0);
+                if available > search_width {
+                    ui.add_space(available - search_width);
+                }
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(search_width, 0.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(search_width);
+                        draw_search(ui, state);
+                    },
+                );
             });
         });
 }
@@ -64,12 +83,24 @@ fn draw_logo(ui: &mut egui::Ui) {
 }
 
 fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        ui.label(RichText::new("🔍").color(theme::COLOR_TEXT_WEAK));
-        ui.add_sized(
-            [200.0, 26.0],
-            egui::TextEdit::singleline(&mut state.search_buffer).hint_text("Buscar recursos..."),
-        );
-    });
+    Frame::none()
+        .fill(Color32::from_rgb(44, 46, 52))
+        .stroke(theme::subtle_border())
+        .rounding(Rounding::same(12.0))
+        .inner_margin(Margin::symmetric(14.0, 10.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.set_height(36.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                ui.label(RichText::new("🔍").color(theme::COLOR_TEXT_WEAK));
+                let input_width = ui.available_width().max(160.0);
+                ui.add_sized(
+                    [input_width, 28.0],
+                    egui::TextEdit::singleline(&mut state.search_buffer)
+                        .hint_text("Buscar recursos...")
+                        .frame(false),
+                );
+            });
+        });
 }

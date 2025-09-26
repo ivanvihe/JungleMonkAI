@@ -36,7 +36,7 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin {
                     left: 18.0,
-                    right: 0.0,
+                    right: 18.0,
                     top: 18.0,
                     bottom: 14.0,
                 }),
@@ -123,10 +123,26 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    for (index, message) in state.chat_messages.iter().enumerate() {
-                        draw_message_bubble(ui, message, index, &mut pending_actions);
-                    }
+                    let total_width = ui.available_width();
+                    let feed_width = total_width.min(820.0);
+                    let horizontal_padding = ((total_width - feed_width) / 2.0).max(0.0);
+
+                    ui.horizontal(|ui| {
+                        if horizontal_padding > 0.0 {
+                            ui.add_space(horizontal_padding);
+                        }
+
+                        ui.vertical(|ui| {
+                            ui.set_width(feed_width);
+                            for (index, message) in state.chat_messages.iter().enumerate() {
+                                draw_message_bubble(ui, message, index, &mut pending_actions);
+                            }
+                        });
+
+                        if horizontal_padding > 0.0 {
+                            ui.add_space(horizontal_padding);
+                        }
+                    });
                 });
         });
 
@@ -174,8 +190,17 @@ fn draw_message_bubble(
 
     ui.with_layout(layout, |ui| {
         let available_width = ui.available_width();
-        let mut bubble_width = (available_width - 8.0).max(260.0);
+        let mut bubble_width = if available_width > 32.0 {
+            (available_width - 16.0).min(680.0)
+        } else {
+            available_width
+        };
+        if available_width > 320.0 {
+            bubble_width = bubble_width.max(320.0);
+        }
         bubble_width = bubble_width.min(available_width);
+
+        ui.add_space(8.0);
         let frame = egui::Frame::none()
             .fill(background)
             .stroke(egui::Stroke::new(1.4, border))

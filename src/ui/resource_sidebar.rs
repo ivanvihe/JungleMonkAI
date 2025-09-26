@@ -23,28 +23,44 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &AppState) {
                 .inner_margin(egui::Margin::symmetric(20.0, 18.0)),
         )
         .show(ctx, |ui| {
-            ui.set_width(ui.available_width());
-            ui.heading(
-                RichText::new("Resumen de recursos")
-                    .color(theme::COLOR_TEXT_PRIMARY)
-                    .strong(),
-            );
-            ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
-            ui.add_space(12.0);
+            let total_width = ui.available_width();
+            let content_width = total_width.min(360.0);
+            let horizontal_padding = ((total_width - content_width) / 2.0).max(0.0);
 
-            let rows = resource_rows(state);
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    for (index, row) in rows.iter().enumerate() {
-                        draw_resource_row(ui, row);
-                        if index + 1 != rows.len() {
-                            ui.add_space(10.0);
-                            ui.separator();
-                            ui.add_space(10.0);
-                        }
-                    }
+            ui.horizontal(|ui| {
+                if horizontal_padding > 0.0 {
+                    ui.add_space(horizontal_padding);
+                }
+
+                ui.vertical(|ui| {
+                    ui.set_width(content_width);
+                    ui.heading(
+                        RichText::new("Resumen de recursos")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                    ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
+                    ui.add_space(12.0);
+
+                    let rows = resource_rows(state);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            for (index, row) in rows.iter().enumerate() {
+                                draw_resource_row(ui, row);
+                                if index + 1 != rows.len() {
+                                    ui.add_space(10.0);
+                                    ui.separator();
+                                    ui.add_space(10.0);
+                                }
+                            }
+                        });
                 });
+
+                if horizontal_padding > 0.0 {
+                    ui.add_space(horizontal_padding);
+                }
+            });
         });
 }
 

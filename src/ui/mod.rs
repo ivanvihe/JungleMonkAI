@@ -14,7 +14,12 @@ pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
         ctx.request_repaint();
     }
     theme::apply(ctx);
+    ctx.style_mut(|style| {
+        style.interaction.resize_grab_radius_side = 3.0;
+        style.interaction.resize_grab_radius_corner = 4.0;
+    });
     header::draw_header(ctx, state);
+    logs::draw_logs_panel(ctx, state);
     sidebar::draw_sidebar(ctx, state);
     resource_sidebar::draw_resource_sidebar(ctx, state);
     chat::draw_main_content(ctx, state);

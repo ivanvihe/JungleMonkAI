@@ -7,28 +7,83 @@ use super::theme;
 
 const ICON_LOGS: &str = "\u{f0f6}"; // file-lines
 
-pub fn draw_logs_panel(ui: &mut egui::Ui, state: &mut AppState) {
-    let mut panel = egui::TopBottomPanel::bottom("logs_panel");
+const COLLAPSED_HEIGHT: f32 = 28.0;
+const MIN_EXPANDED_HEIGHT: f32 = 100.0;
+const MAX_EXPANDED_HEIGHT: f32 = 360.0;
+
+pub fn draw_logs_panel(ctx: &egui::Context, state: &mut AppState) {
+    let target_height = state
+        .logs_panel_height
+        .clamp(MIN_EXPANDED_HEIGHT, MAX_EXPANDED_HEIGHT);
+    let animation = ctx.animate_bool(
+        egui::Id::new("logs_panel_animation"),
+        state.logs_panel_expanded,
+    );
+    let current_height = egui::lerp(COLLAPSED_HEIGHT..=target_height, animation);
+
+    let mut panel = egui::TopBottomPanel::bottom("logs_panel")
+        .show_separator_line(false)
+        .default_height(current_height)
+        .frame(if state.logs_panel_expanded {
+            expanded_frame()
+        } else {
+            collapsed_frame()
+        });
+
     if state.logs_panel_expanded {
         panel = panel
-            .frame(expanded_frame())
-            .min_height(160.0)
-            .max_height(360.0)
+            .min_height(MIN_EXPANDED_HEIGHT)
+            .max_height(MAX_EXPANDED_HEIGHT)
             .resizable(true);
     } else {
         panel = panel
-            .frame(collapsed_frame())
-            .exact_height(38.0)
+            .min_height(COLLAPSED_HEIGHT)
+            .max_height(COLLAPSED_HEIGHT)
             .resizable(false);
     }
 
-    panel.show_inside(ui, |ui| {
+    let panel_response = panel.show(ctx, |ui| {
+        ui.set_clip_rect(ui.max_rect());
         if state.logs_panel_expanded {
             draw_expanded_logs(ui, state);
         } else {
             draw_collapsed_logs(ui, state);
         }
     });
+
+    if state.logs_panel_expanded {
+        let measured_height = panel_response.response.rect.height();
+        if (measured_height - state.logs_panel_height).abs() > f32::EPSILON {
+            state.logs_panel_height =
+                measured_height.clamp(MIN_EXPANDED_HEIGHT, MAX_EXPANDED_HEIGHT);
+        }
+    }
+
+    let separator_rect = egui::Rect::from_min_max(
+        egui::pos2(
+            panel_response.response.rect.left(),
+            panel_response.response.rect.top() + 2.0,
+        ),
+        egui::pos2(
+            panel_response.response.rect.right(),
+            panel_response.response.rect.top() + 6.0,
+        ),
+    );
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("logs_separator"),
+    ));
+    painter.rect_filled(
+        separator_rect,
+        0.0,
+        theme::COLOR_PRIMARY.gamma_multiply(0.25),
+    );
+
+    if (animation < 1.0 && state.logs_panel_expanded)
+        || (animation > 0.0 && !state.logs_panel_expanded)
+    {
+        ctx.request_repaint();
+    }
 }
 
 fn draw_expanded_logs(ui: &mut egui::Ui, state: &mut AppState) {
@@ -161,7 +216,12 @@ fn collapsed_frame() -> egui::Frame {
     egui::Frame::none()
         .fill(theme::COLOR_PANEL)
         .stroke(theme::subtle_border())
-        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .inner_margin(egui::Margin {
+            left: 16.0,
+            right: 16.0,
+            top: 4.0,
+            bottom: 4.0,
+        })
 }
 
 fn status_badge(status: LogStatus) -> RichText {

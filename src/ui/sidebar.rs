@@ -31,10 +31,10 @@ const ICON_BRANCH_COLLAPSED: &str = "\u{f054}"; // chevron-right
 const ICON_BRANCH_EXPANDED: &str = "\u{f078}"; // chevron-down
 
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
-    egui::SidePanel::left("navigation_panel")
+    let panel_response = egui::SidePanel::left("navigation_panel")
         .resizable(true)
-        .default_width(280.0)
-        .width_range(220.0..=420.0)
+        .default_width(state.left_panel_width)
+        .width_range(200.0..=400.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
@@ -42,6 +42,7 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                 .inner_margin(egui::Margin::same(16.0)),
         )
         .show(ctx, |ui| {
+            ui.set_clip_rect(ui.max_rect());
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -51,6 +52,29 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     }
                 });
         });
+
+    let width = panel_response.response.rect.width().clamp(200.0, 400.0);
+    state.left_panel_width = width;
+
+    let separator_rect = egui::Rect::from_min_max(
+        egui::pos2(
+            panel_response.response.rect.right() - 2.0,
+            panel_response.response.rect.top(),
+        ),
+        egui::pos2(
+            panel_response.response.rect.right() + 2.0,
+            panel_response.response.rect.bottom(),
+        ),
+    );
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("left_separator"),
+    ));
+    painter.rect_filled(
+        separator_rect,
+        0.0,
+        theme::COLOR_PRIMARY.gamma_multiply(0.25),
+    );
 }
 
 #[derive(Clone, Copy)]

@@ -470,6 +470,10 @@ pub struct AppState {
     pub expanded_nav_nodes: BTreeSet<&'static str>,
     /// Determina si el panel de logs inferior está visible.
     pub logs_panel_expanded: bool,
+    /// Controla si el panel lateral izquierdo está visible.
+    pub left_panel_visible: bool,
+    /// Controla si el panel lateral derecho está visible.
+    pub right_panel_visible: bool,
     /// Ancho actual del panel lateral izquierdo.
     pub left_panel_width: f32,
     /// Ancho actual del panel lateral derecho.
@@ -674,8 +678,10 @@ impl Default for AppState {
             groq_test_status: None,
             expanded_nav_nodes,
             logs_panel_expanded: true,
-            left_panel_width: 250.0,
-            right_panel_width: 250.0,
+            left_panel_visible: true,
+            right_panel_visible: true,
+            left_panel_width: 280.0,
+            right_panel_width: 320.0,
             logs_panel_height: 200.0,
             activity_logs: default_logs(),
             provider_response_rx,

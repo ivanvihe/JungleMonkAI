@@ -32,13 +32,17 @@ struct RawModelSummary {
 
 fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
     let tags_lower: Vec<String> = raw.tags.iter().map(|tag| tag.to_lowercase()).collect();
+    let model_id_lower = raw.model_id.to_lowercase();
 
-    let has_embedding_tag = tags_lower.iter().any(|tag| {
+    let has_embedding_hint = tags_lower.iter().any(|tag| {
         tag.contains("embedding")
             || tag.contains("retrieval")
             || tag.contains("sentence-transformers")
             || tag.contains("semantic-search")
-    });
+    }) || model_id_lower.contains("embedding")
+        || model_id_lower.contains("embed")
+        || model_id_lower.contains("retrieval")
+        || model_id_lower.contains("semantic-search");
 
     if tags_lower
         .iter()
@@ -61,7 +65,7 @@ fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
                 | "embeddings"
         );
         let compatible_by_tags = !supported
-            && has_embedding_tag
+            && has_embedding_hint
             && matches!(
                 pipeline_lower.as_str(),
                 "text-generation" | "text2text-generation"
@@ -73,7 +77,7 @@ fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
                 pipeline
             ));
         }
-    } else if !has_embedding_tag {
+    } else if !has_embedding_hint {
         return Some(
             "El modelo no especifica una pipeline de embeddings compatible con el runtime de Jarvis.".
                 to_string(),

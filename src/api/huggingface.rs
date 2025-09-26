@@ -63,11 +63,16 @@ fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
                 | "text-embedding"
                 | "text-embeddings-inference"
                 | "embeddings"
-                | "text-generation"
-                | "text2text-generation"
         );
 
         if !supported {
+            if pipeline_lower == "text-generation" || pipeline_lower == "text2text-generation" {
+                return Some(format!(
+                    "La pipeline '{}' corresponde a un modelo generativo. Jarvis solo puede cargar embeddings basados en BERT.",
+                    pipeline
+                ));
+            }
+
             return Some(format!(
                 "La pipeline declarada '{}' no es compatible con el runtime de incrustaciones de Jarvis.",
                 pipeline

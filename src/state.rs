@@ -207,6 +207,42 @@ impl Default for MainView {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainTab {
+    Chat,
+    Cron,
+    Activity,
+    DebugConsole,
+}
+
+impl Default for MainTab {
+    fn default() -> Self {
+        MainTab::Chat
+    }
+}
+
+impl From<MainTab> for MainView {
+    fn from(value: MainTab) -> Self {
+        match value {
+            MainTab::Chat => MainView::ChatMultimodal,
+            MainTab::Cron => MainView::Logs,
+            MainTab::Activity => MainView::ResourceBrowser,
+            MainTab::DebugConsole => MainView::Preferences,
+        }
+    }
+}
+
+impl MainTab {
+    pub fn from_view(view: MainView) -> Option<Self> {
+        match view {
+            MainView::ChatMultimodal => Some(MainTab::Chat),
+            MainView::Logs => Some(MainTab::Cron),
+            MainView::ResourceBrowser => Some(MainTab::Activity),
+            MainView::Preferences => Some(MainTab::DebugConsole),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RemoteProviderKind {
     Anthropic,
     OpenAi,
@@ -459,6 +495,8 @@ pub struct AppState {
     pub config: AppConfig, // New field
     /// Vista principal activa (chat, recursos o panel de preferencias).
     pub active_main_view: MainView,
+    /// Tab principal activo dentro del contenedor central.
+    pub active_main_tab: MainTab,
     /// Panel de preferencias actualmente seleccionado.
     pub selected_preference: PreferencePanel,
     /// Recurso seleccionado dentro del explorador de recursos.
@@ -553,14 +591,10 @@ pub struct AppState {
     pub groq_alias: String,
     /// Mensaje de prueba de conexión con Groq.
     pub groq_test_status: Option<String>,
-    /// Ramas expandidas del árbol de navegación.
-    pub expanded_nav_nodes: BTreeSet<&'static str>,
-    /// Controla si el panel lateral izquierdo está visible.
-    pub left_panel_visible: bool,
-    /// Controla si el panel lateral derecho está visible.
-    pub right_panel_visible: bool,
     /// Ancho actual del panel lateral izquierdo.
     pub left_panel_width: f32,
+    /// Controla si el panel lateral derecho está visible.
+    pub right_panel_visible: bool,
     /// Ancho actual del panel lateral derecho.
     pub right_panel_width: f32,
     /// Registros de actividad recientes.
@@ -670,19 +704,6 @@ impl Default for AppState {
             .filter(|idx| projects.get(*idx).is_some())
             .or(Some(0));
 
-        let mut expanded_nav_nodes = BTreeSet::new();
-        for id in [
-            "resources",
-            "resources_local",
-            "resources_remote",
-            "preferences",
-            "preferences_system",
-            "preferences_providers",
-            "preferences_custom",
-        ] {
-            expanded_nav_nodes.insert(id);
-        }
-
         let mut state = Self {
             show_settings_modal: false,
             search_buffer: String::new(),
@@ -690,6 +711,7 @@ impl Default for AppState {
             chat_messages: vec![ChatMessage::default()],
             config: config.clone(),
             active_main_view: MainView::default(),
+            active_main_tab: MainTab::default(),
             selected_preference: PreferencePanel::default(),
             selected_resource: None,
             github_token: config.github_token.unwrap_or_default(),
@@ -769,11 +791,9 @@ impl Default for AppState {
                 config.groq.alias.clone()
             },
             groq_test_status: None,
-            expanded_nav_nodes,
-            left_panel_visible: true,
-            right_panel_visible: true,
             left_panel_width: 280.0,
-            right_panel_width: 320.0,
+            right_panel_visible: true,
+            right_panel_width: 280.0,
             activity_logs: default_logs(),
             provider_response_rx,
             provider_response_tx,
@@ -1061,6 +1081,17 @@ impl CustomCommandAction {
 }
 
 impl AppState {
+    pub fn set_active_tab(&mut self, tab: MainTab) {
+        self.active_main_tab = tab;
+        self.active_main_view = tab.into();
+    }
+
+    pub fn sync_active_tab_from_view(&mut self) {
+        if let Some(tab) = MainTab::from_view(self.active_main_view) {
+            self.active_main_tab = tab;
+        }
+    }
+
     pub(crate) fn push_activity_log(
         &mut self,
         status: LogStatus,

@@ -7,6 +7,7 @@ pub mod logs;
 pub mod modals;
 pub mod resource_sidebar;
 pub mod sidebar;
+pub mod tabs;
 pub mod theme;
 
 pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
@@ -14,6 +15,7 @@ pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
         ctx.request_repaint();
     }
     theme::apply(ctx);
+    state.sync_active_tab_from_view();
     ctx.style_mut(|style| {
         style.interaction.resize_grab_radius_side = 6.0;
         style.interaction.resize_grab_radius_corner = 8.0;

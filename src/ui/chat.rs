@@ -9,7 +9,7 @@ use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
 use std::path::Path;
 
-use super::{logs, theme};
+use super::{logs, tabs, theme};
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -37,9 +37,7 @@ fn desired_main_width(available_width: f32) -> f32 {
     if available_width <= 0.0 {
         return 0.0;
     }
-    let comfortable = (available_width - 64.0).max(available_width * 0.82);
-    let min_target = available_width.min(360.0);
-    comfortable.max(min_target).min(available_width)
+    available_width.min(1356.0)
 }
 
 fn with_centered_main_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui)) {
@@ -69,7 +67,7 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(Color32::from_rgb(20, 22, 26)))
         .show(ctx, |ui| {
-            let frame_rect = ui.max_rect().shrink2(egui::vec2(12.0, 12.0));
+            let frame_rect = ui.max_rect().shrink2(egui::vec2(0.0, 12.0));
             if frame_rect.width() <= 0.0 || frame_rect.height() <= 0.0 {
                 return;
             }
@@ -78,27 +76,38 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
             frame_ui.set_clip_rect(frame_rect);
             frame_ui.set_width(frame_rect.width());
             frame_ui.set_min_height(frame_rect.height());
+            egui::TopBottomPanel::top("main_tabs_panel")
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(egui::Frame::none())
+                .show_inside(&mut frame_ui, |ui| {
+                    tabs::draw_main_tab_bar(ui, state);
+                });
 
-            egui::Frame::none()
-                .fill(theme::COLOR_PANEL)
-                .stroke(theme::subtle_border())
-                .rounding(egui::Rounding::same(18.0))
-                .inner_margin(egui::Margin {
-                    left: 18.0,
-                    right: 12.0,
-                    top: 18.0,
-                    bottom: 14.0,
-                })
-                .show(&mut frame_ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.set_min_height(ui.available_height());
+            egui::CentralPanel::default()
+                .frame(egui::Frame::none())
+                .show_inside(&mut frame_ui, |ui| {
+                    egui::Frame::none()
+                        .fill(theme::COLOR_PANEL)
+                        .stroke(theme::subtle_border())
+                        .rounding(egui::Rounding::same(18.0))
+                        .inner_margin(egui::Margin {
+                            left: 18.0,
+                            right: 12.0,
+                            top: 18.0,
+                            bottom: 14.0,
+                        })
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.set_min_height(ui.available_height());
 
-                    match state.active_main_view {
-                        MainView::ChatMultimodal => draw_chat_view(ui, state),
-                        MainView::Preferences => draw_preferences_view(ui, state),
-                        MainView::ResourceBrowser => draw_resource_view(ui, state),
-                        MainView::Logs => logs::draw_logs_view(ui, state),
-                    }
+                            match state.active_main_view {
+                                MainView::ChatMultimodal => draw_chat_view(ui, state),
+                                MainView::Preferences => draw_preferences_view(ui, state),
+                                MainView::ResourceBrowser => draw_resource_view(ui, state),
+                                MainView::Logs => logs::draw_logs_view(ui, state),
+                            }
+                        });
                 });
         });
 }

@@ -141,6 +141,7 @@ pub const COLOR_DANGER: Color32 = Color32::from_rgb(204, 51, 51);
 pub const COLOR_PRIMARY: Color32 = Color32::from_rgb(25, 118, 210);
 pub const COLOR_PANEL: Color32 = BG_ROOT;
 pub const COLOR_HEADER: Color32 = Color32::from_rgb(42, 42, 42);
+pub const COLOR_BORDER: Color32 = BORDER;
 
 pub fn icon_font(size: f32) -> FontId {
     FontId::new(size, icon_family())

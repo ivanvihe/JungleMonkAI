@@ -13,6 +13,25 @@ struct AnthropicContent {
     text: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnthropicModel {
+    pub id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub context_window: Option<u32>,
+    #[serde(default)]
+    pub input_token_limit: Option<u32>,
+    #[serde(default)]
+    pub output_token_limit: Option<u32>,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(rename = "type", default)]
+    pub r#type: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct AnthropicResponse {
     #[serde(default)]
@@ -70,6 +89,67 @@ pub fn send_message(api_key: &str, model: &str, prompt: &str) -> Result<String> 
     Err(anyhow!(
         "Anthropic no devolvió una respuesta válida para el modelo especificado."
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelListResponse {
+    data: Vec<AnthropicModel>,
+}
+
+/// Obtiene el catálogo completo de modelos disponibles para la cuenta de Anthropic.
+pub fn list_models(api_key: &str) -> Result<Vec<AnthropicModel>> {
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(45))
+        .build()
+        .context("No se pudo crear el cliente HTTP para Anthropic")?;
+
+    let response = client
+        .get("https://api.anthropic.com/v1/models")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .map_err(|err| anyhow!("Error solicitando el listado de modelos: {}", err))?;
+
+    let status = response.status();
+    let body = response.text().map_err(|err| {
+        anyhow!(
+            "No se pudo leer la respuesta del listado de modelos de Anthropic: {}",
+            err
+        )
+    })?;
+
+    if !status.is_success() {
+        if let Ok(error) = serde_json::from_str::<AnthropicErrorResponse>(&body) {
+            let code = error
+                .error
+                .r#type
+                .unwrap_or_else(|| "error_desconocido".to_string());
+            return Err(anyhow!(
+                "Anthropic devolvió un error ({code}) al listar modelos: {}",
+                error.error.message
+            ));
+        }
+
+        return Err(anyhow!(
+            "Anthropic devolvió un estado {} al listar modelos: {}",
+            status,
+            body
+        ));
+    }
+
+    let mut response: ModelListResponse = serde_json::from_str(&body).map_err(|err| {
+        anyhow!(
+            "No se pudo interpretar el listado de modelos de Anthropic: {}",
+            err
+        )
+    })?;
+
+    response
+        .data
+        .sort_by(|a, b| a.id.to_lowercase().cmp(&b.id.to_lowercase()));
+
+    Ok(response.data)
 }
 
 fn send_request(
@@ -179,6 +259,11 @@ fn build_model_candidates(model: &str) -> Vec<String> {
 
     if trimmed.contains("4.1") {
         let replaced = trimmed.replace("4.1", "4-1");
+        add_candidate(&replaced, &mut candidates, &mut seen);
+    }
+
+    if trimmed.contains("4-1") {
+        let replaced = trimmed.replace("4-1", "4.1");
         add_candidate(&replaced, &mut candidates, &mut seen);
     }
 

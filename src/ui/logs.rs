@@ -1,4 +1,4 @@
-use eframe::egui::{self, RichText};
+use eframe::egui::{self, Frame, Label, Margin, RichText, Rounding};
 use egui_extras::{Column, TableBuilder};
 
 use crate::state::{AppState, LogStatus};
@@ -122,6 +122,7 @@ fn draw_expanded_logs(ui: &mut egui::Ui, state: &mut AppState) {
                 draw_logs_table(ui, state);
             });
     });
+    ui.add_space(12.0);
 }
 
 fn draw_collapsed_logs(ui: &mut egui::Ui, state: &mut AppState) {
@@ -161,47 +162,65 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
         .column(Column::remainder().resizable(true))
         .column(Column::initial(140.0).resizable(true))
         .resizable(true)
-        .header(28.0, |mut header| {
+        .header(36.0, |mut header| {
             header.col(|ui| {
-                paint_header_cell(ui, header_bg);
-                ui.label(RichText::new("Estado").color(theme::COLOR_TEXT_WEAK));
+                header_cell(ui, header_bg, |ui| {
+                    ui.label(RichText::new("Estado").color(theme::COLOR_TEXT_WEAK));
+                });
             });
             header.col(|ui| {
-                paint_header_cell(ui, header_bg);
-                ui.label(RichText::new("Origen").color(theme::COLOR_TEXT_WEAK));
+                header_cell(ui, header_bg, |ui| {
+                    ui.label(RichText::new("Origen").color(theme::COLOR_TEXT_WEAK));
+                });
             });
             header.col(|ui| {
-                paint_header_cell(ui, header_bg);
-                ui.label(RichText::new("Detalle").color(theme::COLOR_TEXT_WEAK));
+                header_cell(ui, header_bg, |ui| {
+                    ui.label(RichText::new("Detalle").color(theme::COLOR_TEXT_WEAK));
+                });
             });
             header.col(|ui| {
-                paint_header_cell(ui, header_bg);
-                ui.label(RichText::new("Hora").color(theme::COLOR_TEXT_WEAK));
+                header_cell(ui, header_bg, |ui| {
+                    ui.label(RichText::new("Hora").color(theme::COLOR_TEXT_WEAK));
+                });
             });
         })
         .body(|mut body| {
             for (index, entry) in state.activity_logs.iter().enumerate() {
                 let bg = if index % 2 == 0 { row_even } else { row_odd };
-                body.row(28.0, |mut row| {
+                body.row(44.0, |mut row| {
                     row.col(|ui| {
-                        paint_cell(ui, bg);
-                        ui.label(status_badge(entry.status));
+                        body_cell(ui, bg, |ui| {
+                            ui.label(status_badge(entry.status));
+                        });
                     });
                     row.col(|ui| {
-                        paint_cell(ui, bg);
-                        ui.label(
-                            RichText::new(&entry.source)
-                                .color(theme::COLOR_TEXT_PRIMARY)
-                                .strong(),
-                        );
+                        body_cell(ui, bg, |ui| {
+                            ui.label(
+                                RichText::new(&entry.source)
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .strong(),
+                            );
+                        });
                     });
                     row.col(|ui| {
-                        paint_cell(ui, bg);
-                        ui.label(RichText::new(&entry.message).color(theme::COLOR_TEXT_PRIMARY));
+                        body_cell(ui, bg, |ui| {
+                            ui.scope(|ui| {
+                                ui.style_mut().wrap = Some(true);
+                                ui.add(
+                                    Label::new(
+                                        RichText::new(&entry.message)
+                                            .color(theme::COLOR_TEXT_PRIMARY),
+                                    )
+                                    .wrap(true)
+                                    .truncate(false),
+                                );
+                            });
+                        });
                     });
                     row.col(|ui| {
-                        paint_cell(ui, bg);
-                        ui.label(RichText::new(&entry.timestamp).color(theme::COLOR_TEXT_WEAK));
+                        body_cell(ui, bg, |ui| {
+                            ui.label(RichText::new(&entry.timestamp).color(theme::COLOR_TEXT_WEAK));
+                        });
                     });
                 });
             }
@@ -235,14 +254,26 @@ fn status_badge(status: LogStatus) -> RichText {
     }
 }
 
-fn paint_header_cell(ui: &mut egui::Ui, color: egui::Color32) {
-    let rect = ui.max_rect();
-    ui.painter()
-        .rect_filled(rect, egui::Rounding::same(6.0), color);
+fn header_cell(ui: &mut egui::Ui, color: egui::Color32, add_contents: impl FnOnce(&mut egui::Ui)) {
+    Frame::none()
+        .fill(color)
+        .rounding(Rounding::same(8.0))
+        .inner_margin(Margin::symmetric(12.0, 6.0))
+        .show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                add_contents(ui);
+            });
+        });
 }
 
-fn paint_cell(ui: &mut egui::Ui, color: egui::Color32) {
-    let rect = ui.max_rect();
-    ui.painter()
-        .rect_filled(rect, egui::Rounding::same(4.0), color);
+fn body_cell(ui: &mut egui::Ui, color: egui::Color32, add_contents: impl FnOnce(&mut egui::Ui)) {
+    Frame::none()
+        .fill(color)
+        .rounding(Rounding::same(8.0))
+        .inner_margin(Margin::symmetric(14.0, 10.0))
+        .show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                add_contents(ui);
+            });
+        });
 }

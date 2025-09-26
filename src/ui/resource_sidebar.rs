@@ -116,12 +116,12 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
 
                         let available_after_icon = ui.available_width();
                         let text_width = (available_after_icon - status_width)
-                            .max(120.0)
+                            .max(160.0)
                             .min(available_after_icon);
 
                         ui.allocate_ui_with_layout(
                             egui::vec2(text_width, 0.0),
-                            egui::Layout::left_to_right(egui::Align::TOP),
+                            egui::Layout::top_down(egui::Align::LEFT),
                             |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.label(
@@ -134,20 +134,33 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
 
                         ui.allocate_ui_with_layout(
                             egui::vec2(status_width, 0.0),
-                            egui::Layout::right_to_left(egui::Align::Center),
+                            egui::Layout::top_down(egui::Align::RIGHT),
                             |ui| {
-                                let StatusIndicator::Led { color, status } = &row.indicator;
-                                draw_led(ui, *color, status);
+                                ui.set_width(status_width);
+                                ui.vertical_centered(|ui| {
+                                    ui.with_layout(
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            let StatusIndicator::Led { color, status } =
+                                                &row.indicator;
+                                            draw_led(ui, *color, status);
+                                        },
+                                    );
+                                });
                             },
                         );
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
                     ui.set_width(ui.available_width());
-                    ui.add(
-                        Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK))
-                            .wrap(true),
-                    );
+                    ui.scope(|ui| {
+                        ui.style_mut().wrap = Some(true);
+                        ui.add(
+                            Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK))
+                                .wrap(true)
+                                .truncate(false),
+                        );
+                    });
                 });
         });
         ui.add_space(4.0);
@@ -163,11 +176,14 @@ fn draw_led(ui: &mut egui::Ui, color: Color32, label: &str) {
     painter.circle_stroke(center, 6.0, Stroke::new(1.0, color.gamma_multiply(0.5)));
     painter.circle_stroke(center, 7.0, Stroke::new(1.2, color.gamma_multiply(0.3)));
     response.on_hover_text(label);
-    ui.label(
+    let label_width = ui.available_width().max(0.0);
+    let label_widget = Label::new(
         RichText::new(label)
             .color(theme::COLOR_TEXT_PRIMARY)
             .size(12.0),
-    );
+    )
+    .wrap(true);
+    ui.add_sized([label_width, 0.0], label_widget);
 }
 
 struct ResourceRow {

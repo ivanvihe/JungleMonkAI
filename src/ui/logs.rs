@@ -105,6 +105,7 @@ fn draw_expanded_logs(ui: &mut egui::Ui, state: &mut AppState) {
     let table_size = ui.available_size();
     ui.allocate_ui(table_size, |ui| {
         egui::ScrollArea::both()
+            .id_source("logs_table_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());

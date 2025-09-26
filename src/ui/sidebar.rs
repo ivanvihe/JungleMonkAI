@@ -29,12 +29,46 @@ const ICON_PROFILES: &str = "\u{f2c1}"; // id-badge
 const ICON_PROJECTS: &str = "\u{f542}"; // diagram-project
 const ICON_BRANCH_COLLAPSED: &str = "\u{f054}"; // chevron-right
 const ICON_BRANCH_EXPANDED: &str = "\u{f078}"; // chevron-down
+const ICON_COLLAPSE_LEFT: &str = "\u{f053}"; // chevron-left
+const ICON_EXPAND_RIGHT: &str = "\u{f054}"; // chevron-right
+
+const LEFT_PANEL_WIDTH: f32 = 280.0;
+const COLLAPSED_HANDLE_WIDTH: f32 = 28.0;
 
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
-    let panel_response = egui::SidePanel::left("navigation_panel")
-        .resizable(true)
-        .default_width(state.left_panel_width)
-        .width_range(200.0..=460.0)
+    state.left_panel_width = LEFT_PANEL_WIDTH;
+
+    if !state.left_panel_visible {
+        egui::SidePanel::left("navigation_panel_collapsed")
+            .resizable(false)
+            .exact_width(COLLAPSED_HANDLE_WIDTH)
+            .frame(
+                egui::Frame::none()
+                    .fill(theme::COLOR_PANEL)
+                    .stroke(theme::subtle_border())
+                    .inner_margin(egui::Margin::same(8.0))
+                    .rounding(egui::Rounding::same(14.0)),
+            )
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(12.0);
+                    let button = egui::Button::new(
+                        RichText::new(ICON_EXPAND_RIGHT)
+                            .font(theme::icon_font(16.0))
+                            .color(theme::COLOR_TEXT_PRIMARY),
+                    )
+                    .frame(false);
+                    if ui.add_sized([20.0, 24.0], button).clicked() {
+                        state.left_panel_visible = true;
+                    }
+                });
+            });
+        return;
+    }
+
+    egui::SidePanel::left("navigation_panel")
+        .resizable(false)
+        .exact_width(state.left_panel_width)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
@@ -54,7 +88,26 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
             ui.set_min_height(available_height);
             ui.set_width(clip_rect.width());
 
+            ui.horizontal(|ui| {
+                let button = egui::Button::new(
+                    RichText::new(ICON_COLLAPSE_LEFT)
+                        .font(theme::icon_font(15.0))
+                        .color(theme::COLOR_TEXT_PRIMARY),
+                )
+                .frame(false);
+                if ui.add_sized([26.0, 24.0], button).clicked() {
+                    state.left_panel_visible = false;
+                }
+                ui.label(
+                    RichText::new("Navegación")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+            });
+            ui.separator();
+
             egui::ScrollArea::vertical()
+                .id_source("navigation_scroll")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
@@ -65,11 +118,6 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     }
                 });
         });
-
-    let width = panel_response.response.rect.width().clamp(200.0, 460.0);
-    if (width - state.left_panel_width).abs() > f32::EPSILON {
-        state.left_panel_width = width;
-    }
 }
 
 #[derive(Clone, Copy)]

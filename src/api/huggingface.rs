@@ -33,6 +33,13 @@ struct RawModelSummary {
 fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
     let tags_lower: Vec<String> = raw.tags.iter().map(|tag| tag.to_lowercase()).collect();
 
+    let has_embedding_tag = tags_lower.iter().any(|tag| {
+        tag.contains("embedding")
+            || tag.contains("retrieval")
+            || tag.contains("sentence-transformers")
+            || tag.contains("semantic-search")
+    });
+
     if tags_lower
         .iter()
         .any(|tag| tag.contains("gguf") || tag.contains("ggml"))
@@ -47,14 +54,30 @@ fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
         let pipeline_lower = pipeline.to_lowercase();
         let supported = matches!(
             pipeline_lower.as_str(),
-            "feature-extraction" | "sentence-similarity" | "text-embedding"
+            "feature-extraction"
+                | "sentence-similarity"
+                | "text-embedding"
+                | "text-embeddings-inference"
+                | "embeddings"
         );
-        if !supported {
+        let compatible_by_tags = !supported
+            && has_embedding_tag
+            && matches!(
+                pipeline_lower.as_str(),
+                "text-generation" | "text2text-generation"
+            );
+
+        if !supported && !compatible_by_tags {
             return Some(format!(
                 "La pipeline declarada '{}' no es compatible con el runtime de incrustaciones de Jarvis.",
                 pipeline
             ));
         }
+    } else if !has_embedding_tag {
+        return Some(
+            "El modelo no especifica una pipeline de embeddings compatible con el runtime de Jarvis.".
+                to_string(),
+        );
     }
 
     None

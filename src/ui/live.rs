@@ -8,6 +8,7 @@ pub fn draw_live_panel(ctx: &egui::Context, state: &mut AppState) {
         ui.separator();
 
         egui::ScrollArea::vertical()
+            .id_source("live_events_scroll")
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 if state.live_events.is_empty() {

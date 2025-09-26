@@ -157,6 +157,7 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.add_space(12.0);
 
                 egui::ScrollArea::vertical()
+                    .id_source("preferences_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         draw_selected_section(ui, state);
@@ -190,6 +191,7 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.set_width(ui.available_width());
 
                     egui::ScrollArea::vertical()
+                        .id_source("chat_history_scroll")
                         .stick_to_bottom(true)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -1474,6 +1476,7 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
         });
         ui.add_space(6.0);
         egui::ScrollArea::vertical()
+            .id_source(("installed_models_scroll", provider.key()))
             .max_height(240.0)
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1501,6 +1504,7 @@ fn draw_provider_gallery(
     let min_card_width = 280.0;
 
     egui::ScrollArea::vertical()
+        .id_source(("provider_gallery_scroll", provider.key()))
         .max_height(380.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -2650,6 +2654,7 @@ fn draw_claude_models_gallery(ui: &mut egui::Ui, state: &mut AppState, models: &
     let spacing = 16.0;
 
     egui::ScrollArea::vertical()
+        .id_source("claude_models_scroll")
         .max_height(360.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {

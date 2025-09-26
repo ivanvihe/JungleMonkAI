@@ -38,54 +38,56 @@ pub fn draw_functions_modal(ctx: &egui::Context, state: &mut AppState) {
             ui.label("Consulta la documentación ampliada de cada comando y función disponible.");
             ui.separator();
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.heading("Comandos integrados");
-                ui.add_space(6.0);
+            egui::ScrollArea::vertical()
+                .id_source("functions_modal_scroll")
+                .show(ui, |ui| {
+                    ui.heading("Comandos integrados");
+                    ui.add_space(6.0);
 
-                for (signature, summary, examples) in builtin_documentation() {
-                    ui.group(|ui| {
-                        ui.strong(signature);
-                        ui.label(summary);
-                        if !examples.is_empty() {
-                            ui.label("Ejemplos:");
-                            for example in examples.iter() {
-                                ui.monospace(*example);
+                    for (signature, summary, examples) in builtin_documentation() {
+                        ui.group(|ui| {
+                            ui.strong(signature);
+                            ui.label(summary);
+                            if !examples.is_empty() {
+                                ui.label("Ejemplos:");
+                                for example in examples.iter() {
+                                    ui.monospace(*example);
+                                }
                             }
-                        }
-                    });
-                    ui.add_space(10.0);
-                }
+                        });
+                        ui.add_space(10.0);
+                    }
 
-                ui.separator();
-                ui.heading("Funciones personalizables");
-                ui.add_space(6.0);
+                    ui.separator();
+                    ui.heading("Funciones personalizables");
+                    ui.add_space(6.0);
 
-                for action in AVAILABLE_CUSTOM_ACTIONS {
-                    let doc = action.documentation();
-                    ui.group(|ui| {
-                        ui.strong(doc.signature);
-                        ui.label(doc.summary);
-                        if !doc.parameters.is_empty() {
-                            ui.add_space(4.0);
-                            ui.label("Parámetros:");
-                            for parameter in doc.parameters {
-                                ui.horizontal(|ui| {
-                                    ui.label("•");
-                                    ui.label(*parameter);
-                                });
+                    for action in AVAILABLE_CUSTOM_ACTIONS {
+                        let doc = action.documentation();
+                        ui.group(|ui| {
+                            ui.strong(doc.signature);
+                            ui.label(doc.summary);
+                            if !doc.parameters.is_empty() {
+                                ui.add_space(4.0);
+                                ui.label("Parámetros:");
+                                for parameter in doc.parameters {
+                                    ui.horizontal(|ui| {
+                                        ui.label("•");
+                                        ui.label(*parameter);
+                                    });
+                                }
                             }
-                        }
-                        if !doc.examples.is_empty() {
-                            ui.add_space(4.0);
-                            ui.label("Ejemplos:");
-                            for example in doc.examples.iter() {
-                                ui.monospace(*example);
+                            if !doc.examples.is_empty() {
+                                ui.add_space(4.0);
+                                ui.label("Ejemplos:");
+                                for example in doc.examples.iter() {
+                                    ui.monospace(*example);
+                                }
                             }
-                        }
-                    });
-                    ui.add_space(10.0);
-                }
-            });
+                        });
+                        ui.add_space(10.0);
+                    }
+                });
         });
 
     state.show_functions_modal = is_open;

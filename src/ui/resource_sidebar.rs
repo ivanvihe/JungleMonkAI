@@ -10,12 +10,46 @@ const ICON_OPENAI: &str = "\u{f544}"; // robot
 const ICON_CLAUDE: &str = "\u{e2ca}"; // wand-magic-sparkles
 const ICON_GROQ: &str = "\u{f0e7}"; // bolt
 const COLOR_WARNING: Color32 = Color32::from_rgb(255, 196, 0);
+const ICON_COLLAPSE_RIGHT: &str = "\u{f054}"; // chevron-right
+const ICON_EXPAND_LEFT: &str = "\u{f053}"; // chevron-left
+
+const RIGHT_PANEL_WIDTH: f32 = 320.0;
+const COLLAPSED_HANDLE_WIDTH: f32 = 28.0;
 
 pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
-    let panel_response = egui::SidePanel::right("resource_panel")
-        .resizable(true)
-        .default_width(state.right_panel_width)
-        .width_range(200.0..=460.0)
+    state.right_panel_width = RIGHT_PANEL_WIDTH;
+
+    if !state.right_panel_visible {
+        egui::SidePanel::right("resource_panel_collapsed")
+            .resizable(false)
+            .exact_width(COLLAPSED_HANDLE_WIDTH)
+            .frame(
+                egui::Frame::none()
+                    .fill(theme::COLOR_PANEL)
+                    .stroke(theme::subtle_border())
+                    .inner_margin(egui::Margin::same(8.0))
+                    .rounding(egui::Rounding::same(14.0)),
+            )
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(12.0);
+                    let button = egui::Button::new(
+                        RichText::new(ICON_EXPAND_LEFT)
+                            .font(theme::icon_font(16.0))
+                            .color(theme::COLOR_TEXT_PRIMARY),
+                    )
+                    .frame(false);
+                    if ui.add_sized([20.0, 24.0], button).clicked() {
+                        state.right_panel_visible = true;
+                    }
+                });
+            });
+        return;
+    }
+
+    egui::SidePanel::right("resource_panel")
+        .resizable(false)
+        .exact_width(state.right_panel_width)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
@@ -37,16 +71,28 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
 
             ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
                 ui.set_width(ui.available_width());
-                ui.heading(
-                    RichText::new("Resumen de recursos")
-                        .color(theme::COLOR_TEXT_PRIMARY)
-                        .strong(),
-                );
+                ui.horizontal(|ui| {
+                    let button = egui::Button::new(
+                        RichText::new(ICON_COLLAPSE_RIGHT)
+                            .font(theme::icon_font(15.0))
+                            .color(theme::COLOR_TEXT_PRIMARY),
+                    )
+                    .frame(false);
+                    if ui.add_sized([26.0, 24.0], button).clicked() {
+                        state.right_panel_visible = false;
+                    }
+                    ui.heading(
+                        RichText::new("Resumen de recursos")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                });
                 ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
                 ui.add_space(12.0);
 
                 let rows = resource_rows(state);
                 egui::ScrollArea::vertical()
+                    .id_source("resource_summary_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
@@ -57,11 +103,6 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     });
             });
         });
-
-    let width = panel_response.response.rect.width().clamp(200.0, 460.0);
-    if (width - state.right_panel_width).abs() > f32::EPSILON {
-        state.right_panel_width = width;
-    }
 }
 
 fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {

@@ -36,7 +36,7 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin {
                     left: 18.0,
-                    right: 18.0,
+                    right: 12.0,
                     top: 18.0,
                     bottom: 14.0,
                 }),

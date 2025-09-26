@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppState, ChatMessage};
 use eframe::egui::{self, Color32, Frame, Margin, RichText, Stroke};
 
 use super::theme;
@@ -94,6 +94,8 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                         draw_jarvis_card(ui, state);
                         ui.add_space(12.0);
                         draw_models_card(ui, state);
+                        ui.add_space(12.0);
+                        draw_actions_section(ui, state);
                     });
             });
         });
@@ -109,6 +111,67 @@ fn draw_led(ui: &mut egui::Ui, color: Color32, tooltip: &str) {
     if !tooltip.trim().is_empty() {
         response.on_hover_text(tooltip);
     }
+}
+
+fn draw_actions_section(ui: &mut egui::Ui, state: &AppState) {
+    ui.label(
+        RichText::new("Acciones")
+            .color(theme::COLOR_TEXT_PRIMARY)
+            .strong(),
+    );
+    ui.label(
+        RichText::new("Herramientas rápidas para tu sesión actual")
+            .color(theme::COLOR_TEXT_WEAK)
+            .size(12.0),
+    );
+    ui.add_space(8.0);
+
+    Frame::none()
+        .fill(Color32::from_rgb(28, 30, 36))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+
+            let button = theme::secondary_button(
+                RichText::new("Copiar conversación")
+                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .strong(),
+            );
+
+            if ui.add_sized([ui.available_width(), 32.0], button).clicked() {
+                let transcript = build_conversation_transcript(&state.chat_messages);
+                ui.output_mut(|out| out.copied_text = transcript);
+                ui.colored_label(
+                    theme::COLOR_TEXT_WEAK,
+                    "Conversación copiada al portapapeles",
+                );
+            }
+        });
+}
+
+fn build_conversation_transcript(messages: &[ChatMessage]) -> String {
+    let mut transcript = String::new();
+
+    for (index, message) in messages.iter().enumerate() {
+        if index > 0 {
+            transcript.push_str("\n\n");
+        }
+
+        let status = if message.is_pending() {
+            " (pendiente)"
+        } else {
+            ""
+        };
+
+        transcript.push_str(&format!(
+            "[{}] {}{}:\n{}",
+            message.timestamp, message.sender, status, message.text
+        ));
+    }
+
+    transcript
 }
 
 enum StatusIndicator {

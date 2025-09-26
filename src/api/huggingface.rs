@@ -231,13 +231,22 @@ pub fn download_model(
         download_file(file, true)?;
     }
 
-    if available_files.contains("model.safetensors") {
-        download_file("model.safetensors", false)?;
-    } else {
+    let mut safetensor_files: Vec<_> = available_files
+        .iter()
+        .filter(|name| name.ends_with(".safetensors"))
+        .cloned()
+        .collect();
+    safetensor_files.sort();
+
+    if safetensor_files.is_empty() {
         return Err(anyhow!(
-            "El modelo '{}' no publica 'model.safetensors'. El runtime local requiere ese formato.",
+            "El modelo '{}' no publica archivos con extensión '.safetensors'. El runtime local requiere ese formato.",
             model.id
         ));
+    }
+
+    for file in safetensor_files {
+        download_file(&file, false)?;
     }
 
     let modules_path = staging_dir.join("modules.json");
@@ -316,11 +325,22 @@ fn ensure_required_assets(dir: &Path) -> Result<()> {
         ));
     }
 
-    let safetensors_path = dir.join("model.safetensors");
-    if !safetensors_path.exists() {
+    let has_safetensors = fs::read_dir(dir)
+        .with_context(|| format!("No se pudo listar el directorio {:?}", dir))?
+        .filter_map(|entry| entry.ok())
+        .any(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("safetensors"))
+                .unwrap_or(false)
+        });
+
+    if !has_safetensors {
         return Err(anyhow!(
-            "El modelo descargado no contiene 'model.safetensors' en {:?}",
-            safetensors_path
+            "El modelo descargado no contiene archivos '.safetensors' en {:?}",
+            dir
         ));
     }
 

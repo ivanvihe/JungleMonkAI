@@ -7,6 +7,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
 
 /// Identifica la sección actualmente seleccionada en el árbol de preferencias.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -443,11 +444,20 @@ pub struct AppState {
     pub logs_panel_expanded: bool,
     /// Registros de actividad recientes.
     pub activity_logs: Vec<LogEntry>,
+    /// Canal para recibir respuestas de proveedores remotos.
+    provider_response_rx: Receiver<ProviderResponse>,
+    /// Canal para enviar respuestas desde hilos de proveedores.
+    provider_response_tx: Sender<ProviderResponse>,
+    /// Llamadas pendientes a proveedores remotos.
+    pending_provider_calls: Vec<PendingProviderCall>,
+    /// Identificador incremental de llamadas a proveedores.
+    next_provider_call_id: u64,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         let config = AppConfig::load_or_default();
+        let (provider_response_tx, provider_response_rx) = mpsc::channel();
 
         let mut profiles = if config.profiles.is_empty() {
             vec![
@@ -625,6 +635,10 @@ impl Default for AppState {
             expanded_nav_nodes,
             logs_panel_expanded: true,
             activity_logs: default_logs(),
+            provider_response_rx,
+            provider_response_tx,
+            pending_provider_calls: Vec::new(),
+            next_provider_call_id: 0,
         };
 
         if state.jarvis_auto_start {
@@ -648,11 +662,24 @@ impl Default for AppState {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChatMessageStatus {
+    Normal,
+    Pending,
+}
+
+impl Default for ChatMessageStatus {
+    fn default() -> Self {
+        ChatMessageStatus::Normal
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ChatMessage {
     pub sender: String,
     pub text: String,
     pub timestamp: String,
+    pub status: ChatMessageStatus,
 }
 
 impl ChatMessage {
@@ -661,6 +688,7 @@ impl ChatMessage {
             sender: sender.into(),
             text: text.into(),
             timestamp: Local::now().format("%H:%M:%S").to_string(),
+            status: ChatMessageStatus::Normal,
         }
     }
 
@@ -671,6 +699,19 @@ impl ChatMessage {
     pub fn user(text: impl Into<String>) -> Self {
         Self::new("User", text)
     }
+
+    pub fn pending(sender: impl Into<String>, text: impl Into<String>) -> Self {
+        ChatMessage {
+            sender: sender.into(),
+            text: text.into(),
+            timestamp: Local::now().format("%H:%M:%S").to_string(),
+            status: ChatMessageStatus::Pending,
+        }
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.status == ChatMessageStatus::Pending
+    }
 }
 
 impl Default for ChatMessage {
@@ -680,6 +721,22 @@ impl Default for ChatMessage {
 }
 
 pub const MAX_COMMAND_DEPTH: usize = 5;
+
+#[derive(Clone, Debug)]
+struct PendingProviderCall {
+    id: u64,
+    provider_kind: RemoteProviderKind,
+    provider_name: String,
+    alias: String,
+    model: String,
+    message_index: usize,
+}
+
+#[derive(Debug)]
+struct ProviderResponse {
+    id: u64,
+    outcome: std::result::Result<String, String>,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct CommandInvocation {
@@ -888,6 +945,63 @@ impl AppState {
         self.local_provider_states
             .get_mut(&provider)
             .expect("estado del proveedor no inicializado")
+    }
+
+    pub fn update_async_tasks(&mut self) -> bool {
+        let mut updated = false;
+
+        while let Ok(response) = self.provider_response_rx.try_recv() {
+            if let Some(position) = self
+                .pending_provider_calls
+                .iter()
+                .position(|pending| pending.id == response.id)
+            {
+                let pending = self.pending_provider_calls.remove(position);
+
+                match response.outcome {
+                    Ok(text) => {
+                        if let Some(message) = self.chat_messages.get_mut(pending.message_index) {
+                            message.text = text.clone();
+                            message.status = ChatMessageStatus::Normal;
+                            message.timestamp = Local::now().format("%H:%M:%S").to_string();
+                            message.sender = pending.alias.clone();
+                        }
+
+                        let char_count = text.chars().count();
+                        let snippet: String = text.chars().take(120).collect();
+                        *self.provider_status_slot(pending.provider_kind) = Some(format!(
+                            "{} respondió correctamente ({} caracteres).",
+                            pending.model, char_count
+                        ));
+                        self.push_activity_log(
+                            LogStatus::Ok,
+                            pending.provider_name.clone(),
+                            format!("Respuesta recibida de '{}': {}", pending.model, snippet),
+                        );
+                    }
+                    Err(err) => {
+                        *self.provider_status_slot(pending.provider_kind) =
+                            Some(format!("Último error: {}", err));
+                        self.push_activity_log(
+                            LogStatus::Error,
+                            pending.provider_name.clone(),
+                            format!("Fallo al invocar '{}': {}", pending.model, err),
+                        );
+
+                        if let Some(message) = self.chat_messages.get_mut(pending.message_index) {
+                            *message = ChatMessage::system(format!(
+                                "{}: error al solicitar respuesta: {}",
+                                pending.alias, err
+                            ));
+                        }
+                    }
+                }
+
+                updated = true;
+            }
+        }
+
+        updated
     }
 
     fn normalize_string_option(value: &mut Option<String>) {
@@ -1182,7 +1296,7 @@ impl AppState {
         }
     }
 
-    fn handle_provider_call<F>(
+    fn handle_provider_call(
         &mut self,
         provider_kind: RemoteProviderKind,
         alias: String,
@@ -1190,47 +1304,41 @@ impl AppState {
         prompt: String,
         api_key: Option<String>,
         model: String,
-        caller: F,
-    ) where
-        F: Fn(&str, &str, &str) -> anyhow::Result<String>,
-    {
+        caller: fn(&str, &str, &str) -> anyhow::Result<String>,
+    ) {
         if let Some(key) = api_key {
             self.push_activity_log(
                 LogStatus::Running,
                 provider_name,
                 format!("Consultando '{}' con el alias '{}'.", model, alias),
             );
+            let message_index = self.chat_messages.len();
+            let pending = ChatMessage::pending(
+                alias.clone(),
+                format!("Esperando respuesta de {}…", provider_name),
+            );
+            self.chat_messages.push(pending);
 
-            match caller(&key, &model, &prompt) {
-                Ok(response) => {
-                    let snippet: String = response.chars().take(120).collect();
-                    *self.provider_status_slot(provider_kind) = Some(format!(
-                        "{} respondió correctamente ({} caracteres).",
-                        model,
-                        response.chars().count()
-                    ));
-                    self.push_activity_log(
-                        LogStatus::Ok,
-                        provider_name,
-                        format!("Respuesta recibida de '{}': {}", model, snippet),
-                    );
-                    self.chat_messages
-                        .push(ChatMessage::new(alias.clone(), response));
-                }
-                Err(err) => {
-                    *self.provider_status_slot(provider_kind) =
-                        Some(format!("Último error: {}", err));
-                    self.push_activity_log(
-                        LogStatus::Error,
-                        provider_name,
-                        format!("Fallo al invocar '{}': {}", model, err),
-                    );
-                    self.chat_messages.push(ChatMessage::system(format!(
-                        "{}: error al solicitar respuesta: {}",
-                        alias, err
-                    )));
-                }
-            }
+            let call_id = self.next_provider_call_id;
+            self.next_provider_call_id += 1;
+
+            self.pending_provider_calls.push(PendingProviderCall {
+                id: call_id,
+                provider_kind,
+                provider_name: provider_name.to_string(),
+                alias: alias.clone(),
+                model: model.clone(),
+                message_index,
+            });
+
+            let tx = self.provider_response_tx.clone();
+            std::thread::spawn(move || {
+                let outcome = caller(&key, &model, &prompt).map_err(|err| err.to_string());
+                let _ = tx.send(ProviderResponse {
+                    id: call_id,
+                    outcome,
+                });
+            });
         } else {
             self.chat_messages.push(ChatMessage::system(format!(
                 "Configura la API key de {} antes de usar el alias '{}'.",
@@ -1266,7 +1374,7 @@ impl AppState {
             prompt,
             key,
             self.claude_default_model.clone(),
-            |api_key, model, content| crate::api::claude::send_message(api_key, model, content),
+            crate::api::claude::send_message,
         );
     }
 
@@ -1287,7 +1395,7 @@ impl AppState {
             prompt,
             key,
             self.openai_default_model.clone(),
-            |api_key, model, content| crate::api::openai::send_message(api_key, model, content),
+            crate::api::openai::send_message,
         );
     }
 
@@ -1308,7 +1416,7 @@ impl AppState {
             prompt,
             key,
             self.groq_default_model.clone(),
-            |api_key, model, content| crate::api::groq::send_message(api_key, model, content),
+            crate::api::groq::send_message,
         );
     }
 

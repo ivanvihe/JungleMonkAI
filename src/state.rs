@@ -10,9 +10,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 
-/// Identifica la sección actualmente seleccionada en el árbol de preferencias.
+/// Define metadatos reutilizables para paneles y recursos navegables.
+#[derive(Clone, Copy, Debug)]
+pub struct PanelMetadata {
+    pub title: &'static str,
+    pub description: &'static str,
+    pub breadcrumb: &'static [&'static str],
+}
+
+/// Paneles de preferencias que agrupan formularios y ajustes persistentes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PreferenceSection {
+pub enum PreferencePanel {
     SystemGithub,
     SystemCache,
     SystemResources,
@@ -20,119 +28,167 @@ pub enum PreferenceSection {
     CustomizationMemory,
     CustomizationProfiles,
     CustomizationProjects,
-    ModelsLocalHuggingFace,
-    ModelsLocalGithub,
-    ModelsLocalReplicate,
-    ModelsLocalOllama,
-    ModelsLocalOpenRouter,
-    ModelsLocalModelscope,
-    ModelsLocalSettings,
-    ModelsProviderAnthropic,
-    ModelsProviderOpenAi,
-    ModelsProviderGroq,
+    ProvidersAnthropic,
+    ProvidersOpenAi,
+    ProvidersGroq,
+    LocalJarvis,
 }
 
-impl PreferenceSection {
-    pub fn title(self) -> &'static str {
+impl PreferencePanel {
+    pub fn metadata(self) -> PanelMetadata {
         match self {
-            PreferenceSection::SystemGithub => "Preferences › System › GitHub for Projects",
-            PreferenceSection::SystemCache => "Preferences › System › Cache",
-            PreferenceSection::SystemResources => "Preferences › System › System resources",
-            PreferenceSection::CustomizationCommands => {
-                "Preferences › Customization › Custom commands"
-            }
-            PreferenceSection::CustomizationMemory => "Preferences › Customization › Memory",
-            PreferenceSection::CustomizationProfiles => "Preferences › Customization › Profiles",
-            PreferenceSection::CustomizationProjects => "Preferences › Customization › Projects",
-            PreferenceSection::ModelsLocalHuggingFace => {
-                "Preferences › Models › Local (Jarvis) › HuggingFace"
-            }
-            PreferenceSection::ModelsLocalGithub => {
-                "Preferences › Models › Local (Jarvis) › GitHub Models"
-            }
-            PreferenceSection::ModelsLocalReplicate => {
-                "Preferences › Models › Local (Jarvis) › Replicate"
-            }
-            PreferenceSection::ModelsLocalOllama => {
-                "Preferences › Models › Local (Jarvis) › Ollama"
-            }
-            PreferenceSection::ModelsLocalOpenRouter => {
-                "Preferences › Models › Local (Jarvis) › OpenRouter"
-            }
-            PreferenceSection::ModelsLocalModelscope => {
-                "Preferences › Models › Local (Jarvis) › ModelScope"
-            }
-            PreferenceSection::ModelsLocalSettings => {
-                "Preferences › Models › Local (Jarvis) › Settings"
-            }
-            PreferenceSection::ModelsProviderAnthropic => {
-                "Preferences › Models › Providers › Anthropic"
-            }
-            PreferenceSection::ModelsProviderOpenAi => "Preferences › Models › Providers › OpenAI",
-            PreferenceSection::ModelsProviderGroq => "Preferences › Models › Providers › Groq",
-        }
-    }
-
-    pub fn description(self) -> &'static str {
-        match self {
-            PreferenceSection::SystemGithub => {
-                "Configure GitHub integration, authentication tokens, and project repositories."
-            }
-            PreferenceSection::SystemCache => {
-                "Adjust cache storage, automatic cleanup schedules, and manual maintenance actions."
-            }
-            PreferenceSection::SystemResources => {
-                "Limit how much memory and disk space the agent may allocate for cached data."
-            }
-            PreferenceSection::CustomizationCommands => {
-                "Manage reusable custom commands that are available inside the chat interface."
-            }
-            PreferenceSection::CustomizationMemory => {
-                "Tune how the assistant stores and retains contextual memories across sessions."
-            }
-            PreferenceSection::CustomizationProfiles => {
-                "Switch between predefined profiles and edit their metadata."
-            }
-            PreferenceSection::CustomizationProjects => {
-                "Organize the active projects that the assistant tracks and syncs."
-            }
-            PreferenceSection::ModelsLocalHuggingFace => {
-                "Search for local models published on HuggingFace and install them into Jarvis."
-            }
-            PreferenceSection::ModelsLocalGithub => {
-                "Discover models curated by GitHub and prepare them for the Jarvis runtime."
-            }
-            PreferenceSection::ModelsLocalReplicate => {
-                "Explore Replicate community models that can be exported for offline use."
-            }
-            PreferenceSection::ModelsLocalOllama => {
-                "List and pull Ollama-ready models into the local Jarvis workspace."
-            }
-            PreferenceSection::ModelsLocalOpenRouter => {
-                "Review OpenRouter compatible models and mirror them locally for Jarvis."
-            }
-            PreferenceSection::ModelsLocalModelscope => {
-                "Search ModelScope catalogs and fetch compatible checkpoints for Jarvis."
-            }
-            PreferenceSection::ModelsLocalSettings => {
-                "Configure how the local Jarvis runtime boots and where models are stored."
-            }
-            PreferenceSection::ModelsProviderAnthropic => {
-                "Provide Anthropic credentials and defaults for Claude based workflows."
-            }
-            PreferenceSection::ModelsProviderOpenAi => {
-                "Configure OpenAI access tokens and preferred GPT models."
-            }
-            PreferenceSection::ModelsProviderGroq => {
-                "Enter Groq API keys and select the default Groq-hosted model."
-            }
+            PreferencePanel::SystemGithub => PanelMetadata {
+                title: "Preferencias › Sistema › Integración con GitHub",
+                description:
+                    "Administra las credenciales de GitHub y el repositorio sincronizado con JungleMonkAI.",
+                breadcrumb: &["Preferencias", "Sistema", "GitHub"],
+            },
+            PreferencePanel::SystemCache => PanelMetadata {
+                title: "Preferencias › Sistema › Caché",
+                description:
+                    "Configura el directorio de caché, límites de espacio y automatizaciones de limpieza.",
+                breadcrumb: &["Preferencias", "Sistema", "Caché"],
+            },
+            PreferencePanel::SystemResources => PanelMetadata {
+                title: "Preferencias › Sistema › Recursos",
+                description:
+                    "Delimita el uso permitido de memoria y almacenamiento para la ejecución local.",
+                breadcrumb: &["Preferencias", "Sistema", "Recursos"],
+            },
+            PreferencePanel::CustomizationCommands => PanelMetadata {
+                title: "Preferencias › Personalización › Comandos",
+                description:
+                    "Crea y gestiona accesos rápidos disponibles como slash-commands en el chat.",
+                breadcrumb: &["Preferencias", "Personalización", "Comandos"],
+            },
+            PreferencePanel::CustomizationMemory => PanelMetadata {
+                title: "Preferencias › Personalización › Memoria",
+                description:
+                    "Ajusta la retención de memoria contextual y la persistencia entre sesiones.",
+                breadcrumb: &["Preferencias", "Personalización", "Memoria"],
+            },
+            PreferencePanel::CustomizationProfiles => PanelMetadata {
+                title: "Preferencias › Personalización › Perfiles",
+                description:
+                    "Selecciona, crea y renombra perfiles de configuración para la experiencia diaria.",
+                breadcrumb: &["Preferencias", "Personalización", "Perfiles"],
+            },
+            PreferencePanel::CustomizationProjects => PanelMetadata {
+                title: "Preferencias › Personalización › Proyectos",
+                description:
+                    "Organiza los proyectos que JungleMonkAI sigue y prioriza dentro del espacio de trabajo.",
+                breadcrumb: &["Preferencias", "Personalización", "Proyectos"],
+            },
+            PreferencePanel::ProvidersAnthropic => PanelMetadata {
+                title: "Preferencias › Proveedores › Anthropic",
+                description:
+                    "Introduce credenciales de Anthropic, alias de invocación y prueba la conectividad de Claude.",
+                breadcrumb: &["Preferencias", "Proveedores", "Anthropic"],
+            },
+            PreferencePanel::ProvidersOpenAi => PanelMetadata {
+                title: "Preferencias › Proveedores › OpenAI",
+                description:
+                    "Define la API key de OpenAI, alias de chat y el modelo predeterminado para peticiones.",
+                breadcrumb: &["Preferencias", "Proveedores", "OpenAI"],
+            },
+            PreferencePanel::ProvidersGroq => PanelMetadata {
+                title: "Preferencias › Proveedores › Groq",
+                description:
+                    "Configura las credenciales de Groq y valida la disponibilidad de su endpoint.",
+                breadcrumb: &["Preferencias", "Proveedores", "Groq"],
+            },
+            PreferencePanel::LocalJarvis => PanelMetadata {
+                title: "Preferencias › Modelos locales › Configuración",
+                description:
+                    "Controla la ruta, instalación y comportamiento de arranque del runtime Jarvis.",
+                breadcrumb: &["Preferencias", "Modelos locales", "Jarvis"],
+            },
         }
     }
 }
 
-impl Default for PreferenceSection {
+impl Default for PreferencePanel {
     fn default() -> Self {
-        PreferenceSection::SystemGithub
+        PreferencePanel::SystemGithub
+    }
+}
+
+/// Agrupa catálogos y recursos navegables independientes de los formularios.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceSection {
+    LocalCatalog(LocalModelProvider),
+    RemoteCatalog(RemoteProviderKind),
+    InstalledLocal,
+}
+
+impl ResourceSection {
+    pub fn metadata(self) -> PanelMetadata {
+        match self {
+            ResourceSection::LocalCatalog(provider) => match provider {
+                LocalModelProvider::HuggingFace => PanelMetadata {
+                    title: "Recursos › Galerías locales › Hugging Face",
+                    description:
+                        "Explora modelos publicados en Hugging Face listos para instalar en Jarvis.",
+                    breadcrumb: &["Recursos", "Galerías locales", "Hugging Face"],
+                },
+                LocalModelProvider::GithubModels => PanelMetadata {
+                    title: "Recursos › Galerías locales › GitHub Models",
+                    description:
+                        "Consulta colecciones de GitHub Models y prepara su exportación para uso offline.",
+                    breadcrumb: &["Recursos", "Galerías locales", "GitHub Models"],
+                },
+                LocalModelProvider::Replicate => PanelMetadata {
+                    title: "Recursos › Galerías locales › Replicate",
+                    description:
+                        "Busca modelos de la comunidad de Replicate compatibles con el runtime local.",
+                    breadcrumb: &["Recursos", "Galerías locales", "Replicate"],
+                },
+                LocalModelProvider::Ollama => PanelMetadata {
+                    title: "Recursos › Galerías locales › Ollama",
+                    description:
+                        "Conecta con tu servidor Ollama y descarga modelos optimizados para CPU/GPU.",
+                    breadcrumb: &["Recursos", "Galerías locales", "Ollama"],
+                },
+                LocalModelProvider::OpenRouter => PanelMetadata {
+                    title: "Recursos › Galerías locales › OpenRouter",
+                    description:
+                        "Lista modelos disponibles en OpenRouter y sincronízalos con el entorno local.",
+                    breadcrumb: &["Recursos", "Galerías locales", "OpenRouter"],
+                },
+                LocalModelProvider::Modelscope => PanelMetadata {
+                    title: "Recursos › Galerías locales › ModelScope",
+                    description:
+                        "Revisa checkpoints publicados en ModelScope para incorporarlos a Jarvis.",
+                    breadcrumb: &["Recursos", "Galerías locales", "ModelScope"],
+                },
+            },
+            ResourceSection::RemoteCatalog(provider) => match provider {
+                RemoteProviderKind::Anthropic => PanelMetadata {
+                    title: "Recursos › Catálogos remotos › Claude",
+                    description:
+                        "Explora el catálogo actualizado de modelos Claude disponibles vía Anthropic.",
+                    breadcrumb: &["Recursos", "Catálogos remotos", "Claude"],
+                },
+                RemoteProviderKind::OpenAi => PanelMetadata {
+                    title: "Recursos › Catálogos remotos › OpenAI",
+                    description:
+                        "Revisa la disponibilidad planificada de modelos GPT y sus capacidades.",
+                    breadcrumb: &["Recursos", "Catálogos remotos", "OpenAI"],
+                },
+                RemoteProviderKind::Groq => PanelMetadata {
+                    title: "Recursos › Catálogos remotos › Groq",
+                    description:
+                        "Consulta los modelos acelerados por Groq y su estado de compatibilidad.",
+                    breadcrumb: &["Recursos", "Catálogos remotos", "Groq"],
+                },
+            },
+            ResourceSection::InstalledLocal => PanelMetadata {
+                title: "Recursos › Modelos instalados",
+                description:
+                    "Gestiona los modelos locales ya descargados, su tamaño y fecha de instalación.",
+                breadcrumb: &["Recursos", "Modelos locales", "Instalados"],
+            },
+        }
     }
 }
 
@@ -140,6 +196,7 @@ impl Default for PreferenceSection {
 pub enum MainView {
     ChatMultimodal,
     Preferences,
+    ResourceBrowser,
     Logs,
 }
 
@@ -150,7 +207,7 @@ impl Default for MainView {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RemoteProviderKind {
+pub enum RemoteProviderKind {
     Anthropic,
     OpenAi,
     Groq,
@@ -400,10 +457,12 @@ pub struct AppState {
     pub chat_messages: Vec<ChatMessage>,
     /// Configuración de la aplicación.
     pub config: AppConfig, // New field
-    /// Vista principal activa (chat o live multimodal).
+    /// Vista principal activa (chat, recursos o panel de preferencias).
     pub active_main_view: MainView,
-    /// Sección de preferencias seleccionada en el árbol lateral.
-    pub selected_section: PreferenceSection,
+    /// Panel de preferencias actualmente seleccionado.
+    pub selected_preference: PreferencePanel,
+    /// Recurso seleccionado dentro del explorador de recursos.
+    pub selected_resource: Option<ResourceSection>,
     /// Token de acceso personal de GitHub.
     pub github_token: String,
     /// Nombre de usuario autenticado en GitHub.
@@ -614,10 +673,12 @@ impl Default for AppState {
         let mut expanded_nav_nodes = BTreeSet::new();
         for id in [
             "resources",
-            "system",
-            "providers",
-            "local_model",
-            "customization",
+            "resources_local",
+            "resources_remote",
+            "preferences",
+            "preferences_system",
+            "preferences_providers",
+            "preferences_custom",
         ] {
             expanded_nav_nodes.insert(id);
         }
@@ -629,7 +690,8 @@ impl Default for AppState {
             chat_messages: vec![ChatMessage::default()],
             config: config.clone(),
             active_main_view: MainView::default(),
-            selected_section: PreferenceSection::default(),
+            selected_preference: PreferencePanel::default(),
+            selected_resource: None,
             github_token: config.github_token.unwrap_or_default(),
             github_username: None,
             github_repositories: Vec::new(),

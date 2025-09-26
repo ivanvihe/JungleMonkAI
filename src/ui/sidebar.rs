@@ -1,4 +1,5 @@
-use crate::state::{AppState, MainView, PreferenceSection};
+use crate::local_providers::LocalModelProvider;
+use crate::state::{AppState, MainView, PreferencePanel, RemoteProviderKind, ResourceSection};
 use eframe::egui::{self, Color32, RichText};
 
 use super::theme;
@@ -6,6 +7,7 @@ use super::theme;
 const ICON_CHAT: &str = "\u{f086}"; // comments
 const ICON_LOGS: &str = "\u{f0f6}"; // file-lines
 const ICON_RESOURCES: &str = "\u{f1b3}"; // cubes
+const ICON_PREFERENCES: &str = "\u{f013}"; // cog
 const ICON_SYSTEM: &str = "\u{f2db}"; // microchip
 const ICON_PROVIDERS: &str = "\u{f6ff}"; // network-wired
 const ICON_LOCAL: &str = "\u{f0a0}"; // hard-drive
@@ -127,7 +129,8 @@ struct NavNode {
     label: &'static str,
     icon: &'static str,
     view: Option<MainView>,
-    section: Option<PreferenceSection>,
+    preference: Option<PreferencePanel>,
+    resource: Option<ResourceSection>,
     children: &'static [NavNode],
 }
 
@@ -137,7 +140,8 @@ const NAV_TREE: &[NavNode] = &[
         label: "Chat Multimodal",
         icon: ICON_CHAT,
         view: Some(MainView::ChatMultimodal),
-        section: None,
+        preference: None,
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -145,7 +149,8 @@ const NAV_TREE: &[NavNode] = &[
         label: "Registros & tareas",
         icon: ICON_LOGS,
         view: Some(MainView::Logs),
-        section: None,
+        preference: None,
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -153,61 +158,195 @@ const NAV_TREE: &[NavNode] = &[
         label: "Recursos",
         icon: ICON_RESOURCES,
         view: None,
-        section: None,
+        preference: None,
+        resource: None,
         children: RESOURCE_CHILDREN,
     },
     NavNode {
-        id: "customization",
-        label: "Personalización",
-        icon: ICON_CUSTOMIZATION,
+        id: "preferences",
+        label: "Preferencias",
+        icon: ICON_PREFERENCES,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::CustomizationCommands),
-        children: CUSTOMIZATION_DETAILS,
+        preference: None,
+        resource: None,
+        children: PREFERENCES_CHILDREN,
     },
 ];
 
 const RESOURCE_CHILDREN: &[NavNode] = &[
     NavNode {
-        id: "system",
-        label: "Sistema",
-        icon: ICON_SYSTEM,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::SystemResources),
-        children: SYSTEM_DETAILS,
-    },
-    NavNode {
-        id: "providers",
-        label: "Proveedores",
-        icon: ICON_PROVIDERS,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsProviderOpenAi),
-        children: PROVIDER_DETAILS,
-    },
-    NavNode {
-        id: "local_model",
-        label: "Modelo local",
+        id: "resources_local",
+        label: "Galerías locales",
         icon: ICON_LOCAL,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalSettings),
-        children: LOCAL_DETAILS,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: None,
+        children: LOCAL_GALLERIES,
     },
     NavNode {
-        id: "network",
-        label: "Red",
+        id: "resources_remote",
+        label: "Catálogos remotos",
         icon: ICON_NETWORK,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::SystemGithub),
-        children: NETWORK_DETAILS,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: None,
+        children: REMOTE_GALLERIES,
+    },
+    NavNode {
+        id: "resources_installed",
+        label: "Modelos instalados",
+        icon: ICON_LOCAL_SETTINGS,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::InstalledLocal),
+        children: &[],
     },
 ];
 
-const SYSTEM_DETAILS: &[NavNode] = &[
+const LOCAL_GALLERIES: &[NavNode] = &[
+    NavNode {
+        id: "local_hf",
+        label: "Hugging Face",
+        icon: ICON_LOCAL_HF,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::LocalCatalog(
+            LocalModelProvider::HuggingFace,
+        )),
+        children: &[],
+    },
+    NavNode {
+        id: "local_github",
+        label: "GitHub Models",
+        icon: ICON_LOCAL_GITHUB,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::LocalCatalog(
+            LocalModelProvider::GithubModels,
+        )),
+        children: &[],
+    },
+    NavNode {
+        id: "local_replicate",
+        label: "Replicate",
+        icon: ICON_LOCAL_REPLICATE,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::LocalCatalog(LocalModelProvider::Replicate)),
+        children: &[],
+    },
+    NavNode {
+        id: "local_ollama",
+        label: "Ollama",
+        icon: ICON_LOCAL_OLLAMA,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::LocalCatalog(LocalModelProvider::Ollama)),
+        children: &[],
+    },
+    NavNode {
+        id: "local_openrouter",
+        label: "OpenRouter",
+        icon: ICON_LOCAL_OPENROUTER,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::LocalCatalog(
+            LocalModelProvider::OpenRouter,
+        )),
+        children: &[],
+    },
+    NavNode {
+        id: "local_modelscope",
+        label: "ModelScope",
+        icon: ICON_LOCAL_MODELSCOPE,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::LocalCatalog(
+            LocalModelProvider::Modelscope,
+        )),
+        children: &[],
+    },
+];
+
+const REMOTE_GALLERIES: &[NavNode] = &[
+    NavNode {
+        id: "remote_claude",
+        label: "Claude",
+        icon: ICON_PROVIDER_ANTHROPIC,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::RemoteCatalog(
+            RemoteProviderKind::Anthropic,
+        )),
+        children: &[],
+    },
+    NavNode {
+        id: "remote_openai",
+        label: "OpenAI",
+        icon: ICON_PROVIDER_OPENAI,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::RemoteCatalog(RemoteProviderKind::OpenAi)),
+        children: &[],
+    },
+    NavNode {
+        id: "remote_groq",
+        label: "Groq",
+        icon: ICON_PROVIDER_GROQ,
+        view: Some(MainView::ResourceBrowser),
+        preference: None,
+        resource: Some(ResourceSection::RemoteCatalog(RemoteProviderKind::Groq)),
+        children: &[],
+    },
+];
+
+const PREFERENCES_CHILDREN: &[NavNode] = &[
+    NavNode {
+        id: "preferences_system",
+        label: "Sistema",
+        icon: ICON_SYSTEM,
+        view: Some(MainView::Preferences),
+        preference: None,
+        resource: None,
+        children: PREFERENCES_SYSTEM,
+    },
+    NavNode {
+        id: "preferences_providers",
+        label: "Proveedores",
+        icon: ICON_PROVIDERS,
+        view: Some(MainView::Preferences),
+        preference: None,
+        resource: None,
+        children: PREFERENCES_PROVIDERS,
+    },
+    NavNode {
+        id: "preferences_local",
+        label: "Jarvis local",
+        icon: ICON_LOCAL_SETTINGS,
+        view: Some(MainView::Preferences),
+        preference: Some(PreferencePanel::LocalJarvis),
+        resource: None,
+        children: &[],
+    },
+    NavNode {
+        id: "preferences_custom",
+        label: "Personalización",
+        icon: ICON_CUSTOMIZATION,
+        view: Some(MainView::Preferences),
+        preference: None,
+        resource: None,
+        children: PREFERENCES_CUSTOMIZATION,
+    },
+];
+
+const PREFERENCES_SYSTEM: &[NavNode] = &[
     NavNode {
         id: "system_github",
         label: "GitHub",
         icon: ICON_GITHUB,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::SystemGithub),
+        preference: Some(PreferencePanel::SystemGithub),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -215,7 +354,8 @@ const SYSTEM_DETAILS: &[NavNode] = &[
         label: "Caché",
         icon: ICON_CACHE,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::SystemCache),
+        preference: Some(PreferencePanel::SystemCache),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -223,18 +363,20 @@ const SYSTEM_DETAILS: &[NavNode] = &[
         label: "Recursos",
         icon: ICON_RESOURCE_USAGE,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::SystemResources),
+        preference: Some(PreferencePanel::SystemResources),
+        resource: None,
         children: &[],
     },
 ];
 
-const PROVIDER_DETAILS: &[NavNode] = &[
+const PREFERENCES_PROVIDERS: &[NavNode] = &[
     NavNode {
         id: "provider_anthropic",
         label: "Anthropic",
         icon: ICON_PROVIDER_ANTHROPIC,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsProviderAnthropic),
+        preference: Some(PreferencePanel::ProvidersAnthropic),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -242,7 +384,8 @@ const PROVIDER_DETAILS: &[NavNode] = &[
         label: "OpenAI",
         icon: ICON_PROVIDER_OPENAI,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsProviderOpenAi),
+        preference: Some(PreferencePanel::ProvidersOpenAi),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -250,86 +393,20 @@ const PROVIDER_DETAILS: &[NavNode] = &[
         label: "Groq",
         icon: ICON_PROVIDER_GROQ,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsProviderGroq),
+        preference: Some(PreferencePanel::ProvidersGroq),
+        resource: None,
         children: &[],
     },
 ];
 
-const LOCAL_DETAILS: &[NavNode] = &[
-    NavNode {
-        id: "local_hf",
-        label: "HuggingFace",
-        icon: ICON_LOCAL_HF,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalHuggingFace),
-        children: &[],
-    },
-    NavNode {
-        id: "local_github_models",
-        label: "GitHub Models",
-        icon: ICON_LOCAL_GITHUB,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalGithub),
-        children: &[],
-    },
-    NavNode {
-        id: "local_replicate",
-        label: "Replicate",
-        icon: ICON_LOCAL_REPLICATE,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalReplicate),
-        children: &[],
-    },
-    NavNode {
-        id: "local_ollama",
-        label: "Ollama",
-        icon: ICON_LOCAL_OLLAMA,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalOllama),
-        children: &[],
-    },
-    NavNode {
-        id: "local_openrouter",
-        label: "OpenRouter",
-        icon: ICON_LOCAL_OPENROUTER,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalOpenRouter),
-        children: &[],
-    },
-    NavNode {
-        id: "local_modelscope",
-        label: "ModelScope",
-        icon: ICON_LOCAL_MODELSCOPE,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalModelscope),
-        children: &[],
-    },
-    NavNode {
-        id: "local_settings",
-        label: "Configuración",
-        icon: ICON_LOCAL_SETTINGS,
-        view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::ModelsLocalSettings),
-        children: &[],
-    },
-];
-
-const NETWORK_DETAILS: &[NavNode] = &[NavNode {
-    id: "network_providers",
-    label: "Red de proveedores",
-    icon: ICON_NETWORK,
-    view: Some(MainView::Preferences),
-    section: Some(PreferenceSection::ModelsProviderOpenAi),
-    children: &[],
-}];
-
-const CUSTOMIZATION_DETAILS: &[NavNode] = &[
+const PREFERENCES_CUSTOMIZATION: &[NavNode] = &[
     NavNode {
         id: "custom_commands",
         label: "Comandos",
         icon: ICON_COMMANDS,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::CustomizationCommands),
+        preference: Some(PreferencePanel::CustomizationCommands),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -337,7 +414,8 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
         label: "Memoria",
         icon: ICON_MEMORY,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::CustomizationMemory),
+        preference: Some(PreferencePanel::CustomizationMemory),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -345,7 +423,8 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
         label: "Perfiles",
         icon: ICON_PROFILES,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::CustomizationProfiles),
+        preference: Some(PreferencePanel::CustomizationProfiles),
+        resource: None,
         children: &[],
     },
     NavNode {
@@ -353,7 +432,8 @@ const CUSTOMIZATION_DETAILS: &[NavNode] = &[
         label: "Proyectos",
         icon: ICON_PROJECTS,
         view: Some(MainView::Preferences),
-        section: Some(PreferenceSection::CustomizationProjects),
+        preference: Some(PreferencePanel::CustomizationProjects),
+        resource: None,
         children: &[],
     },
 ];
@@ -435,14 +515,21 @@ fn draw_nav_node(ui: &mut egui::Ui, state: &mut AppState, node: &NavNode, depth:
             toggle_branch(state, node.id, is_expanded);
         }
 
+        if let Some(resource) = node.resource {
+            state.selected_resource = Some(resource);
+            state.active_main_view = MainView::ResourceBrowser;
+            return;
+        }
+
+        if let Some(preference) = node.preference {
+            state.selected_preference = preference;
+            state.selected_resource = None;
+            state.active_main_view = MainView::Preferences;
+            return;
+        }
+
         if let Some(view) = node.view {
             state.active_main_view = view;
-        }
-        if let Some(section) = node.section {
-            state.selected_section = section;
-            if state.active_main_view != MainView::Preferences {
-                state.active_main_view = MainView::Preferences;
-            }
         }
     }
 
@@ -462,16 +549,23 @@ fn toggle_branch(state: &mut AppState, id: &'static str, expanded: bool) {
 }
 
 fn node_is_selected(state: &AppState, node: &NavNode) -> bool {
+    if let Some(resource) = node.resource {
+        return state.selected_resource == Some(resource)
+            && state.active_main_view == MainView::ResourceBrowser;
+    }
+
+    if let Some(preference) = node.preference {
+        return state.selected_preference == preference
+            && state.active_main_view == MainView::Preferences;
+    }
+
     if let Some(view) = node.view {
-        if state.active_main_view == view && node.section.is_none() {
-            return true;
-        }
+        return node.children.is_empty()
+            && node.preference.is_none()
+            && node.resource.is_none()
+            && state.active_main_view == view;
     }
-    if let Some(section) = node.section {
-        if state.selected_section == section && state.active_main_view == MainView::Preferences {
-            return true;
-        }
-    }
+
     false
 }
 

@@ -94,6 +94,7 @@ pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<LocalModelC
                 downloads: None,
                 requires_token: false,
                 description: None,
+                incompatible_reason: None,
             }
         })
         .collect())

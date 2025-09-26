@@ -100,6 +100,8 @@ pub struct LocalModelCard {
     pub downloads: Option<u64>,
     pub requires_token: bool,
     pub description: Option<String>,
+    #[serde(default)]
+    pub incompatible_reason: Option<String>,
 }
 
 impl LocalModelCard {
@@ -124,6 +126,7 @@ impl Default for LocalModelCard {
             downloads: None,
             requires_token: false,
             description: None,
+            incompatible_reason: None,
         }
     }
 }

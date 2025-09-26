@@ -853,6 +853,7 @@ pub struct CommandDocumentation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogStatus {
     Ok,
+    Warning,
     Error,
     Running,
 }

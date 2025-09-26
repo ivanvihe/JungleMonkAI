@@ -1,4 +1,4 @@
-use eframe::egui::{self, Frame, Label, Margin, RichText, Rounding};
+use eframe::egui::{self, Color32, Frame, Label, Margin, RichText, Rounding};
 use egui_extras::{Column, TableBuilder};
 
 use crate::state::{AppState, LogStatus};
@@ -263,6 +263,7 @@ fn collapsed_frame() -> egui::Frame {
 fn status_badge(status: LogStatus) -> RichText {
     match status {
         LogStatus::Ok => RichText::new("✔ OK").color(theme::COLOR_SUCCESS),
+        LogStatus::Warning => RichText::new("⚠ Advertencia").color(Color32::from_rgb(255, 196, 86)),
         LogStatus::Error => RichText::new("❌ Error").color(theme::COLOR_DANGER),
         LogStatus::Running => RichText::new("⏳ En curso").color(theme::COLOR_PRIMARY),
     }

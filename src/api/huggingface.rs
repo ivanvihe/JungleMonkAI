@@ -30,6 +30,36 @@ struct RawModelSummary {
     tags: Vec<String>,
 }
 
+fn huggingface_incompatibility(raw: &RawModelSummary) -> Option<String> {
+    let tags_lower: Vec<String> = raw.tags.iter().map(|tag| tag.to_lowercase()).collect();
+
+    if tags_lower
+        .iter()
+        .any(|tag| tag.contains("gguf") || tag.contains("ggml"))
+    {
+        return Some(
+            "Este repositorio solo ofrece pesos en formato GGUF/GGML, incompatible con el runtime local de Jarvis.".
+                to_string(),
+        );
+    }
+
+    if let Some(pipeline) = raw.pipeline_tag.as_deref() {
+        let pipeline_lower = pipeline.to_lowercase();
+        let supported = matches!(
+            pipeline_lower.as_str(),
+            "feature-extraction" | "sentence-similarity" | "text-embedding"
+        );
+        if !supported {
+            return Some(format!(
+                "La pipeline declarada '{}' no es compatible con el runtime de incrustaciones de Jarvis.",
+                pipeline
+            ));
+        }
+    }
+
+    None
+}
+
 /// Busca modelos en Hugging Face y devuelve una lista de metadatos resumidos.
 pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<LocalModelCard>> {
     let client = Client::builder()
@@ -60,16 +90,20 @@ pub fn search_models(query: &str, token: Option<&str>) -> Result<Vec<LocalModelC
 
     Ok(models
         .into_iter()
-        .map(|raw| LocalModelCard {
-            provider: LocalModelProvider::HuggingFace,
-            id: raw.model_id,
-            author: raw.author,
-            pipeline_tag: raw.pipeline_tag,
-            tags: raw.tags,
-            likes: raw.likes,
-            downloads: raw.downloads,
-            requires_token: raw.private || raw.gated,
-            description: None,
+        .map(|raw| {
+            let incompatible_reason = huggingface_incompatibility(&raw);
+            LocalModelCard {
+                provider: LocalModelProvider::HuggingFace,
+                id: raw.model_id,
+                author: raw.author,
+                pipeline_tag: raw.pipeline_tag,
+                tags: raw.tags,
+                likes: raw.likes,
+                downloads: raw.downloads,
+                requires_token: raw.private || raw.gated,
+                description: None,
+                incompatible_reason,
+            }
         })
         .collect())
 }

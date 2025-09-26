@@ -1,5 +1,5 @@
 use crate::{
-    api::local::JarvisRuntime,
+    api::{claude::AnthropicModel, local::JarvisRuntime},
     config::AppConfig,
     local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider},
 };
@@ -421,6 +421,10 @@ pub struct AppState {
     pub claude_alias: String,
     /// Mensaje de prueba de conexión con Anthropic.
     pub anthropic_test_status: Option<String>,
+    /// Catálogo recuperado de modelos de Claude.
+    pub claude_available_models: Vec<AnthropicModel>,
+    /// Mensaje de estado asociado al catálogo de modelos de Claude.
+    pub claude_models_status: Option<String>,
     /// Modelo por defecto de OpenAI.
     pub openai_default_model: String,
     /// Alias configurado para invocar a OpenAI desde el chat.
@@ -594,6 +598,8 @@ impl Default for AppState {
                 config.anthropic.alias.clone()
             },
             anthropic_test_status: None,
+            claude_available_models: Vec::new(),
+            claude_models_status: None,
             openai_default_model: if config.openai.default_model.is_empty() {
                 "gpt-4.1-mini".to_string()
             } else {

@@ -1,4 +1,4 @@
-use crate::api::github;
+use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{AppState, ChatMessage, MainView, PreferenceSection, AVAILABLE_CUSTOM_ACTIONS};
 use anyhow::Result;
@@ -1829,6 +1829,230 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState) {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
+
+    ui.add_space(16.0);
+    ui.separator();
+    ui.add_space(10.0);
+
+    ui.heading(
+        RichText::new("Catálogo de modelos disponibles")
+            .color(theme::COLOR_TEXT_PRIMARY)
+            .strong(),
+    );
+    ui.label(
+        RichText::new(
+            "Consulta la API de Anthropic para descubrir los modelos compatibles con tu cuenta.",
+        )
+        .color(theme::COLOR_TEXT_WEAK)
+        .size(12.0),
+    );
+    ui.add_space(10.0);
+
+    let mut refresh_triggered = false;
+    if ui
+        .add_sized(
+            [180.0, 32.0],
+            theme::primary_button(
+                RichText::new("Actualizar catálogo").color(Color32::from_rgb(240, 240, 240)),
+            ),
+        )
+        .clicked()
+    {
+        refresh_triggered = true;
+    }
+
+    if refresh_triggered {
+        if anthropic_key.trim().is_empty() {
+            state.claude_models_status =
+                Some("Ingresa una API key válida antes de solicitar el catálogo.".to_string());
+        } else {
+            match crate::api::claude::list_models(anthropic_key.trim()) {
+                Ok(models) => {
+                    let count = models.len();
+                    state.claude_available_models = models;
+                    state.claude_models_status = Some(if count == 0 {
+                        "No se encontraron modelos disponibles para esta cuenta.".to_string()
+                    } else {
+                        format!("Se encontraron {count} modelos disponibles.")
+                    });
+                }
+                Err(err) => {
+                    state.claude_models_status =
+                        Some(format!("No se pudo obtener el listado de modelos: {}", err));
+                }
+            }
+        }
+    }
+
+    if let Some(status) = &state.claude_models_status {
+        ui.add_space(6.0);
+        ui.colored_label(ui.visuals().weak_text_color(), status);
+    }
+
+    ui.add_space(12.0);
+
+    if state.claude_available_models.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Pulsa \"Actualizar catálogo\" para listar los modelos disponibles.",
+        );
+    } else {
+        let models = state.claude_available_models.clone();
+        draw_claude_models_gallery(ui, state, &models);
+    }
+}
+
+fn draw_claude_models_gallery(ui: &mut egui::Ui, state: &mut AppState, models: &[AnthropicModel]) {
+    let columns = if ui.available_width() > 720.0 { 2 } else { 1 };
+    let spacing = 16.0;
+
+    egui::ScrollArea::vertical()
+        .max_height(360.0)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let available_width = ui.available_width();
+            let card_width = ((available_width - spacing * ((columns as f32) - 1.0))
+                / columns as f32)
+                .max(260.0);
+
+            for chunk in models.chunks(columns) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = spacing;
+                    for model in chunk {
+                        let (rect, _) = ui
+                            .allocate_at_least(egui::vec2(card_width, 200.0), egui::Sense::hover());
+                        let mut card_ui =
+                            ui.child_ui(rect, egui::Layout::top_down(egui::Align::LEFT));
+                        draw_claude_model_card(&mut card_ui, state, model);
+                    }
+
+                    if chunk.len() < columns {
+                        for _ in chunk.len()..columns {
+                            ui.add_space(card_width);
+                        }
+                    }
+                });
+                ui.add_space(spacing);
+            }
+        });
+}
+
+fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &AnthropicModel) {
+    let is_selected = state.claude_default_model.trim() == model.id;
+    let fill = Color32::from_rgb(34, 38, 44);
+    let border = if is_selected {
+        theme::COLOR_PRIMARY
+    } else {
+        Color32::from_rgb(70, 80, 96)
+    };
+
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(egui::Stroke::new(
+            if is_selected { 2.0 } else { 1.0 },
+            border,
+        ))
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                let title = model
+                    .display_name
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| model.id.clone());
+                ui.label(
+                    RichText::new(title)
+                        .strong()
+                        .color(theme::COLOR_TEXT_PRIMARY),
+                );
+
+                if model
+                    .display_name
+                    .as_ref()
+                    .map(|value| value.trim() != model.id)
+                    .unwrap_or(false)
+                {
+                    ui.label(
+                        RichText::new(&model.id)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                }
+
+                let mut metrics = Vec::new();
+                if let Some(context) = model.context_window {
+                    metrics.push(format!("Contexto: {} tokens", context));
+                }
+                if let Some(limit) = model.input_token_limit {
+                    metrics.push(format!("Entrada máx: {}", limit));
+                }
+                if let Some(limit) = model.output_token_limit {
+                    metrics.push(format!("Salida máx: {}", limit));
+                }
+                if let Some(kind) = &model.r#type {
+                    if !kind.trim().is_empty() {
+                        metrics.push(format!("Tipo: {}", kind));
+                    }
+                }
+                if !metrics.is_empty() {
+                    ui.label(
+                        RichText::new(metrics.join("  ·  "))
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(12.0),
+                    );
+                }
+
+                if !model.aliases.is_empty() {
+                    let mut aliases: Vec<&str> =
+                        model.aliases.iter().map(|alias| alias.as_str()).collect();
+                    if aliases.len() > 3 {
+                        aliases.truncate(3);
+                    }
+                    let suffix = if model.aliases.len() > aliases.len() {
+                        format!(" (+{} más)", model.aliases.len() - aliases.len())
+                    } else {
+                        String::new()
+                    };
+                    ui.label(
+                        RichText::new(format!("Aliases: {}{}", aliases.join(", "), suffix))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                }
+
+                if let Some(description) = &model.description {
+                    if !description.trim().is_empty() {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(description)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                    }
+                }
+
+                ui.add_space(10.0);
+
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 30.0],
+                        theme::primary_button(
+                            RichText::new("Use this model").color(Color32::from_rgb(240, 240, 240)),
+                        ),
+                    )
+                    .clicked()
+                {
+                    state.claude_default_model = model.id.clone();
+                    state.persist_config();
+                    state.claude_models_status = Some(format!(
+                        "Modelo '{}' establecido como predeterminado.",
+                        model.id
+                    ));
+                }
+            });
+        });
 }
 
 fn draw_provider_openai(ui: &mut egui::Ui, state: &mut AppState) {

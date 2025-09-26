@@ -157,32 +157,40 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
     let mut pending_actions = Vec::new();
 
-    egui::Frame::none()
-        .fill(Color32::from_rgb(26, 28, 32))
-        .stroke(theme::subtle_border())
-        .rounding(egui::Rounding::same(16.0))
-        .inner_margin(egui::Margin {
-            left: 20.0,
-            right: 12.0,
-            top: 20.0,
-            bottom: 18.0,
-        })
-        .show(ui, |ui| {
-            let available_height = ui.available_height();
-            ui.set_min_height(available_height);
-            ui.set_width(ui.available_width());
-
-            egui::ScrollArea::vertical()
-                .stick_to_bottom(true)
-                .auto_shrink([false, false])
+    let max_width = ui.available_width().min(580.0);
+    ui.allocate_ui_with_layout(
+        egui::vec2(max_width, 0.0),
+        egui::Layout::top_down(egui::Align::LEFT),
+        |ui| {
+            ui.set_width(max_width);
+            egui::Frame::none()
+                .fill(Color32::from_rgb(26, 28, 32))
+                .stroke(theme::subtle_border())
+                .rounding(egui::Rounding::same(16.0))
+                .inner_margin(egui::Margin {
+                    left: 20.0,
+                    right: 12.0,
+                    top: 20.0,
+                    bottom: 18.0,
+                })
                 .show(ui, |ui| {
-                    let feed_width = ui.available_width();
-                    ui.set_width(feed_width);
-                    for (index, message) in state.chat_messages.iter().enumerate() {
-                        draw_message_bubble(ui, message, index, &mut pending_actions);
-                    }
+                    let available_height = ui.available_height();
+                    ui.set_min_height(available_height);
+                    ui.set_width(ui.available_width());
+
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(true)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let feed_width = ui.available_width().min(540.0);
+                            ui.set_width(feed_width);
+                            for (index, message) in state.chat_messages.iter().enumerate() {
+                                draw_message_bubble(ui, message, index, &mut pending_actions);
+                            }
+                        });
                 });
-        });
+        },
+    );
 
     apply_pending_actions(state, pending_actions);
 }
@@ -718,129 +726,139 @@ fn apply_pending_actions(state: &mut AppState, actions: Vec<PendingChatAction>) 
 }
 
 fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
-    egui::Frame::none()
-        .fill(Color32::from_rgb(24, 26, 32))
-        .stroke(theme::subtle_border())
-        .rounding(egui::Rounding::same(16.0))
-        .inner_margin(egui::Margin::symmetric(18.0, 14.0))
-        .show(ui, |ui| {
-            let full_width = ui.available_width();
-            ui.set_width(full_width);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    if let Some(tag) = state.jarvis_mention_tag() {
-                        if quick_chip(ui, &tag).clicked() {
-                            insert_mention(state, &tag);
+    let max_width = ui.available_width().min(580.0);
+    ui.allocate_ui_with_layout(
+        egui::vec2(max_width, 0.0),
+        egui::Layout::top_down(egui::Align::LEFT),
+        |ui| {
+            ui.set_width(max_width);
+            egui::Frame::none()
+                .fill(Color32::from_rgb(24, 26, 32))
+                .stroke(theme::subtle_border())
+                .rounding(egui::Rounding::same(16.0))
+                .inner_margin(egui::Margin::symmetric(18.0, 14.0))
+                .show(ui, |ui| {
+                    let full_width = ui.available_width().min(560.0);
+                    ui.set_width(full_width);
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            if let Some(tag) = state.jarvis_mention_tag() {
+                                if quick_chip(ui, &tag).clicked() {
+                                    insert_mention(state, &tag);
+                                }
+                            }
+
+                            for (mention, label) in QUICK_MENTIONS {
+                                if quick_chip(ui, label).clicked() {
+                                    insert_mention(state, mention);
+                                }
+                            }
+
+                            ui.add_space(ui.available_width());
+
+                            if quick_chip_with_icon(ui, ICON_CODE, "Insertar bloque de código").clicked() {
+                                insert_code_template(state);
+                            }
+                        });
+
+                        ui.add_space(12.0);
+
+                        let mut should_send = false;
+
+                        let text_height = 82.0;
+                        let enter_pressed = ui.input(|input| {
+                            input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
+                        });
+
+                        let text_response = ui
+                            .allocate_ui_with_layout(
+                                egui::vec2(ui.available_width(), text_height),
+                                egui::Layout::top_down(egui::Align::LEFT),
+                                |ui| {
+                                    let text_edit = egui::TextEdit::multiline(
+                                        &mut state.current_chat_input,
+                                    )
+                                    .desired_rows(3)
+                                    .hint_text(
+                                        "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
+                                    )
+                                    .lock_focus(true)
+                                    .desired_width(f32::INFINITY)
+                                    .frame(false);
+
+                                    let text_frame = egui::Frame::none()
+                                        .fill(Color32::from_rgb(30, 32, 38))
+                                        .stroke(theme::subtle_border())
+                                        .rounding(egui::Rounding::same(12.0))
+                                        .inner_margin(egui::Margin::symmetric(14.0, 10.0));
+
+                                    text_frame
+                                        .show(ui, |ui| {
+                                            ui.set_height(text_height);
+                                            ui.spacing_mut().item_spacing.x = 12.0;
+
+                                            ui.horizontal(|ui| {
+                                                let button_width = 34.0;
+                                                let available = ui.available_width();
+                                                let text_size = [
+                                                    (available - button_width).max(120.0),
+                                                    text_height - 20.0,
+                                                ];
+                                                let text_response =
+                                                    ui.add_sized(text_size, text_edit);
+
+                                                let (button_rect, send_response) = ui
+                                                    .allocate_exact_size(
+                                                        egui::vec2(
+                                                            button_width,
+                                                            text_response
+                                                                .rect
+                                                                .height()
+                                                                .max(28.0),
+                                                        ),
+                                                        egui::Sense::click(),
+                                                    );
+                                                let send_response = send_response
+                                                    .on_hover_text("Enviar mensaje")
+                                                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                                let painter = ui.painter_at(button_rect);
+                                                painter.text(
+                                                    button_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    ICON_SEND,
+                                                    theme::icon_font(20.0),
+                                                    Color32::from_rgb(240, 240, 240),
+                                                );
+
+                                                (text_response, send_response)
+                                            })
+                                            .inner
+                                        })
+                                        .inner
+                                },
+                            )
+                            .inner;
+
+                        let (text_response, send_response) = text_response;
+
+                        if text_response.has_focus() && enter_pressed {
+                            should_send = true;
+                            ui.ctx()
+                                .memory_mut(|mem| mem.request_focus(text_response.id));
                         }
-                    }
 
-                    for (mention, label) in QUICK_MENTIONS {
-                        if quick_chip(ui, label).clicked() {
-                            insert_mention(state, mention);
+                        if send_response.clicked() {
+                            should_send = true;
                         }
-                    }
 
-                    ui.add_space(ui.available_width());
-
-                    if quick_chip_with_icon(ui, ICON_CODE, "Insertar bloque de código").clicked() {
-                        insert_code_template(state);
-                    }
+                        if should_send {
+                            submit_chat_message(state);
+                        }
+                    });
                 });
-
-                ui.add_space(12.0);
-
-                let mut should_send = false;
-
-                let text_height = 82.0;
-                let enter_pressed = ui.input(|input| {
-                    input.key_pressed(egui::Key::Enter) && !input.modifiers.shift
-                });
-
-                let text_response = ui
-                    .allocate_ui_with_layout(
-                        egui::vec2(ui.available_width(), text_height),
-                        egui::Layout::top_down(egui::Align::LEFT),
-                        |ui| {
-                            let text_edit = egui::TextEdit::multiline(&mut state.current_chat_input)
-                                .desired_rows(3)
-                                .hint_text(
-                                    "Escribe tu mensaje o comando. Usa Shift+Enter para saltos de línea.",
-                                )
-                                .lock_focus(true)
-                                .desired_width(f32::INFINITY)
-                                .frame(false);
-
-                            let text_frame = egui::Frame::none()
-                                .fill(Color32::from_rgb(30, 32, 38))
-                                .stroke(theme::subtle_border())
-                                .rounding(egui::Rounding::same(12.0))
-                                .inner_margin(egui::Margin::symmetric(14.0, 10.0));
-
-                            text_frame
-                                .show(ui, |ui| {
-                                    ui.set_height(text_height);
-                                    ui.spacing_mut().item_spacing.x = 12.0;
-
-                                    ui.horizontal(|ui| {
-                                        let button_width = 34.0;
-                                        let available = ui.available_width();
-                                        let text_size = [
-                                            (available - button_width).max(120.0),
-                                            text_height - 20.0,
-                                        ];
-                                        let text_response =
-                                            ui.add_sized(text_size, text_edit);
-
-                                        let (button_rect, send_response) = ui
-                                            .allocate_exact_size(
-                                                egui::vec2(
-                                                    button_width,
-                                                    text_response
-                                                        .rect
-                                                        .height()
-                                                        .max(28.0),
-                                                ),
-                                                egui::Sense::click(),
-                                            );
-                                        let send_response = send_response
-                                            .on_hover_text("Enviar mensaje")
-                                            .on_hover_cursor(egui::CursorIcon::PointingHand);
-                                        let painter = ui.painter_at(button_rect);
-                                        painter.text(
-                                            button_rect.center(),
-                                            egui::Align2::CENTER_CENTER,
-                                            ICON_SEND,
-                                            theme::icon_font(20.0),
-                                            Color32::from_rgb(240, 240, 240),
-                                        );
-
-                                        (text_response, send_response)
-                                    })
-                                    .inner
-                                })
-                                .inner
-                        },
-                    )
-                    .inner;
-
-                let (text_response, send_response) = text_response;
-
-                if text_response.has_focus() && enter_pressed {
-                    should_send = true;
-                    ui.ctx()
-                        .memory_mut(|mem| mem.request_focus(text_response.id));
-                }
-
-                if send_response.clicked() {
-                    should_send = true;
-                }
-
-                if should_send {
-                    submit_chat_message(state);
-                }
-            });
-        });
+        },
+    );
 }
 
 fn submit_chat_message(state: &mut AppState) {

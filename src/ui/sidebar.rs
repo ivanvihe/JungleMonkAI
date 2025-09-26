@@ -34,47 +34,36 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
     let panel_response = egui::SidePanel::left("navigation_panel")
         .resizable(true)
         .default_width(state.left_panel_width)
-        .width_range(200.0..=400.0)
+        .width_range(200.0..=460.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
                 .stroke(theme::subtle_border())
-                .inner_margin(egui::Margin::same(16.0)),
+                .inner_margin(egui::Margin {
+                    left: 18.0,
+                    right: 18.0,
+                    top: 18.0,
+                    bottom: 18.0,
+                })
+                .rounding(egui::Rounding::same(14.0)),
         )
         .show(ctx, |ui| {
             ui.set_clip_rect(ui.max_rect());
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.add_space(4.0);
                     for node in NAV_TREE {
                         draw_nav_node(ui, state, node, 0);
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
                     }
                 });
         });
 
-    let width = panel_response.response.rect.width().clamp(200.0, 400.0);
-    state.left_panel_width = width;
-
-    let separator_rect = egui::Rect::from_min_max(
-        egui::pos2(
-            panel_response.response.rect.right() - 2.0,
-            panel_response.response.rect.top(),
-        ),
-        egui::pos2(
-            panel_response.response.rect.right() + 2.0,
-            panel_response.response.rect.bottom(),
-        ),
-    );
-    let painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Foreground,
-        egui::Id::new("left_separator"),
-    ));
-    painter.rect_filled(
-        separator_rect,
-        0.0,
-        theme::COLOR_PRIMARY.gamma_multiply(0.25),
-    );
+    let width = panel_response.response.rect.width().clamp(200.0, 460.0);
+    if (width - state.left_panel_width).abs() > f32::EPSILON {
+        state.left_panel_width = width;
+    }
 }
 
 #[derive(Clone, Copy)]

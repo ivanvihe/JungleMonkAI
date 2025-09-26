@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use eframe::egui::{self, Color32, Label, Margin, RichText, Stroke};
+use eframe::egui::{self, Color32, Frame, Label, Margin, RichText, Stroke};
 
 use super::theme;
 use std::path::Path;
@@ -15,17 +15,18 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
     let panel_response = egui::SidePanel::right("resource_panel")
         .resizable(true)
         .default_width(state.right_panel_width)
-        .width_range(200.0..=400.0)
+        .width_range(200.0..=460.0)
         .frame(
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
                 .stroke(theme::subtle_border())
                 .inner_margin(egui::Margin {
-                    left: 16.0,
-                    right: 18.0,
-                    top: 18.0,
-                    bottom: 18.0,
-                }),
+                    left: 18.0,
+                    right: 20.0,
+                    top: 20.0,
+                    bottom: 20.0,
+                })
+                .rounding(egui::Rounding::same(14.0)),
         )
         .show(ctx, |ui| {
             ui.set_clip_rect(ui.max_rect());
@@ -48,65 +49,43 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        for (index, row) in rows.iter().enumerate() {
+                        for row in rows.iter() {
                             draw_resource_row(ui, row);
-                            if index + 1 != rows.len() {
-                                ui.add_space(10.0);
-                                ui.separator();
-                                ui.add_space(10.0);
-                            }
+                            ui.add_space(10.0);
                         }
                     });
             });
         });
 
-    let width = panel_response.response.rect.width().clamp(200.0, 400.0);
-    state.right_panel_width = width;
-
-    let separator_rect = egui::Rect::from_min_max(
-        egui::pos2(
-            panel_response.response.rect.left() - 2.0,
-            panel_response.response.rect.top(),
-        ),
-        egui::pos2(
-            panel_response.response.rect.left() + 2.0,
-            panel_response.response.rect.bottom(),
-        ),
-    );
-    let painter = ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Foreground,
-        egui::Id::new("right_separator"),
-    ));
-    painter.rect_filled(
-        separator_rect,
-        0.0,
-        theme::COLOR_PRIMARY.gamma_multiply(0.25),
-    );
+    let width = panel_response.response.rect.width().clamp(200.0, 460.0);
+    if (width - state.right_panel_width).abs() > f32::EPSILON {
+        state.right_panel_width = width;
+    }
 }
 
 fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
     let total_width = ui.available_width();
-    let row_width = (total_width - 8.0).max(total_width * 0.92);
+    let row_width = (total_width - 8.0).max(total_width * 0.94);
 
     ui.horizontal(|ui| {
-        ui.add_space(4.0);
+        ui.add_space(2.0);
         ui.vertical(|ui| {
             ui.set_width(row_width);
-            egui::Frame::none()
-                .fill(Color32::from_rgb(30, 32, 38))
+            Frame::none()
+                .fill(Color32::from_rgb(28, 30, 36))
                 .stroke(theme::subtle_border())
-                .rounding(egui::Rounding::same(12.0))
-                .inner_margin(Margin::symmetric(12.0, 10.0))
+                .rounding(egui::Rounding::same(14.0))
+                .inner_margin(Margin::symmetric(14.0, 12.0))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     let available = ui.available_width();
-                    let status_width = (available * 0.32)
-                        .max(110.0)
-                        .min(available * 0.5)
-                        .min(200.0);
+                    let status_width = (available * 0.33)
+                        .max(120.0)
+                        .min(available * 0.45)
+                        .min(220.0);
 
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 14.0;
+                        ui.spacing_mut().item_spacing.x = 12.0;
 
                         ui.label(
                             RichText::new(row.icon)
@@ -116,7 +95,7 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
 
                         let available_after_icon = ui.available_width();
                         let text_width = (available_after_icon - status_width)
-                            .max(160.0)
+                            .max(150.0)
                             .min(available_after_icon);
 
                         ui.allocate_ui_with_layout(
@@ -151,19 +130,20 @@ fn draw_resource_row(ui: &mut egui::Ui, row: &ResourceRow) {
                         );
                     });
 
-                    ui.add_space(8.0);
-                    ui.set_width(ui.available_width());
-                    ui.scope(|ui| {
-                        ui.style_mut().wrap = Some(true);
-                        ui.add(
-                            Label::new(RichText::new(&row.detail).color(theme::COLOR_TEXT_WEAK))
-                                .wrap(true)
-                                .truncate(false),
-                        );
-                    });
+                    if !row.tags.is_empty() {
+                        ui.add_space(10.0);
+                        ui.scope(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
+                            ui.horizontal_wrapped(|ui| {
+                                for tag in &row.tags {
+                                    draw_tag_chip(ui, tag);
+                                }
+                            });
+                        });
+                    }
                 });
         });
-        ui.add_space(4.0);
+        ui.add_space(2.0);
     });
 }
 
@@ -186,10 +166,28 @@ fn draw_led(ui: &mut egui::Ui, color: Color32, label: &str) {
     ui.add_sized([label_width, 0.0], label_widget);
 }
 
+fn draw_tag_chip(ui: &mut egui::Ui, text: &str) {
+    Frame::none()
+        .fill(Color32::from_rgb(40, 42, 48))
+        .stroke(egui::Stroke::new(
+            1.0,
+            theme::COLOR_PRIMARY.gamma_multiply(0.35),
+        ))
+        .rounding(egui::Rounding::same(10.0))
+        .inner_margin(Margin::symmetric(10.0, 4.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(text)
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .monospace(),
+            );
+        });
+}
+
 struct ResourceRow {
     icon: &'static str,
     name: &'static str,
-    detail: String,
+    tags: Vec<String>,
     indicator: StatusIndicator,
 }
 
@@ -202,10 +200,12 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_SYSTEM,
             name: "Sistema",
-            detail: format!(
-                "Memoria límite {:.1} GB · Disco {:.1} GB",
-                state.resource_memory_limit_gb, state.resource_disk_limit_gb
-            ),
+            tags: vec![
+                "Memoria".to_string(),
+                format!("{:.1} GB", state.resource_memory_limit_gb),
+                "Disco".to_string(),
+                format!("{:.1} GB", state.resource_disk_limit_gb),
+            ],
             indicator: StatusIndicator::Led {
                 color: theme::COLOR_SUCCESS,
                 status: "Operativo".to_string(),
@@ -214,13 +214,13 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_JARVIS,
             name: "Jarvis",
-            detail: jarvis_detail(state),
+            tags: jarvis_tags(state),
             indicator: jarvis_indicator(state),
         },
         ResourceRow {
             icon: ICON_OPENAI,
             name: "OpenAI",
-            detail: format!("Modelo {}", state.openai_default_model),
+            tags: provider_tags("Modelo", &state.openai_default_model),
             indicator: provider_indicator(
                 state.openai_test_status.as_ref(),
                 state.config.openai.api_key.as_ref().map(|s| s.as_str()),
@@ -231,7 +231,7 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_CLAUDE,
             name: "Claude",
-            detail: format!("Modelo {}", state.claude_default_model),
+            tags: provider_tags("Modelo", &state.claude_default_model),
             indicator: provider_indicator(
                 state.anthropic_test_status.as_ref(),
                 state.config.anthropic.api_key.as_ref().map(|s| s.as_str()),
@@ -242,7 +242,7 @@ fn resource_rows(state: &AppState) -> Vec<ResourceRow> {
         ResourceRow {
             icon: ICON_GROQ,
             name: "Groq",
-            detail: format!("Modelo {}", state.groq_default_model),
+            tags: provider_tags("Modelo", &state.groq_default_model),
             indicator: provider_indicator(
                 state.groq_test_status.as_ref(),
                 state.config.groq.api_key.as_ref().map(|s| s.as_str()),
@@ -271,11 +271,15 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
     }
 }
 
-fn jarvis_detail(state: &AppState) -> String {
+fn jarvis_tags(state: &AppState) -> Vec<String> {
     if let Some(model) = &state.jarvis_active_model {
         let trimmed_path = state.jarvis_model_path.trim();
         if trimmed_path.is_empty() {
-            return format!("{} · ruta sin configurar", model.display_label());
+            return vec![
+                model.display_label(),
+                "Ruta".to_string(),
+                "Sin configurar".to_string(),
+            ];
         }
 
         let path = Path::new(trimmed_path);
@@ -285,11 +289,22 @@ fn jarvis_detail(state: &AppState) -> String {
             .map(|name| name.to_string())
             .unwrap_or_else(|| trimmed_path.to_string());
 
-        format!("{} · {}", model.display_label(), display)
+        vec![model.display_label(), display]
     } else if state.jarvis_model_path.trim().is_empty() {
-        "Sin modelo seleccionado".to_string()
+        vec!["Sin modelo".to_string(), "Configurar ruta".to_string()]
     } else {
-        format!("Ruta {}", state.jarvis_model_path)
+        vec![
+            "Ruta".to_string(),
+            state.jarvis_model_path.trim().to_string(),
+        ]
+    }
+}
+
+fn provider_tags(prefix: &str, model: &str) -> Vec<String> {
+    if model.trim().is_empty() {
+        vec![prefix.to_string(), "Sin modelo".to_string()]
+    } else {
+        vec![prefix.to_string(), model.trim().to_string()]
     }
 }
 

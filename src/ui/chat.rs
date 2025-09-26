@@ -1,13 +1,14 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
-    format_bytes, AppState, ChatMessage, InstalledLocalModel, KnowledgeResourceCard, LogStatus,
-    MainView, PreferencePanel, RemoteModelCard, RemoteModelKey, RemoteProviderKind,
-    ResourceSection, AVAILABLE_CUSTOM_ACTIONS,
+    format_bytes, AppState, ChatMessage, DebugLogLevel, InstalledLocalModel, KnowledgeResourceCard,
+    LogStatus, MainView, PreferencePanel, RemoteModelCard, RemoteModelKey, RemoteProviderKind,
+    ResourceSection, ScheduledTaskStatus, AVAILABLE_CUSTOM_ACTIONS,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
+use egui_extras::{Column, TableBuilder};
 use std::path::Path;
 
 use super::{logs, tabs, theme};
@@ -32,6 +33,12 @@ const ICON_TABLE: &str = "\u{f0ce}"; // table
 const ICON_LINK: &str = "\u{f0c1}"; // link
 const ICON_FOLDER: &str = "\u{f07c}"; // folder-open
 const ICON_FILE_DOC: &str = "\u{f15b}"; // file
+const ICON_CALENDAR: &str = "\u{f073}"; // calendar-alt
+const ICON_REPEAT: &str = "\u{f021}"; // sync-alt
+const ICON_PLAY: &str = "\u{f04b}"; // play
+const ICON_STOP: &str = "\u{f04d}"; // stop
+const ICON_BUG: &str = "\u{f188}"; // bug
+const ICON_INFO: &str = "\u{f129}"; // info-circle
 
 const QUICK_MENTIONS: [(&str, &str); 3] =
     [("@claude", "@claude"), ("@gpt", "@gpt"), ("@groq", "@groq")];
@@ -119,9 +126,11 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
 
                             match state.active_main_view {
                                 MainView::ChatMultimodal => draw_chat_view(ui, state),
+                                MainView::CronScheduler => draw_cron_view(ui, state),
+                                MainView::ActivityFeed => draw_activity_view(ui, state),
+                                MainView::DebugConsole => draw_debug_console_view(ui, state),
                                 MainView::Preferences => draw_preferences_view(ui, state),
                                 MainView::ResourceBrowser => draw_resource_view(ui, state),
-                                MainView::Logs => logs::draw_logs_view(ui, state),
                             }
                         });
                 });
@@ -289,6 +298,690 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
     });
 }
 
+fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
+    with_centered_main_surface(ui, |ui| {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(30, 32, 36))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(18.0))
+            .inner_margin(egui::Margin {
+                left: 20.0,
+                right: 20.0,
+                top: 20.0,
+                bottom: 18.0,
+            })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.label(
+                        RichText::new(ICON_CALENDAR)
+                            .font(theme::icon_font(18.0))
+                            .color(theme::COLOR_PRIMARY),
+                    );
+                    ui.heading(
+                        RichText::new("Tareas programadas")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                });
+                ui.label(
+                    RichText::new(
+                        "Gestiona cron jobs, automatizaciones y recordatorios ejecutados por JungleMonkAI.",
+                    )
+                    .color(theme::COLOR_TEXT_WEAK),
+                );
+
+                ui.add_space(12.0);
+                draw_cron_summary(ui, state);
+                ui.add_space(10.0);
+                draw_cron_filters(ui, state);
+                ui.add_space(10.0);
+                draw_cron_table(ui, state);
+
+                if let Some(task) = state.cron_board.selected_task() {
+                    ui.add_space(14.0);
+                    draw_cron_task_detail(ui, state, task);
+                }
+            });
+    });
+}
+
+fn draw_activity_view(ui: &mut egui::Ui, state: &AppState) {
+    with_centered_main_surface(ui, |ui| {
+        logs::draw_logs_view(ui, state);
+    });
+}
+
+fn draw_debug_console_view(ui: &mut egui::Ui, state: &mut AppState) {
+    with_centered_main_surface(ui, |ui| {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(26, 28, 32))
+            .stroke(theme::subtle_border())
+            .rounding(egui::Rounding::same(18.0))
+            .inner_margin(egui::Margin {
+                left: 20.0,
+                right: 20.0,
+                top: 20.0,
+                bottom: 18.0,
+            })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.label(
+                        RichText::new(ICON_BUG)
+                            .font(theme::icon_font(18.0))
+                            .color(theme::COLOR_PRIMARY),
+                    );
+                    ui.heading(
+                        RichText::new("Debug console")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                });
+                let (info, warning, error) = state.debug_console.level_totals();
+                ui.label(
+                    RichText::new("Inspecciona errores, advertencias e información del runtime.")
+                        .color(theme::COLOR_TEXT_WEAK),
+                );
+
+                ui.add_space(10.0);
+                draw_debug_summary(ui, info, warning, error);
+                ui.add_space(10.0);
+                draw_debug_filters(ui, state);
+                ui.add_space(10.0);
+                draw_debug_entries(ui, state);
+            });
+    });
+}
+
+fn draw_cron_summary(ui: &mut egui::Ui, state: &AppState) {
+    let total_enabled = state
+        .cron_board
+        .tasks
+        .iter()
+        .filter(|task| task.enabled)
+        .count();
+    let running = state.cron_board.status_count(ScheduledTaskStatus::Running);
+    let failing = state.cron_board.status_count(ScheduledTaskStatus::Failed);
+
+    ui.horizontal(|ui| {
+        summary_chip(
+            ui,
+            ICON_REPEAT,
+            "Activas",
+            total_enabled,
+            theme::COLOR_PRIMARY,
+        );
+        summary_chip(
+            ui,
+            ICON_PLAY,
+            "En ejecución",
+            running,
+            Color32::from_rgb(64, 172, 255),
+        );
+        summary_chip(ui, ICON_STOP, "Con errores", failing, theme::COLOR_DANGER);
+    });
+}
+
+fn summary_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize, color: Color32) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(icon)
+                        .font(theme::icon_font(16.0))
+                        .color(color),
+                );
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(label)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                    ui.label(
+                        RichText::new(value.to_string())
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(16.0)
+                            .strong(),
+                    );
+                });
+            });
+        });
+}
+
+fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.horizontal(|ui| {
+        let toggle = ui.checkbox(&mut state.cron_board.show_only_enabled, "Solo habilitadas");
+        toggle.on_hover_text("Oculta tareas desactivadas o pausadas");
+
+        let provider_text = state
+            .cron_board
+            .provider_filter
+            .map(|provider| provider.display_name().to_string())
+            .unwrap_or_else(|| "Todos los proveedores".to_string());
+        egui::ComboBox::from_id_source("cron_provider_filter")
+            .selected_text(provider_text)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(state.cron_board.provider_filter.is_none(), "Todos")
+                    .clicked()
+                {
+                    state.cron_board.provider_filter = None;
+                }
+                for provider in [
+                    RemoteProviderKind::Anthropic,
+                    RemoteProviderKind::OpenAi,
+                    RemoteProviderKind::Groq,
+                ] {
+                    let selected = state.cron_board.provider_filter == Some(provider);
+                    let label = format!("{} ({})", provider.display_name(), provider.short_code());
+                    if ui.selectable_label(selected, label).clicked() {
+                        state.cron_board.provider_filter = Some(provider);
+                    }
+                }
+            });
+
+        if ui
+            .add(egui::Button::new("Limpiar filtros").min_size(egui::vec2(120.0, 28.0)))
+            .clicked()
+        {
+            state.cron_board.show_only_enabled = false;
+            state.cron_board.provider_filter = None;
+            state.cron_board.tag_filter = None;
+        }
+    });
+
+    let tags = state.cron_board.unique_tags();
+    if !tags.is_empty() {
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.label(
+                RichText::new(format!("{} Tags", ICON_FOLDER))
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .size(11.0),
+            );
+            for tag in tags {
+                let selected = state
+                    .cron_board
+                    .tag_filter
+                    .as_ref()
+                    .map(|current| current.eq_ignore_ascii_case(&tag))
+                    .unwrap_or(false);
+                if selectable_chip(ui, &tag, selected).clicked() {
+                    if selected {
+                        state.cron_board.tag_filter = None;
+                    } else {
+                        state.cron_board.tag_filter = Some(tag);
+                    }
+                }
+            }
+            if state.cron_board.tag_filter.is_some() && ui.button("Quitar tag").clicked() {
+                state.cron_board.tag_filter = None;
+            }
+        });
+    }
+}
+
+fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
+    let indices = state.cron_board.filtered_indices();
+    if indices.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "No hay tareas que coincidan con los filtros seleccionados.",
+        );
+        state.cron_board.select_task(None);
+        return;
+    }
+
+    let min_height = ui.available_height().max(220.0);
+    TableBuilder::new(ui)
+        .striped(true)
+        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::initial(36.0))
+        .column(Column::remainder().at_least(160.0))
+        .column(Column::initial(120.0))
+        .column(Column::initial(120.0))
+        .column(Column::initial(120.0))
+        .column(Column::initial(100.0))
+        .column(Column::initial(90.0))
+        .min_scrolled_height(min_height)
+        .header(26.0, |mut header| {
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Estado")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Tarea")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Cadencia")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Próxima ejecución")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Última ejecución")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Proveedor")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+            header.col(|ui| {
+                ui.label(
+                    RichText::new("Acciones")
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(11.0),
+                );
+            });
+        })
+        .body(|mut body| {
+            for index in indices {
+                let task_snapshot = state.cron_board.tasks[index].clone();
+                let mut selection_change = None;
+                let mut new_enabled: Option<bool> = None;
+                let mut trigger_run = false;
+
+                body.row(32.0, |mut row| {
+                    row.col(|ui| {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(24.0, 18.0), egui::Sense::hover());
+                        let painter = ui.painter_at(rect);
+                        painter.circle_filled(
+                            rect.center(),
+                            6.0,
+                            cron_status_color(task_snapshot.status),
+                        );
+                    });
+                    row.col(|ui| {
+                        let selected = state.cron_board.selected_task == Some(task_snapshot.id);
+                        let response = ui.add(egui::SelectableLabel::new(
+                            selected,
+                            RichText::new(&task_snapshot.name)
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .size(13.0),
+                        ));
+                        if response.clicked() {
+                            selection_change = Some(task_snapshot.id);
+                        }
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            RichText::new(&task_snapshot.cadence_label)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            RichText::new(
+                                task_snapshot
+                                    .next_run
+                                    .clone()
+                                    .unwrap_or_else(|| "—".to_string()),
+                            )
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(11.0),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            RichText::new(
+                                task_snapshot
+                                    .last_run
+                                    .clone()
+                                    .unwrap_or_else(|| "—".to_string()),
+                            )
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                        );
+                    });
+                    row.col(|ui| {
+                        let badge = task_snapshot
+                            .provider_badge()
+                            .unwrap_or_else(|| "local".to_string());
+                        ui.label(
+                            RichText::new(badge)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .monospace(),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.horizontal(|ui| {
+                            let mut enabled = task_snapshot.enabled;
+                            if ui.checkbox(&mut enabled, "").changed() {
+                                new_enabled = Some(enabled);
+                            }
+
+                            let run_label = RichText::new(format!("{} Ejecutar", ICON_PLAY))
+                                .color(Color32::from_rgb(240, 240, 240))
+                                .size(11.0);
+                            if ui
+                                .add(egui::Button::new(run_label).min_size(egui::vec2(96.0, 26.0)))
+                                .on_hover_text("Lanzar inmediatamente")
+                                .clicked()
+                            {
+                                trigger_run = true;
+                            }
+                        });
+                    });
+                });
+
+                if let Some(task_id) = selection_change {
+                    state.cron_board.select_task(Some(task_id));
+                }
+
+                if let Some(enabled) = new_enabled {
+                    let mut message = None;
+                    {
+                        let task = &mut state.cron_board.tasks[index];
+                        if task.enabled != enabled {
+                            task.enabled = enabled;
+                            let task_name = task.name.clone();
+                            let text = if enabled {
+                                format!("Tarea '{}' activada", task_name)
+                            } else {
+                                format!("Tarea '{}' pausada", task_name)
+                            };
+                            message = Some(text);
+                        }
+                    }
+                    if let Some(text) = message {
+                        state.push_debug_event(
+                            DebugLogLevel::Info,
+                            "cron::scheduler",
+                            text.clone(),
+                        );
+                        state.push_activity_log(
+                            if enabled {
+                                LogStatus::Ok
+                            } else {
+                                LogStatus::Warning
+                            },
+                            "Cron",
+                            text,
+                        );
+                    }
+                }
+
+                if trigger_run {
+                    let name = {
+                        let task = &mut state.cron_board.tasks[index];
+                        task.status = ScheduledTaskStatus::Running;
+                        task.last_run = Some(Local::now().format("%Y-%m-%d %H:%M").to_string());
+                        task.name.clone()
+                    };
+                    state.push_activity_log(
+                        LogStatus::Running,
+                        "Cron",
+                        format!("Tarea '{}' ejecutada manualmente", name),
+                    );
+                    state.push_debug_event(
+                        DebugLogLevel::Info,
+                        "cron::manual",
+                        format!("Lanzando '{}'", name),
+                    );
+                }
+            }
+        });
+}
+
+fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::state::ScheduledTask) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(egui::Margin::symmetric(18.0, 14.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    RichText::new(ICON_INFO)
+                        .font(theme::icon_font(16.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+                ui.heading(
+                    RichText::new(&task.name)
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .size(16.0)
+                        .strong(),
+                );
+                ui.add_space(ui.available_width());
+                ui.label(
+                    RichText::new(task.status.label())
+                        .color(cron_status_color(task.status))
+                        .monospace(),
+                );
+            });
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(&task.description)
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .size(12.0),
+            );
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("Expresión cron: `{}`", task.cron_expression))
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .monospace(),
+                );
+            });
+
+            if !task.tags.is_empty() {
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for tag in &task.tags {
+                        selectable_chip(ui, tag, false);
+                    }
+                });
+            }
+
+            ui.add_space(10.0);
+            let badge = task.provider_badge().unwrap_or_else(|| "local".to_string());
+            ui.label(
+                RichText::new(format!(
+                    "Responsable: {} · Proveedor: {}",
+                    task.owner, badge
+                ))
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(11.0),
+            );
+
+            if let Some(status) = state
+                .activity_logs
+                .iter()
+                .rev()
+                .find(|entry| entry.source == "Cron")
+            {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(format!(
+                        "Última actividad registrada: {} ({})",
+                        status.message, status.timestamp
+                    ))
+                    .color(theme::COLOR_TEXT_WEAK)
+                    .size(11.0),
+                );
+            }
+        });
+}
+
+fn cron_status_color(status: ScheduledTaskStatus) -> Color32 {
+    match status {
+        ScheduledTaskStatus::Scheduled => theme::COLOR_PRIMARY,
+        ScheduledTaskStatus::Running => Color32::from_rgb(64, 172, 255),
+        ScheduledTaskStatus::Success => theme::COLOR_SUCCESS,
+        ScheduledTaskStatus::Failed => theme::COLOR_DANGER,
+        ScheduledTaskStatus::Paused => Color32::from_rgb(160, 160, 160),
+    }
+}
+
+fn draw_debug_summary(ui: &mut egui::Ui, info: usize, warning: usize, error: usize) {
+    ui.horizontal(|ui| {
+        summary_chip(ui, ICON_INFO, "Info", info, theme::COLOR_PRIMARY);
+        summary_chip(
+            ui,
+            ICON_LIGHTNING,
+            "Warnings",
+            warning,
+            Color32::from_rgb(255, 196, 0),
+        );
+        summary_chip(ui, ICON_STOP, "Errores", error, theme::COLOR_DANGER);
+    });
+}
+
+fn draw_debug_filters(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.horizontal(|ui| {
+        let search_width = (ui.available_width() - 160.0).max(200.0);
+        ui.add_sized(
+            [search_width, 28.0],
+            egui::TextEdit::singleline(&mut state.debug_console.search)
+                .hint_text("Buscar por mensaje o componente"),
+        );
+        if ui
+            .add_sized([120.0, 28.0], egui::Button::new("Limpiar búsqueda"))
+            .clicked()
+        {
+            state.debug_console.search.clear();
+        }
+    });
+
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        let selected_text = match state.debug_console.level_filter {
+            Some(DebugLogLevel::Info) => "Solo INFO",
+            Some(DebugLogLevel::Warning) => "Solo WARN",
+            Some(DebugLogLevel::Error) => "Solo ERR",
+            None => "Todos los niveles",
+        };
+        egui::ComboBox::from_id_source("debug_level_filter")
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(state.debug_console.level_filter.is_none(), "Todos")
+                    .clicked()
+                {
+                    state.debug_console.level_filter = None;
+                }
+                for level in [
+                    DebugLogLevel::Info,
+                    DebugLogLevel::Warning,
+                    DebugLogLevel::Error,
+                ] {
+                    let selected = state.debug_console.level_filter == Some(level);
+                    if ui.selectable_label(selected, level.label()).clicked() {
+                        state.debug_console.level_filter = Some(level);
+                    }
+                }
+            });
+
+        if ui
+            .checkbox(&mut state.debug_console.auto_scroll, "Auto-scroll")
+            .changed()
+        {
+            // nothing extra
+        }
+
+        if ui
+            .add_sized([120.0, 28.0], egui::Button::new("Limpiar consola"))
+            .clicked()
+        {
+            state.debug_console.entries.clear();
+        }
+    });
+}
+
+fn draw_debug_entries(ui: &mut egui::Ui, state: &AppState) {
+    let entries = state.debug_console.filtered_entries();
+    if entries.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "Sin eventos registrados bajo los filtros actuales.",
+        );
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .id_source("debug_console_scroll")
+        .stick_to_bottom(state.debug_console.auto_scroll)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for entry in entries {
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(32, 34, 40))
+                    .stroke(theme::subtle_border())
+                    .rounding(egui::Rounding::same(10.0))
+                    .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(entry.level.label())
+                                    .color(debug_level_color(entry.level))
+                                    .monospace(),
+                            );
+                            ui.label(
+                                RichText::new(&entry.timestamp)
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                            ui.add_space(ui.available_width());
+                            ui.label(
+                                RichText::new(&entry.component)
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .monospace()
+                                    .size(11.0),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(&entry.message)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(12.0),
+                        );
+                    });
+                ui.add_space(6.0);
+            }
+        });
+}
+
+fn debug_level_color(level: DebugLogLevel) -> Color32 {
+    match level {
+        DebugLogLevel::Info => theme::COLOR_PRIMARY,
+        DebugLogLevel::Warning => Color32::from_rgb(255, 196, 0),
+        DebugLogLevel::Error => theme::COLOR_DANGER,
+    }
+}
+
 fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
     let mut pending_actions = Vec::new();
 
@@ -418,31 +1111,43 @@ fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
         ui.add_space(6.0);
         let suggestions = state.chat_routing.suggestions.clone();
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing.x = 10.0;
             for suggestion in &suggestions {
-                let response = ui
-                    .add(
-                        egui::Button::new(
-                            RichText::new(&suggestion.title)
-                                .color(Color32::from_rgb(240, 240, 240))
-                                .size(12.0),
+                ui.vertical(|ui| {
+                    let response = ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new(&suggestion.title)
+                                    .color(Color32::from_rgb(240, 240, 240))
+                                    .size(12.0),
+                            )
+                            .fill(Color32::from_rgb(44, 46, 54))
+                            .rounding(egui::Rounding::same(10.0)),
                         )
-                        .fill(Color32::from_rgb(44, 46, 54))
-                        .rounding(egui::Rounding::same(10.0)),
-                    )
-                    .on_hover_text(&suggestion.description);
+                        .on_hover_text(&suggestion.description);
 
-                if response.clicked() {
-                    let provider = suggestion.provider;
-                    let title = suggestion.title.clone();
-                    state.chat_routing.active_thread_provider = provider;
-                    state.chat_routing.set_override(provider);
-                    state.chat_routing.update_status(Some(format!(
-                        "Sugerencia aplicada: {} via {}",
-                        title,
-                        provider.display_name()
-                    )));
-                }
+                    if response.clicked() {
+                        let provider = suggestion.provider;
+                        let title = suggestion.title.clone();
+                        state.chat_routing.active_thread_provider = provider;
+                        state.chat_routing.set_override(provider);
+                        state.chat_routing.update_status(Some(format!(
+                            "Sugerencia aplicada: {} via {}",
+                            title,
+                            provider.display_name()
+                        )));
+                    }
+
+                    if !suggestion.tags.is_empty() {
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            for tag in &suggestion.tags {
+                                let _ = selectable_chip(ui, tag, false);
+                            }
+                        });
+                    }
+                });
             }
         });
     }
@@ -1835,6 +2540,50 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                             .color(theme::COLOR_TEXT_PRIMARY)
                             .size(16.0),
                     );
+                    let star_color = if is_favorite {
+                        Color32::from_rgb(255, 201, 71)
+                    } else {
+                        theme::COLOR_TEXT_WEAK
+                    };
+                    let star = egui::Label::new(
+                        RichText::new(ICON_STAR)
+                            .font(theme::icon_font(14.0))
+                            .color(star_color),
+                    )
+                    .sense(egui::Sense::click());
+                    let star_response = ui.add(star).on_hover_text(if is_favorite {
+                        "Quitar de favoritos"
+                    } else {
+                        "Marcar como favorito"
+                    });
+                    if star_response.clicked() {
+                        let provider = card.key.provider;
+                        let key_clone = card.key.clone();
+                        let was_favorite = state.remote_catalog.is_favorite(&key_clone);
+                        state.remote_catalog.toggle_favorite(key_clone.clone());
+                        let favorites_snapshot = state.remote_catalog.favorites.clone();
+                        {
+                            let cards = state.remote_catalog.cards_for_mut(provider);
+                            cards.sort_by(|a, b| {
+                                let a_fav = favorites_snapshot.contains(&a.key);
+                                let b_fav = favorites_snapshot.contains(&b.key);
+                                b_fav.cmp(&a_fav).then_with(|| {
+                                    a.title.to_lowercase().cmp(&b.title.to_lowercase())
+                                })
+                            });
+                        }
+                        let message = if was_favorite {
+                            format!("{} eliminado de favoritos", card.title)
+                        } else {
+                            format!("{} añadido a favoritos", card.title)
+                        };
+                        state.remote_catalog.update_status(Some(message.clone()));
+                        state.push_debug_event(
+                            DebugLogLevel::Info,
+                            format!("catalog::{}", provider.short_code()),
+                            message,
+                        );
+                    }
                     ui.add_space(ui.available_width());
                     if card.multimodal {
                         ui.label(
@@ -3841,6 +4590,12 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
             })
             .unwrap_or(false);
         let is_ready = !record.install_path.trim().is_empty();
+        let is_selected = state
+            .local_library
+            .selection
+            .as_ref()
+            .map(|selected| selected == &record.identifier)
+            .unwrap_or(false);
 
         if !filter_lower.is_empty()
             && !label.to_lowercase().contains(&filter_lower)
@@ -3853,9 +4608,18 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
             continue;
         }
 
+        let mut border = theme::subtle_border();
+        if is_selected {
+            border = egui::Stroke::new(1.6, theme::COLOR_PRIMARY);
+        }
+
         egui::Frame::none()
-            .fill(Color32::from_rgb(34, 38, 44))
-            .stroke(theme::subtle_border())
+            .fill(if is_selected {
+                Color32::from_rgb(40, 44, 52)
+            } else {
+                Color32::from_rgb(34, 38, 44)
+            })
+            .stroke(border)
             .rounding(egui::Rounding::same(12.0))
             .inner_margin(egui::Margin::symmetric(14.0, 10.0))
             .show(ui, |ui| {
@@ -3873,6 +4637,13 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                                     .color(theme::COLOR_PRIMARY)
                                     .size(11.0)
                                     .italics(),
+                            );
+                        }
+                        if is_selected {
+                            ui.label(
+                                RichText::new("Seleccionado")
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .size(10.0),
                             );
                         }
                     });
@@ -3906,6 +4677,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                         if ui.button("Activar").clicked() {
                             let status = state.activate_jarvis_model(&record.identifier);
                             pending_feedback = Some(status);
+                            state.local_library.selection = Some(record.identifier.clone());
                         }
 
                         if ui.button("Actualizar").clicked() {
@@ -3913,6 +4685,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                             {
                                 pending_feedback = Some(status);
                             }
+                            state.local_library.selection = Some(record.identifier.clone());
                         }
 
                         if ui
@@ -3929,8 +4702,17 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     for identifier in removals {
+        let removed_selected = state
+            .local_library
+            .selection
+            .as_ref()
+            .map(|selected| selected == &identifier)
+            .unwrap_or(false);
         if let Some(status) = state.uninstall_local_model(&identifier) {
             pending_feedback = Some(status);
+        }
+        if removed_selected {
+            state.local_library.selection = None;
         }
     }
 

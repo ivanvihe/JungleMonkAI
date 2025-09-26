@@ -195,9 +195,11 @@ impl ResourceSection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MainView {
     ChatMultimodal,
+    CronScheduler,
+    ActivityFeed,
+    DebugConsole,
     Preferences,
     ResourceBrowser,
-    Logs,
 }
 
 impl Default for MainView {
@@ -224,9 +226,9 @@ impl From<MainTab> for MainView {
     fn from(value: MainTab) -> Self {
         match value {
             MainTab::Chat => MainView::ChatMultimodal,
-            MainTab::Cron => MainView::Logs,
-            MainTab::Activity => MainView::ResourceBrowser,
-            MainTab::DebugConsole => MainView::Preferences,
+            MainTab::Cron => MainView::CronScheduler,
+            MainTab::Activity => MainView::ActivityFeed,
+            MainTab::DebugConsole => MainView::DebugConsole,
         }
     }
 }
@@ -235,9 +237,10 @@ impl MainTab {
     pub fn from_view(view: MainView) -> Option<Self> {
         match view {
             MainView::ChatMultimodal => Some(MainTab::Chat),
-            MainView::Logs => Some(MainTab::Cron),
-            MainView::ResourceBrowser => Some(MainTab::Activity),
-            MainView::Preferences => Some(MainTab::DebugConsole),
+            MainView::CronScheduler => Some(MainTab::Cron),
+            MainView::ActivityFeed => Some(MainTab::Activity),
+            MainView::DebugConsole => Some(MainTab::DebugConsole),
+            MainView::Preferences | MainView::ResourceBrowser => None,
         }
     }
 }
@@ -850,6 +853,254 @@ impl ChatRoutingState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ScheduledTaskStatus {
+    Scheduled,
+    Running,
+    Success,
+    Failed,
+    Paused,
+}
+
+impl ScheduledTaskStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            ScheduledTaskStatus::Scheduled => "Programado",
+            ScheduledTaskStatus::Running => "En ejecución",
+            ScheduledTaskStatus::Success => "Completado",
+            ScheduledTaskStatus::Failed => "Error",
+            ScheduledTaskStatus::Paused => "Pausado",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ScheduledTask {
+    pub id: u32,
+    pub name: String,
+    pub description: String,
+    pub cron_expression: String,
+    pub cadence_label: String,
+    pub last_run: Option<String>,
+    pub next_run: Option<String>,
+    pub status: ScheduledTaskStatus,
+    pub owner: String,
+    pub provider: Option<RemoteProviderKind>,
+    pub tags: Vec<String>,
+    pub enabled: bool,
+}
+
+impl ScheduledTask {
+    pub fn provider_badge(&self) -> Option<String> {
+        self.provider
+            .map(|provider| format!("@{}", provider.short_code()))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CronBoardState {
+    pub tasks: Vec<ScheduledTask>,
+    pub show_only_enabled: bool,
+    pub provider_filter: Option<RemoteProviderKind>,
+    pub tag_filter: Option<String>,
+    pub selected_task: Option<u32>,
+}
+
+impl Default for CronBoardState {
+    fn default() -> Self {
+        Self {
+            tasks: Vec::new(),
+            show_only_enabled: false,
+            provider_filter: None,
+            tag_filter: None,
+            selected_task: None,
+        }
+    }
+}
+
+impl CronBoardState {
+    pub fn with_tasks(tasks: Vec<ScheduledTask>) -> Self {
+        let mut state = Self::default();
+        state.tasks = tasks;
+        state
+    }
+
+    pub fn filtered_indices(&self) -> Vec<usize> {
+        self.tasks
+            .iter()
+            .enumerate()
+            .filter(|(_, task)| {
+                if self.show_only_enabled && !task.enabled {
+                    return false;
+                }
+
+                if let Some(provider) = self.provider_filter {
+                    if task.provider != Some(provider) {
+                        return false;
+                    }
+                }
+
+                if let Some(tag) = &self.tag_filter {
+                    if !task
+                        .tags
+                        .iter()
+                        .any(|candidate| candidate.eq_ignore_ascii_case(tag))
+                    {
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    pub fn unique_tags(&self) -> BTreeSet<String> {
+        let mut tags = BTreeSet::new();
+        for task in &self.tasks {
+            for tag in &task.tags {
+                tags.insert(tag.to_string());
+            }
+        }
+        tags
+    }
+
+    pub fn status_count(&self, status: ScheduledTaskStatus) -> usize {
+        self.tasks
+            .iter()
+            .filter(|task| task.status == status)
+            .count()
+    }
+
+    pub fn select_task(&mut self, id: Option<u32>) {
+        self.selected_task = id;
+    }
+
+    pub fn selected_task(&self) -> Option<&ScheduledTask> {
+        self.selected_task
+            .and_then(|id| self.tasks.iter().find(|task| task.id == id))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebugLogLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+impl DebugLogLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            DebugLogLevel::Info => "INFO",
+            DebugLogLevel::Warning => "WARN",
+            DebugLogLevel::Error => "ERR",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DebugLogEntry {
+    pub level: DebugLogLevel,
+    pub component: String,
+    pub message: String,
+    pub timestamp: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DebugConsoleState {
+    pub entries: Vec<DebugLogEntry>,
+    pub search: String,
+    pub level_filter: Option<DebugLogLevel>,
+    pub auto_scroll: bool,
+}
+
+impl Default for DebugConsoleState {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            search: String::new(),
+            level_filter: None,
+            auto_scroll: true,
+        }
+    }
+}
+
+impl DebugConsoleState {
+    pub fn with_entries(entries: Vec<DebugLogEntry>) -> Self {
+        let mut state = Self::default();
+        state.entries = entries;
+        state
+    }
+
+    pub fn filtered_entries(&self) -> Vec<&DebugLogEntry> {
+        self.entries
+            .iter()
+            .filter(|entry| {
+                if let Some(level) = self.level_filter {
+                    if entry.level != level {
+                        return false;
+                    }
+                }
+
+                if self.search.trim().is_empty() {
+                    return true;
+                }
+
+                let haystack = format!(
+                    "{} {} {}",
+                    entry.level.label(),
+                    entry.component,
+                    entry.message
+                )
+                .to_lowercase();
+
+                haystack.contains(&self.search.to_lowercase())
+            })
+            .collect()
+    }
+
+    pub fn level_totals(&self) -> (usize, usize, usize) {
+        let info = self
+            .entries
+            .iter()
+            .filter(|entry| entry.level == DebugLogLevel::Info)
+            .count();
+        let warning = self
+            .entries
+            .iter()
+            .filter(|entry| entry.level == DebugLogLevel::Warning)
+            .count();
+        let error = self
+            .entries
+            .iter()
+            .filter(|entry| entry.level == DebugLogLevel::Error)
+            .count();
+        (info, warning, error)
+    }
+
+    pub fn push_entry(
+        &mut self,
+        level: DebugLogLevel,
+        component: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        let entry = DebugLogEntry {
+            level,
+            component: component.into(),
+            message: message.into(),
+            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        };
+        self.entries.push(entry);
+        const MAX_ENTRIES: usize = 400;
+        if self.entries.len() > MAX_ENTRIES {
+            let overflow = self.entries.len() - MAX_ENTRIES;
+            self.entries.drain(0..overflow);
+        }
+    }
+}
+
 #[derive(Debug)]
 enum LocalInstallMessage {
     Success {
@@ -1082,6 +1333,111 @@ fn default_logs() -> Vec<LogEntry> {
     ]
 }
 
+fn default_scheduled_tasks() -> Vec<ScheduledTask> {
+    vec![
+        ScheduledTask {
+            id: 1,
+            name: "Sincronización de repositorios".to_string(),
+            description: "Actualiza issues y pull requests destacados desde GitHub cada mañana."
+                .to_string(),
+            cron_expression: "0 7 * * 1-5".to_string(),
+            cadence_label: "Diario hábil".to_string(),
+            last_run: Some("2024-05-14 07:00".to_string()),
+            next_run: Some("2024-05-15 07:00".to_string()),
+            status: ScheduledTaskStatus::Success,
+            owner: "Automation".to_string(),
+            provider: Some(RemoteProviderKind::Anthropic),
+            tags: vec!["sync".to_string(), "github".to_string()],
+            enabled: true,
+        },
+        ScheduledTask {
+            id: 2,
+            name: "Informe de métricas".to_string(),
+            description: "Genera un resumen ejecutivo con métricas clave usando GPT.".to_string(),
+            cron_expression: "30 9 * * 1-5".to_string(),
+            cadence_label: "Cada mañana".to_string(),
+            last_run: Some("2024-05-14 09:30".to_string()),
+            next_run: Some("2024-05-15 09:30".to_string()),
+            status: ScheduledTaskStatus::Running,
+            owner: "Insights".to_string(),
+            provider: Some(RemoteProviderKind::OpenAi),
+            tags: vec!["report".to_string(), "analytics".to_string()],
+            enabled: true,
+        },
+        ScheduledTask {
+            id: 3,
+            name: "Limpieza de caché".to_string(),
+            description:
+                "Libera artefactos temporales y comprime logs viejos para ahorrar espacio."
+                    .to_string(),
+            cron_expression: "0 */4 * * *".to_string(),
+            cadence_label: "Cada 4 horas".to_string(),
+            last_run: Some("2024-05-14 12:00".to_string()),
+            next_run: Some("2024-05-14 16:00".to_string()),
+            status: ScheduledTaskStatus::Scheduled,
+            owner: "Infra".to_string(),
+            provider: None,
+            tags: vec!["mantenimiento".to_string(), "sistema".to_string()],
+            enabled: true,
+        },
+        ScheduledTask {
+            id: 4,
+            name: "Entrenamiento de embeddings".to_string(),
+            description: "Recalcula embeddings del knowledge base local con el runtime Jarvis."
+                .to_string(),
+            cron_expression: "15 2 * * 2".to_string(),
+            cadence_label: "Martes 02:15".to_string(),
+            last_run: Some("2024-05-07 02:15".to_string()),
+            next_run: Some("2024-05-14 02:15".to_string()),
+            status: ScheduledTaskStatus::Failed,
+            owner: "Knowledge".to_string(),
+            provider: Some(RemoteProviderKind::Groq),
+            tags: vec!["ml".to_string(), "embedding".to_string()],
+            enabled: false,
+        },
+        ScheduledTask {
+            id: 5,
+            name: "Recordatorio de standup".to_string(),
+            description: "Envía en el chat el resumen del standup diario para el equipo remoto."
+                .to_string(),
+            cron_expression: "0 9 * * 1-5".to_string(),
+            cadence_label: "Diario 09:00".to_string(),
+            last_run: Some("2024-05-13 09:00".to_string()),
+            next_run: Some("2024-05-15 09:00".to_string()),
+            status: ScheduledTaskStatus::Paused,
+            owner: "People".to_string(),
+            provider: Some(RemoteProviderKind::Anthropic),
+            tags: vec!["comunicación".to_string(), "equipo".to_string()],
+            enabled: false,
+        },
+    ]
+}
+
+fn default_debug_console_entries() -> Vec<DebugLogEntry> {
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    vec![
+        DebugLogEntry {
+            level: DebugLogLevel::Info,
+            component: "runtime::bootstrap".to_string(),
+            message: "Aplicación inicializada, cargando configuración desde jungle.toml"
+                .to_string(),
+            timestamp: now.clone(),
+        },
+        DebugLogEntry {
+            level: DebugLogLevel::Warning,
+            component: "providers::anthropic".to_string(),
+            message: "API key cercana a expirar, renueva credenciales en 3 días".to_string(),
+            timestamp: now.clone(),
+        },
+        DebugLogEntry {
+            level: DebugLogLevel::Error,
+            component: "jarvis::runtime".to_string(),
+            message: "Fallo al montar /models: permisos insuficientes".to_string(),
+            timestamp: now,
+        },
+    ]
+}
+
 /// Contiene el estado global de la aplicación.
 pub struct AppState {
     /// Controla la visibilidad de la ventana modal de configuración.
@@ -1210,6 +1566,10 @@ pub struct AppState {
     pub right_panel_width: f32,
     /// Registros de actividad recientes.
     pub activity_logs: Vec<LogEntry>,
+    /// Tablero con tareas programadas y filtros activos.
+    pub cron_board: CronBoardState,
+    /// Consola de depuración del sistema.
+    pub debug_console: DebugConsoleState,
     /// Canal para recibir respuestas de proveedores remotos.
     provider_response_rx: Receiver<ProviderResponse>,
     /// Canal para enviar respuestas desde hilos de proveedores.
@@ -1416,6 +1776,8 @@ impl Default for AppState {
             right_panel_visible: true,
             right_panel_width: 280.0,
             activity_logs: default_logs(),
+            cron_board: CronBoardState::with_tasks(default_scheduled_tasks()),
+            debug_console: DebugConsoleState::with_entries(default_debug_console_entries()),
             provider_response_rx,
             provider_response_tx,
             local_install_rx,
@@ -1424,6 +1786,10 @@ impl Default for AppState {
             pending_provider_calls: Vec::new(),
             next_provider_call_id: 0,
         };
+
+        if state.local_library.selection.is_none() {
+            state.local_library.selection = state.jarvis_active_model.clone();
+        }
 
         if state.jarvis_auto_start {
             match state.ensure_jarvis_runtime() {
@@ -1734,6 +2100,15 @@ impl AppState {
             let overflow = self.activity_logs.len() - MAX_ACTIVITY_LOGS;
             self.activity_logs.drain(0..overflow);
         }
+    }
+
+    pub fn push_debug_event(
+        &mut self,
+        level: DebugLogLevel,
+        component: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.debug_console.push_entry(level, component, message);
     }
 
     pub fn activate_jarvis_model(&mut self, identifier: &LocalModelIdentifier) -> String {
@@ -2492,6 +2867,11 @@ impl AppState {
         self.remote_catalog
             .update_status(Some(format!("Enviando prueba rápida a {}…", label)));
         self.invoke_provider_kind(key.provider, formatted);
+        self.push_debug_event(
+            DebugLogLevel::Info,
+            format!("providers::{}", key.provider.short_code()),
+            format!("Quick test lanzado para {}", key.id),
+        );
         Some(format!("Prueba rápida enviada a {}.", label))
     }
 

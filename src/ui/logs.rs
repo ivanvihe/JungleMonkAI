@@ -34,7 +34,11 @@ pub fn draw_logs_view(ui: &mut egui::Ui, state: &AppState) {
                         .font(theme::icon_font(18.0))
                         .color(theme::COLOR_PRIMARY),
                 );
-                ui.heading(RichText::new("Registros & tareas").color(theme::COLOR_TEXT_PRIMARY));
+                ui.heading(
+                    RichText::new("Registros y tareas")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
             });
 
             ui.add_space(12.0);

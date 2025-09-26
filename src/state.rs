@@ -257,6 +257,7 @@ impl LocalProviderState {
 pub enum CustomCommandAction {
     ShowCurrentTime,
     ShowSystemStatus,
+    ShowSystemDiagnostics,
     ShowUsageStatistics,
     ListActiveProjects,
     ListConfiguredProfiles,
@@ -274,6 +275,7 @@ impl CustomCommandAction {
         match self {
             CustomCommandAction::ShowCurrentTime => "showCurrentTime()",
             CustomCommandAction::ShowSystemStatus => "showSystemStatus()",
+            CustomCommandAction::ShowSystemDiagnostics => "showSystemDiagnostics()",
             CustomCommandAction::ShowUsageStatistics => "showUsageStatistics()",
             CustomCommandAction::ListActiveProjects => "listActiveProjects()",
             CustomCommandAction::ListConfiguredProfiles => "listConfiguredProfiles()",
@@ -291,6 +293,9 @@ impl CustomCommandAction {
         match self {
             CustomCommandAction::ShowCurrentTime => "Display the current local time.",
             CustomCommandAction::ShowSystemStatus => "Summarize the system health of the agent.",
+            CustomCommandAction::ShowSystemDiagnostics => {
+                "Provide an in-depth diagnostic report including providers, Jarvis runtime, and commands."
+            }
             CustomCommandAction::ShowUsageStatistics => "Provide placeholder usage statistics.",
             CustomCommandAction::ListActiveProjects => "List the projects tracked by the agent.",
             CustomCommandAction::ListConfiguredProfiles => "List configured user profiles.",
@@ -328,6 +333,7 @@ pub struct CustomCommand {
 pub const AVAILABLE_CUSTOM_ACTIONS: &[CustomCommandAction] = &[
     CustomCommandAction::ShowCurrentTime,
     CustomCommandAction::ShowSystemStatus,
+    CustomCommandAction::ShowSystemDiagnostics,
     CustomCommandAction::ShowUsageStatistics,
     CustomCommandAction::ListActiveProjects,
     CustomCommandAction::ListConfiguredProfiles,
@@ -920,6 +926,15 @@ impl CustomCommandAction {
                     "verbose → flag que incluye notas adicionales",
                 ],
                 examples: &["/status", "/status --detail=memory --verbose"],
+            },
+            CustomCommandAction::ShowSystemDiagnostics => CommandDocumentation {
+                signature: "showSystemDiagnostics(section=all)",
+                summary: "Genera un informe de depuración con estados detallados de cada componente.",
+                parameters: &[
+                    "section → all | general | remote | local | commands | logs",
+                    "focus → sinónimo de section",
+                ],
+                examples: &["/system debug", "/system debug section=remote"],
             },
             CustomCommandAction::ShowUsageStatistics => CommandDocumentation {
                 signature: "showUsageStatistics(window=session)",
@@ -1837,10 +1852,32 @@ impl AppState {
         }
 
         match invocation.name.as_str() {
-            "/status" | "/system" => CommandOutcome {
+            "/status" => CommandOutcome {
                 messages: self
                     .execute_custom_action(CustomCommandAction::ShowSystemStatus, &invocation),
             },
+            "/system" => {
+                let positional_debug = invocation
+                    .positional
+                    .first()
+                    .map(|token| token.eq_ignore_ascii_case("debug"))
+                    .unwrap_or(false);
+                let arg_debug = invocation
+                    .arg("mode")
+                    .map(|value| value.eq_ignore_ascii_case("debug"))
+                    .unwrap_or(false)
+                    || invocation.flag("debug");
+
+                let action = if positional_debug || arg_debug {
+                    CustomCommandAction::ShowSystemDiagnostics
+                } else {
+                    CustomCommandAction::ShowSystemStatus
+                };
+
+                CommandOutcome {
+                    messages: self.execute_custom_action(action, &invocation),
+                }
+            }
             "/models" => CommandOutcome {
                 messages: self
                     .execute_custom_action(CustomCommandAction::ListAvailableModels, &invocation),
@@ -2052,6 +2089,358 @@ impl AppState {
 
                 if verbose {
                     lines.push("Modo detallado activado: recuerda revisar la configuración de recursos en Preferencias.".to_string());
+                }
+
+                lines
+            }
+            CustomCommandAction::ShowSystemDiagnostics => {
+                let mut focus_tokens = invocation.positional.clone();
+                if focus_tokens
+                    .first()
+                    .map(|token| token.eq_ignore_ascii_case("debug"))
+                    .unwrap_or(false)
+                {
+                    focus_tokens.remove(0);
+                }
+
+                let requested_section = invocation
+                    .arg("section")
+                    .or_else(|| invocation.arg("focus"))
+                    .map(|value| value.to_ascii_lowercase())
+                    .or_else(|| focus_tokens.first().map(|token| token.to_ascii_lowercase()))
+                    .unwrap_or_else(|| "all".to_string());
+
+                let normalized = requested_section.as_str();
+                let wants_all = matches!(
+                    normalized,
+                    "all" | "todo" | "todos" | "todas" | "full" | "completo" | "completa"
+                );
+                let wants_general = wants_all
+                    || matches!(normalized, "general" | "recursos" | "status" | "resumen");
+                let wants_remote = wants_all
+                    || matches!(
+                        normalized,
+                        "remote" | "remoto" | "providers" | "proveedores" | "nube"
+                    );
+                let wants_local = wants_all
+                    || matches!(
+                        normalized,
+                        "local" | "jarvis" | "modelos" | "models" | "runtime"
+                    );
+                let wants_commands = wants_all
+                    || matches!(normalized, "commands" | "comandos" | "command" | "custom");
+                let wants_logs = wants_all
+                    || matches!(
+                        normalized,
+                        "logs" | "errores" | "errors" | "diagnostico" | "diagnóstico"
+                    );
+
+                let classify = |text: &str| {
+                    let normalized = text.to_ascii_lowercase();
+                    if normalized.contains("error")
+                        || normalized.contains("fall")
+                        || normalized.contains("no se pudo")
+                        || normalized.contains("failed")
+                    {
+                        "ERROR"
+                    } else if normalized.contains("sin ejecutar")
+                        || normalized.contains("esperando")
+                        || normalized.contains("pendiente")
+                        || normalized.contains("sin actualizaciones")
+                        || normalized.contains("no configurado")
+                    {
+                        "PEND"
+                    } else {
+                        "OK"
+                    }
+                };
+
+                let mut lines = vec!["=== Diagnóstico avanzado del sistema ===".to_string()];
+                if !wants_all {
+                    lines.push(format!(
+                        "Filtro aplicado a la sección: {}.",
+                        requested_section
+                    ));
+                }
+
+                if wants_general {
+                    lines.push("--- Recursos y configuración ---".to_string());
+                    lines.push(format!(
+                        "Memoria límite: {:.1} GB · Disco límite: {:.1} GB · Auto limpieza: {} (cada {} h).",
+                        self.resource_memory_limit_gb,
+                        self.resource_disk_limit_gb,
+                        if self.enable_auto_cleanup {
+                            "activa"
+                        } else {
+                            "inactiva"
+                        },
+                        self.cache_cleanup_interval_hours
+                    ));
+                    lines.push(format!(
+                        "Directorio de caché: {} · Última limpieza: {}.",
+                        self.cache_directory,
+                        self.last_cache_cleanup
+                            .clone()
+                            .unwrap_or_else(|| "nunca".to_string())
+                    ));
+                    lines.push(format!(
+                        "Perfiles: {} · Proyectos: {} · Memoria contextual: {} ({} días).",
+                        self.profiles.len(),
+                        self.projects.len(),
+                        if self.enable_memory_tracking {
+                            "activa"
+                        } else {
+                            "inactiva"
+                        },
+                        self.memory_retention_days
+                    ));
+                }
+
+                if wants_remote {
+                    lines.push("--- Proveedores remotos ---".to_string());
+                    let openai_status = self
+                        .openai_test_status
+                        .clone()
+                        .unwrap_or_else(|| "sin ejecutar".to_string());
+                    lines.push(format!(
+                        "OpenAI [{}] modelo por defecto '{}' · {}.",
+                        classify(&openai_status),
+                        self.openai_default_model,
+                        openai_status
+                    ));
+
+                    let anthropic_status = self
+                        .anthropic_test_status
+                        .clone()
+                        .unwrap_or_else(|| "sin ejecutar".to_string());
+                    lines.push(format!(
+                        "Claude [{}] modelo por defecto '{}' · {}.",
+                        classify(&anthropic_status),
+                        self.claude_default_model,
+                        anthropic_status
+                    ));
+
+                    let claude_catalog = self.claude_models_status.clone().unwrap_or_else(|| {
+                        if self.claude_available_models.is_empty() {
+                            "catálogo sin cargar".to_string()
+                        } else {
+                            format!(
+                                "{} modelos disponibles en caché",
+                                self.claude_available_models.len()
+                            )
+                        }
+                    });
+                    lines.push(format!(
+                        "Claude catálogo [{}] {}.",
+                        classify(&claude_catalog),
+                        claude_catalog
+                    ));
+
+                    let groq_status = self
+                        .groq_test_status
+                        .clone()
+                        .unwrap_or_else(|| "sin ejecutar".to_string());
+                    lines.push(format!(
+                        "Groq [{}] modelo por defecto '{}' · {}.",
+                        classify(&groq_status),
+                        self.groq_default_model,
+                        groq_status
+                    ));
+                }
+
+                if wants_local {
+                    lines.push("--- Runtime local y Jarvis ---".to_string());
+                    let jarvis_status = self
+                        .jarvis_status
+                        .clone()
+                        .unwrap_or_else(|| "sin actualizaciones registradas".to_string());
+                    let runtime_status = if let Some(runtime) = &self.jarvis_runtime {
+                        format!("Inicializado ({})", runtime.model_label())
+                    } else {
+                        "No inicializado".to_string()
+                    };
+                    lines.push(format!(
+                        "Jarvis [{}] {}.",
+                        classify(&jarvis_status),
+                        jarvis_status
+                    ));
+                    lines.push(format!(
+                        "Runtime local: {} · Modelo configurado: {} · Instalación: {} · Autoarranque: {}.",
+                        runtime_status,
+                        self.jarvis_model_path,
+                        self.jarvis_install_dir,
+                        if self.jarvis_auto_start {
+                            "sí"
+                        } else {
+                            "no"
+                        }
+                    ));
+
+                    if self.installed_local_models.is_empty() {
+                        lines.push("Modelos instalados: ninguno.".to_string());
+                    } else {
+                        let inventory = self
+                            .installed_local_models
+                            .iter()
+                            .map(|model| {
+                                let label = model.identifier.display_label();
+                                let size = format_bytes(model.size_bytes);
+                                let installed = model
+                                    .installed_at
+                                    .with_timezone(&Local)
+                                    .format("%Y-%m-%d %H:%M")
+                                    .to_string();
+                                format!("{} · {} · instalado {}", label, size, installed)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" | ");
+                        lines.push(format!(
+                            "Modelos instalados ({}): {}.",
+                            self.installed_local_models.len(),
+                            inventory
+                        ));
+                    }
+
+                    if self.pending_local_installs.is_empty() {
+                        lines.push("Instalaciones locales pendientes: ninguna.".to_string());
+                    } else {
+                        let installs = self
+                            .pending_local_installs
+                            .iter()
+                            .map(|pending| {
+                                format!(
+                                    "{} › {}",
+                                    pending.provider.display_name(),
+                                    pending.model_id
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        lines.push(format!(
+                            "Instalaciones locales pendientes ({}): {}.",
+                            self.pending_local_installs.len(),
+                            installs
+                        ));
+                    }
+
+                    if self.pending_provider_calls.is_empty() {
+                        lines.push("Llamadas remotas en vuelo: ninguna.".to_string());
+                    } else {
+                        let preview = self
+                            .pending_provider_calls
+                            .iter()
+                            .take(3)
+                            .map(|call| {
+                                format!(
+                                    "#{} {} · {} ({})",
+                                    call.id, call.provider_name, call.alias, call.model
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        lines.push(format!(
+                            "Llamadas remotas en vuelo ({}): {}{}.",
+                            self.pending_provider_calls.len(),
+                            preview,
+                            if self.pending_provider_calls.len() > 3 {
+                                " · ..."
+                            } else {
+                                ""
+                            }
+                        ));
+                    }
+
+                    lines.push("--- Proveedores locales ---".to_string());
+                    for provider in LocalModelProvider::ALL {
+                        let provider_state = self.provider_state(provider);
+                        let token_state = if provider_state
+                            .access_token
+                            .as_ref()
+                            .map(|token| !token.trim().is_empty())
+                            .unwrap_or(false)
+                        {
+                            "token configurado"
+                        } else {
+                            "sin token"
+                        };
+                        let selection = provider_state
+                            .selected_model
+                            .and_then(|index| provider_state.models.get(index))
+                            .map(|model| model.id.clone())
+                            .unwrap_or_else(|| "ninguno".to_string());
+                        let install_state = provider_state
+                            .install_status
+                            .clone()
+                            .unwrap_or_else(|| "sin operaciones registradas".to_string());
+
+                        lines.push(format!(
+                            "{} → {} · modelos listados: {} · selección: {} · última instalación [{}] {}.",
+                            provider.display_name(),
+                            token_state,
+                            provider_state.models.len(),
+                            selection,
+                            classify(&install_state),
+                            install_state
+                        ));
+                    }
+                }
+
+                if wants_commands {
+                    lines.push("--- Comandos personalizados ---".to_string());
+                    if self.custom_commands.is_empty() {
+                        lines.push("No hay comandos personalizados registrados.".to_string());
+                    } else {
+                        for command in &self.custom_commands {
+                            lines.push(format!("{} → {}", command.trigger, command.action.label()));
+                        }
+                        lines.push(format!(
+                            "Total de comandos personalizados: {}.",
+                            self.custom_commands.len()
+                        ));
+                    }
+                }
+
+                if wants_logs {
+                    lines.push("--- Registros y alertas ---".to_string());
+                    let ok_count = self
+                        .activity_logs
+                        .iter()
+                        .filter(|entry| entry.status == LogStatus::Ok)
+                        .count();
+                    let warn_count = self
+                        .activity_logs
+                        .iter()
+                        .filter(|entry| entry.status == LogStatus::Warning)
+                        .count();
+                    let err_count = self
+                        .activity_logs
+                        .iter()
+                        .filter(|entry| entry.status == LogStatus::Error)
+                        .count();
+                    let running_count = self
+                        .activity_logs
+                        .iter()
+                        .filter(|entry| entry.status == LogStatus::Running)
+                        .count();
+
+                    if let Some(last_error) = self
+                        .activity_logs
+                        .iter()
+                        .rev()
+                        .find(|entry| entry.status == LogStatus::Error)
+                    {
+                        lines.push(format!(
+                            "Último error registrado a las {} desde {} → {}.",
+                            last_error.timestamp, last_error.source, last_error.message
+                        ));
+                    } else {
+                        lines.push("No hay errores registrados en los logs recientes.".to_string());
+                    }
+
+                    lines.push(format!(
+                        "Resumen de logs → OK: {} · Warning: {} · Error: {} · Running: {}.",
+                        ok_count, warn_count, err_count, running_count
+                    ));
                 }
 
                 lines
@@ -2351,7 +2740,15 @@ impl AppState {
             }
             CustomCommandAction::ShowCommandHelp => {
                 let mode = invocation.arg("mode").unwrap_or("all");
-                let mut builtins = vec!["/status", "/models", "/stats", "/reload", "/help", "/if"];
+                let mut builtins = vec![
+                    "/status",
+                    "/system debug",
+                    "/models",
+                    "/stats",
+                    "/reload",
+                    "/help",
+                    "/if",
+                ];
                 builtins.extend([
                     "/time",
                     "/projects",

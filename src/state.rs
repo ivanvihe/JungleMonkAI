@@ -6,6 +6,7 @@ use crate::{
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 
@@ -152,6 +153,26 @@ enum RemoteProviderKind {
     Anthropic,
     OpenAi,
     Groq,
+}
+
+#[derive(Debug)]
+enum LocalInstallMessage {
+    Success {
+        provider: LocalModelProvider,
+        model: LocalModelCard,
+        install_path: PathBuf,
+    },
+    Error {
+        provider: LocalModelProvider,
+        model_id: String,
+        error: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct PendingLocalInstall {
+    provider: LocalModelProvider,
+    model_id: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -486,6 +507,12 @@ pub struct AppState {
     provider_response_rx: Receiver<ProviderResponse>,
     /// Canal para enviar respuestas desde hilos de proveedores.
     provider_response_tx: Sender<ProviderResponse>,
+    /// Canal para recibir resultados de instalaciones locales en segundo plano.
+    local_install_rx: Receiver<LocalInstallMessage>,
+    /// Canal para enviar resultados desde los hilos de instalación local.
+    local_install_tx: Sender<LocalInstallMessage>,
+    /// Instalaciones locales en curso.
+    pending_local_installs: Vec<PendingLocalInstall>,
     /// Llamadas pendientes a proveedores remotos.
     pending_provider_calls: Vec<PendingProviderCall>,
     /// Identificador incremental de llamadas a proveedores.
@@ -496,6 +523,7 @@ impl Default for AppState {
     fn default() -> Self {
         let config = AppConfig::load_or_default();
         let (provider_response_tx, provider_response_rx) = mpsc::channel();
+        let (local_install_tx, local_install_rx) = mpsc::channel();
 
         let mut profiles = if config.profiles.is_empty() {
             vec![
@@ -686,6 +714,9 @@ impl Default for AppState {
             activity_logs: default_logs(),
             provider_response_rx,
             provider_response_tx,
+            local_install_rx,
+            local_install_tx,
+            pending_local_installs: Vec::new(),
             pending_provider_calls: Vec::new(),
             next_provider_call_id: 0,
         };
@@ -979,6 +1010,148 @@ impl AppState {
         }
     }
 
+    pub fn activate_jarvis_model(&mut self, identifier: &LocalModelIdentifier) -> String {
+        self.jarvis_selected_provider = identifier.provider;
+        self.jarvis_active_model = Some(identifier.clone());
+        self.jarvis_runtime = None;
+
+        let install_path = self
+            .installed_model(identifier)
+            .map(|record| record.install_path.clone())
+            .filter(|path| !path.trim().is_empty())
+            .unwrap_or_else(|| {
+                Path::new(&self.jarvis_install_dir)
+                    .join(identifier.sanitized_dir_name())
+                    .display()
+                    .to_string()
+            });
+
+        self.jarvis_model_path = install_path.clone();
+
+        let mut status = format!(
+            "Modelo '{}' seleccionado para Jarvis.",
+            identifier.display_label()
+        );
+
+        self.push_activity_log(
+            LogStatus::Ok,
+            "Jarvis",
+            format!(
+                "Modelo '{}' configurado como activo.",
+                identifier.display_label()
+            ),
+        );
+
+        if self.jarvis_auto_start {
+            match self.ensure_jarvis_runtime() {
+                Ok(runtime) => {
+                    let label = runtime.model_label();
+                    status.push_str(&format!(" Jarvis se recargó con {}.", label));
+                    self.push_activity_log(
+                        LogStatus::Ok,
+                        "Jarvis",
+                        format!(
+                            "Jarvis cargó {} tras activar {}.",
+                            label,
+                            identifier.display_label()
+                        ),
+                    );
+                }
+                Err(err) => {
+                    status.push_str(&format!(
+                        " No se pudo iniciar Jarvis automáticamente: {}.",
+                        err
+                    ));
+                    self.push_activity_log(
+                        LogStatus::Error,
+                        "Jarvis",
+                        format!(
+                            "El autoarranque falló tras activar '{}': {}",
+                            identifier.display_label(),
+                            err
+                        ),
+                    );
+                }
+            }
+        }
+
+        self.jarvis_status = Some(status.clone());
+        self.persist_config();
+        status
+    }
+
+    pub fn deactivate_jarvis_model(&mut self) -> String {
+        self.jarvis_active_model = None;
+        self.jarvis_runtime = None;
+        self.jarvis_model_path.clear();
+
+        let status = "Jarvis quedó sin modelo activo.".to_string();
+        self.jarvis_status = Some(status.clone());
+        self.push_activity_log(LogStatus::Ok, "Jarvis", &status);
+        self.persist_config();
+        status
+    }
+
+    pub fn queue_huggingface_install(
+        &mut self,
+        model: LocalModelCard,
+        token: Option<String>,
+    ) -> bool {
+        let provider = model.provider;
+        if self
+            .pending_local_installs
+            .iter()
+            .any(|pending| pending.provider == provider && pending.model_id == model.id)
+        {
+            return false;
+        }
+
+        let sanitized_status = format!("Descargando '{}' desde Hugging Face…", model.id);
+        self.provider_state_mut(provider).install_status = Some(sanitized_status.clone());
+        self.push_activity_log(LogStatus::Running, "Jarvis", sanitized_status);
+
+        let trimmed_token = token.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+
+        let install_dir = PathBuf::from(&self.jarvis_install_dir);
+        let tx = self.local_install_tx.clone();
+        let thread_model = model.clone();
+        let pending = PendingLocalInstall {
+            provider,
+            model_id: model.id.clone(),
+        };
+        self.pending_local_installs.push(pending);
+
+        std::thread::spawn(move || {
+            let token_ref = trimmed_token.as_deref();
+            let outcome =
+                crate::api::huggingface::download_model(&thread_model, &install_dir, token_ref);
+
+            let message = match outcome {
+                Ok(path) => LocalInstallMessage::Success {
+                    provider,
+                    model: thread_model,
+                    install_path: path,
+                },
+                Err(err) => LocalInstallMessage::Error {
+                    provider,
+                    model_id: thread_model.id.clone(),
+                    error: err.to_string(),
+                },
+            };
+
+            let _ = tx.send(message);
+        });
+
+        true
+    }
+
     pub fn provider_state(&self, provider: LocalModelProvider) -> &LocalProviderState {
         self.local_provider_states
             .get(&provider)
@@ -1073,6 +1246,86 @@ impl AppState {
 
                 updated = true;
             }
+        }
+
+        while let Ok(message) = self.local_install_rx.try_recv() {
+            match message {
+                LocalInstallMessage::Success {
+                    provider,
+                    model,
+                    install_path,
+                } => {
+                    let model_id = model.id.clone();
+                    let identifier = LocalModelIdentifier::new(provider, &model_id);
+                    let size_bytes = compute_directory_size(&install_path);
+                    let install_path_string = install_path.display().to_string();
+                    let record = InstalledLocalModel {
+                        identifier: identifier.clone(),
+                        install_path: install_path_string.clone(),
+                        size_bytes,
+                        installed_at: Utc::now(),
+                    };
+                    self.upsert_installed_model(record);
+
+                    let activation_status = self.activate_jarvis_model(&identifier);
+                    let size_label = format_bytes(size_bytes);
+                    let mut status_message = format!(
+                        "Modelo '{}' instalado en {} ({}).",
+                        model_id, &install_path_string, size_label
+                    );
+
+                    if !activation_status.is_empty() {
+                        status_message.push(' ');
+                        status_message.push_str(&activation_status);
+                    }
+
+                    self.push_activity_log(
+                        LogStatus::Ok,
+                        "Jarvis",
+                        format!(
+                            "Modelo '{}' descargado en {} ({}).",
+                            model_id, &install_path_string, size_label
+                        ),
+                    );
+
+                    self.jarvis_status = Some(status_message.clone());
+
+                    {
+                        let provider_state = self.provider_state_mut(provider);
+                        provider_state.install_status = Some(status_message);
+                        if provider_state.selected_model.is_none() {
+                            provider_state.selected_model = provider_state
+                                .models
+                                .iter()
+                                .position(|entry| entry.id == model_id);
+                        }
+                    }
+
+                    self.pending_local_installs.retain(|pending| {
+                        !(pending.provider == provider && pending.model_id == model_id)
+                    });
+                }
+                LocalInstallMessage::Error {
+                    provider,
+                    model_id,
+                    error,
+                } => {
+                    self.pending_local_installs.retain(|pending| {
+                        !(pending.provider == provider && pending.model_id == model_id)
+                    });
+
+                    let status = format!("Fallo al instalar '{}': {}", model_id, error);
+                    self.jarvis_status = Some(status.clone());
+                    self.push_activity_log(
+                        LogStatus::Error,
+                        "Jarvis",
+                        format!("No se pudo descargar '{}': {}", model_id, error),
+                    );
+                    self.provider_state_mut(provider).install_status = Some(status);
+                }
+            }
+
+            updated = true;
         }
 
         updated
@@ -2145,6 +2398,49 @@ impl AppState {
                 lines
             }
         }
+    }
+}
+
+pub fn compute_directory_size(path: &Path) -> u64 {
+    fn visit(path: &Path, total: &mut u64) {
+        match fs::metadata(path) {
+            Ok(metadata) if metadata.is_file() => {
+                *total += metadata.len();
+            }
+            Ok(metadata) if metadata.is_dir() => {
+                if let Ok(entries) = fs::read_dir(path) {
+                    for entry in entries.flatten() {
+                        visit(&entry.path(), total);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut total = 0u64;
+    visit(path, &mut total);
+    total
+}
+
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+
+    let mut value = bytes as f64;
+    let mut unit_index = 0;
+
+    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_index += 1;
+    }
+
+    if unit_index == 0 {
+        format!("{} {}", bytes, UNITS[unit_index])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit_index])
     }
 }
 

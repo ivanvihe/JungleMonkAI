@@ -1,13 +1,13 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
-    AppState, ChatMessage, InstalledLocalModel, LogStatus, MainView, PreferenceSection,
-    AVAILABLE_CUSTOM_ACTIONS,
+    format_bytes, AppState, ChatMessage, InstalledLocalModel, LogStatus, MainView,
+    PreferenceSection, AVAILABLE_CUSTOM_ACTIONS,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
-use std::{fs, path::Path};
+use std::path::Path;
 
 use super::{logs, theme};
 
@@ -67,25 +67,37 @@ fn with_centered_main_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut 
 
 pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
     egui::CentralPanel::default()
-        .frame(
+        .frame(egui::Frame::none().fill(Color32::from_rgb(20, 22, 26)))
+        .show(ctx, |ui| {
+            let frame_rect = ui.max_rect().shrink2(egui::vec2(12.0, 12.0));
+            if frame_rect.width() <= 0.0 || frame_rect.height() <= 0.0 {
+                return;
+            }
+
+            let mut frame_ui = ui.child_ui(frame_rect, egui::Layout::top_down(egui::Align::LEFT));
+            frame_ui.set_clip_rect(frame_rect);
+            frame_ui.set_width(frame_rect.width());
+            frame_ui.set_min_height(frame_rect.height());
+
             egui::Frame::none()
                 .fill(theme::COLOR_PANEL)
                 .stroke(theme::subtle_border())
+                .rounding(egui::Rounding::same(18.0))
                 .inner_margin(egui::Margin {
                     left: 18.0,
                     right: 12.0,
                     top: 18.0,
                     bottom: 14.0,
-                }),
-        )
-        .show(ctx, |ui| {
-            logs::draw_logs_panel(ui, state);
+                })
+                .show(&mut frame_ui, |ui| {
+                    logs::draw_logs_panel(ui, state);
 
-            egui::CentralPanel::default()
-                .frame(egui::Frame::none())
-                .show_inside(ui, |ui| match state.active_main_view {
-                    MainView::ChatMultimodal => draw_chat_view(ui, state),
-                    MainView::Preferences => draw_preferences_view(ui, state),
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::none())
+                        .show_inside(ui, |ui| match state.active_main_view {
+                            MainView::ChatMultimodal => draw_chat_view(ui, state),
+                            MainView::Preferences => draw_preferences_view(ui, state),
+                        });
                 });
         });
 }
@@ -1787,94 +1799,12 @@ fn draw_installed_model_card(
                             .color(Color32::from_rgb(240, 240, 240)),
                     );
                     if ui.add_sized([ui.available_width(), 30.0], button).clicked() {
-                        let status = activate_installed_model(state, &record.identifier);
+                        let status = state.activate_jarvis_model(&record.identifier);
                         state.provider_state_mut(provider).install_status = Some(status);
                     }
                 }
             });
         });
-}
-
-fn activate_installed_model(state: &mut AppState, identifier: &LocalModelIdentifier) -> String {
-    state.jarvis_selected_provider = identifier.provider;
-    state.jarvis_active_model = Some(identifier.clone());
-    state.jarvis_runtime = None;
-
-    let install_path = state
-        .installed_model(identifier)
-        .map(|record| record.install_path.clone())
-        .filter(|path| !path.trim().is_empty())
-        .unwrap_or_else(|| {
-            Path::new(&state.jarvis_install_dir)
-                .join(identifier.sanitized_dir_name())
-                .display()
-                .to_string()
-        });
-
-    state.jarvis_model_path = install_path.clone();
-
-    let mut status = format!(
-        "Modelo '{}' seleccionado para Jarvis.",
-        identifier.display_label()
-    );
-
-    state.push_activity_log(
-        LogStatus::Ok,
-        "Jarvis",
-        format!(
-            "Modelo '{}' configurado como activo.",
-            identifier.display_label()
-        ),
-    );
-
-    if state.jarvis_auto_start {
-        match state.ensure_jarvis_runtime() {
-            Ok(runtime) => {
-                let label = runtime.model_label();
-                status.push_str(&format!(" Jarvis se recargó con {}.", label));
-                state.push_activity_log(
-                    LogStatus::Ok,
-                    "Jarvis",
-                    format!(
-                        "Jarvis cargó {} tras activar {}.",
-                        label,
-                        identifier.display_label()
-                    ),
-                );
-            }
-            Err(err) => {
-                status.push_str(&format!(
-                    " No se pudo iniciar Jarvis automáticamente: {}.",
-                    err
-                ));
-                state.push_activity_log(
-                    LogStatus::Error,
-                    "Jarvis",
-                    format!(
-                        "El autoarranque falló tras activar '{}': {}",
-                        identifier.display_label(),
-                        err
-                    ),
-                );
-            }
-        }
-    }
-
-    state.jarvis_status = Some(status.clone());
-    state.persist_config();
-    status
-}
-
-fn deactivate_jarvis_model(state: &mut AppState) -> String {
-    state.jarvis_active_model = None;
-    state.jarvis_runtime = None;
-    state.jarvis_model_path.clear();
-
-    let status = "Jarvis quedó sin modelo activo.".to_string();
-    state.jarvis_status = Some(status.clone());
-    state.push_activity_log(LogStatus::Ok, "Jarvis", &status);
-    state.persist_config();
-    status
 }
 
 fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index: usize) {
@@ -1896,60 +1826,26 @@ fn install_local_model(state: &mut AppState, provider: LocalModelProvider, index
         return;
     }
 
-    let status = match provider {
-        LocalModelProvider::HuggingFace => {
-            let install_dir = std::path::Path::new(&state.jarvis_install_dir);
-            match crate::api::huggingface::download_model(&model, install_dir, token.as_deref()) {
-                Ok(path) => {
-                    let identifier = LocalModelIdentifier::new(provider, &model.id);
-                    let size_bytes = compute_directory_size(&path);
-                    let record = InstalledLocalModel {
-                        identifier: identifier.clone(),
-                        install_path: path.display().to_string(),
-                        size_bytes,
-                        installed_at: Utc::now(),
-                    };
-                    state.upsert_installed_model(record);
-
-                    let activation_status = activate_installed_model(state, &identifier);
-                    let mut message = format!(
-                        "Modelo '{}' instalado en {} ({}).",
-                        model.id,
-                        path.display(),
-                        format_bytes(size_bytes)
-                    );
-
-                    if !activation_status.is_empty() {
-                        message.push(' ');
-                        message.push_str(&activation_status);
-                    }
-
-                    state.push_activity_log(
-                        LogStatus::Ok,
-                        "Jarvis",
-                        format!(
-                            "Modelo '{}' descargado en {} ({}).",
-                            model.id,
-                            path.display(),
-                            format_bytes(size_bytes)
-                        ),
-                    );
-
-                    state.jarvis_status = Some(message.clone());
-                    message
-                }
-                Err(err) => {
-                    let status = format!("Fallo al instalar '{}': {}", model.id, err);
-                    state.jarvis_status = Some(status.clone());
-                    state.push_activity_log(
-                        LogStatus::Error,
-                        "Jarvis",
-                        format!("No se pudo descargar '{}': {}", model.id, err),
-                    );
-                    status
-                }
+    if provider == LocalModelProvider::HuggingFace {
+        let started = state.queue_huggingface_install(model.clone(), token);
+        if started {
+            state.provider_state_mut(provider).selected_model = Some(index);
+        } else {
+            let warning = format!(
+                "Ya hay una descarga en curso para '{}'. Espera a que termine.",
+                model.id
+            );
+            {
+                let provider_state = state.provider_state_mut(provider);
+                provider_state.selected_model = Some(index);
+                provider_state.install_status = Some(warning.clone());
             }
+            state.push_activity_log(LogStatus::Warning, "Jarvis", warning);
         }
+        return;
+    }
+
+    let status = match provider {
         LocalModelProvider::Ollama => {
             match crate::api::ollama::pull_model(&model.id, token.as_deref()) {
                 Ok(()) => format!(
@@ -2149,26 +2045,6 @@ fn sample_catalog(provider: LocalModelProvider) -> Vec<LocalModelCard> {
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    if bytes == 0 {
-        return "0 B".to_string();
-    }
-
-    let mut value = bytes as f64;
-    let mut unit_index = 0usize;
-    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
-        value /= 1024.0;
-        unit_index += 1;
-    }
-
-    if unit_index == 0 {
-        format!("{} {}", bytes, UNITS[unit_index])
-    } else {
-        format!("{:.1} {}", value, UNITS[unit_index])
-    }
-}
-
 fn format_timestamp(timestamp: DateTime<Utc>) -> String {
     let local: DateTime<Local> = DateTime::from(timestamp);
     local.format("%Y-%m-%d %H:%M").to_string()
@@ -2197,28 +2073,6 @@ fn truncate_middle(value: &str, max_len: usize) -> String {
         .rev()
         .collect();
     format!("{}…{}", start, end)
-}
-
-fn compute_directory_size(path: &Path) -> u64 {
-    fn visit(path: &Path, total: &mut u64) {
-        match fs::metadata(path) {
-            Ok(metadata) if metadata.is_file() => {
-                *total += metadata.len();
-            }
-            Ok(metadata) if metadata.is_dir() => {
-                if let Ok(entries) = fs::read_dir(path) {
-                    for entry in entries.flatten() {
-                        visit(&entry.path(), total);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut total = 0u64;
-    visit(path, &mut total);
-    total
 }
 
 fn format_count(value: u64) -> String {
@@ -2395,10 +2249,10 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
 
         if selected_model != state.jarvis_active_model {
             if let Some(model) = selected_model.clone() {
-                let status = activate_installed_model(state, &model);
+                let status = state.activate_jarvis_model(&model);
                 state.provider_state_mut(provider).install_status = Some(status);
             } else {
-                let status = deactivate_jarvis_model(state);
+                let status = state.deactivate_jarvis_model();
                 state.provider_state_mut(provider).install_status = Some(status);
             }
         }

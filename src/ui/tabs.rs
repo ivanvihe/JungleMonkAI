@@ -52,7 +52,7 @@ pub fn draw_tab_bar<T: Copy + PartialEq>(
     ui.set_width(ui.available_width());
     let bar_frame = egui::Frame::none()
         .fill(Color32::from_rgb(24, 26, 32))
-        .stroke(Stroke::new(1.0, theme::COLOR_BORDER))
+        .stroke(Stroke::new(1.0, theme::color_border()))
         .inner_margin(Margin {
             left: 20.0,
             right: 20.0,
@@ -84,15 +84,15 @@ fn draw_tab_button<T: Copy + PartialEq>(
 ) -> bool {
     let is_active = active == definition.id;
     let text_color = if is_active {
-        theme::COLOR_TEXT_PRIMARY
+        theme::color_text_primary()
     } else {
-        theme::COLOR_TEXT_WEAK
+        theme::color_text_weak()
     };
 
     let underline_color = if is_active {
-        theme::COLOR_PRIMARY
+        theme::color_primary()
     } else {
-        theme::COLOR_BORDER
+        theme::color_border()
     };
 
     let galley = egui::WidgetText::from(definition.label).into_galley(

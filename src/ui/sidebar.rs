@@ -21,8 +21,8 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
         .exact_width(LEFT_PANEL_WIDTH)
         .frame(
             egui::Frame::none()
-                .fill(theme::COLOR_PANEL)
-                .stroke(theme::subtle_border())
+                .fill(theme::color_panel())
+                .stroke(theme::subtle_border(&state.theme))
                 .inner_margin(egui::Margin {
                     left: 18.0,
                     right: 18.0,
@@ -56,7 +56,7 @@ pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
 fn draw_primary_navigation(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label(
         egui::RichText::new("Principal")
-            .color(theme::COLOR_TEXT_WEAK)
+            .color(theme::color_text_weak())
             .size(12.0),
     );
     ui.add_space(6.0);
@@ -80,7 +80,7 @@ fn draw_primary_navigation(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_preferences_tree(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label(
         egui::RichText::new(format!("{} Preferencias", ICON_PREFS))
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong()
             .size(13.0),
     );
@@ -162,7 +162,7 @@ fn draw_preference_group(
 fn draw_resources_tree(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label(
         egui::RichText::new(format!("{} Recursos", ICON_FOLDER))
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong()
             .size(13.0),
     );
@@ -285,7 +285,7 @@ fn nav_entry(
     let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
 
     let highlight = if selected {
-        theme::COLOR_PRIMARY.gamma_multiply(0.15)
+        theme::color_primary().gamma_multiply(0.15)
     } else {
         egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0)
     };
@@ -296,15 +296,15 @@ fn nav_entry(
     contents.label(
         egui::RichText::new(icon)
             .font(theme::icon_font(13.0))
-            .color(theme::COLOR_TEXT_WEAK),
+            .color(theme::color_text_weak()),
     );
     contents.add_space(8.0);
     contents.label(
         egui::RichText::new(label)
             .color(if selected {
-                theme::COLOR_TEXT_PRIMARY
+                theme::color_text_primary()
             } else {
-                theme::COLOR_TEXT_WEAK
+                theme::color_text_weak()
             })
             .size(13.0),
     );

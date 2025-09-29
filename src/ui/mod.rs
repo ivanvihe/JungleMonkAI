@@ -14,7 +14,7 @@ pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
     if state.update_async_tasks() {
         ctx.request_repaint();
     }
-    theme::apply(ctx);
+    theme::apply(ctx, &state.theme);
     state.sync_active_tab_from_view();
     ctx.style_mut(|style| {
         style.interaction.resize_grab_radius_side = 6.0;

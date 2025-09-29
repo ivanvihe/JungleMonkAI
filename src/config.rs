@@ -13,6 +13,9 @@ pub struct ProviderConfig {
     pub default_model: String,
     /// Alias que el usuario utilizará dentro del chat para invocar al proveedor.
     pub alias: String,
+    /// Límite máximo de invocaciones por día que Jarvis puede realizar automáticamente.
+    #[serde(default)]
+    pub daily_limit: Option<u32>,
 }
 
 impl Default for ProviderConfig {
@@ -21,6 +24,7 @@ impl Default for ProviderConfig {
             api_key: None,
             default_model: String::new(),
             alias: String::new(),
+            daily_limit: None,
         }
     }
 }
@@ -164,16 +168,19 @@ impl Default for AppConfig {
                 api_key: None,
                 default_model: "claude-3-opus-20240229".to_string(),
                 alias: "claude".to_string(),
+                daily_limit: Some(120),
             },
             openai: ProviderConfig {
                 api_key: None,
                 default_model: "gpt-4.1-mini".to_string(),
                 alias: "gpt".to_string(),
+                daily_limit: Some(120),
             },
             groq: ProviderConfig {
                 api_key: None,
                 default_model: "llama3-70b-8192".to_string(),
                 alias: "groq".to_string(),
+                daily_limit: Some(120),
             },
             github_token: None,
             cache_directory: "/var/tmp/jungle/cache".to_string(),

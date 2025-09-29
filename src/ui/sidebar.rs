@@ -1,14 +1,17 @@
 use crate::local_providers::LocalModelProvider;
-use crate::state::{AppState, MainView, PreferencePanel, RemoteProviderKind, ResourceSection};
+use crate::state::{
+    AppState, MainTab, MainView, PreferencePanel, RemoteProviderKind, ResourceSection,
+};
 use eframe::egui;
 
-use super::{tabs, theme};
+use super::theme;
 
 const LEFT_PANEL_WIDTH: f32 = 280.0;
 const ICON_PREFS: &str = "\u{f013}"; // cog
 const ICON_FOLDER: &str = "\u{f07c}"; // folder-open
 const ICON_ARROW: &str = "\u{f105}"; // angle-right
 const ICON_LIGHTBULB: &str = "\u{f0eb}"; // lightbulb
+const ICON_CHAT: &str = "\u{f086}"; // comments
 
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
     state.left_panel_width = LEFT_PANEL_WIDTH;
@@ -58,13 +61,19 @@ fn draw_primary_navigation(ui: &mut egui::Ui, state: &mut AppState) {
     );
     ui.add_space(6.0);
 
-    for definition in tabs::MAIN_TABS {
-        let is_active = state.active_main_tab == definition.tab;
-        let response = nav_entry(ui, 0.0, definition.icon, definition.label, is_active)
-            .on_hover_text(definition.tooltip);
-        if response.clicked() {
-            state.set_active_tab(definition.tab);
-        }
+    let is_active = matches!(
+        state.active_main_view,
+        MainView::ChatMultimodal
+            | MainView::CronScheduler
+            | MainView::ActivityFeed
+            | MainView::DebugConsole
+    );
+
+    let response = nav_entry(ui, 0.0, ICON_CHAT, "Chat multimodal", is_active)
+        .on_hover_text("Conversación, cron y registros del agente");
+
+    if response.clicked() {
+        state.set_active_tab(MainTab::Chat);
     }
 }
 

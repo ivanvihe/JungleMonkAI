@@ -5,7 +5,7 @@ use crate::{
 };
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -19,7 +19,7 @@ pub struct PanelMetadata {
 }
 
 /// Paneles de preferencias que agrupan formularios y ajustes persistentes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PreferencePanel {
     SystemGithub,
     SystemCache,
@@ -114,7 +114,7 @@ impl Default for PreferencePanel {
 }
 
 /// Agrupa catálogos y recursos navegables independientes de los formularios.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ResourceSection {
     LocalCatalog(LocalModelProvider),
     RemoteCatalog(RemoteProviderKind),
@@ -206,7 +206,7 @@ impl ResourceSection {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MainView {
     ChatMultimodal,
     CronScheduler,
@@ -222,7 +222,7 @@ impl Default for MainView {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MainTab {
     Chat,
     Cron,
@@ -259,7 +259,7 @@ impl MainTab {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RemoteProviderKind {
     Anthropic,
     OpenAi,
@@ -2190,6 +2190,8 @@ pub struct AppState {
     pub active_main_tab: MainTab,
     /// Panel de preferencias actualmente seleccionado.
     pub selected_preference: PreferencePanel,
+    /// Índice de tab activo por panel de preferencias.
+    pub preference_tabs: HashMap<PreferencePanel, usize>,
     /// Recurso seleccionado dentro del explorador de recursos.
     pub selected_resource: Option<ResourceSection>,
     /// Token de acceso personal de GitHub.
@@ -2443,6 +2445,7 @@ impl Default for AppState {
             active_main_view: MainView::default(),
             active_main_tab: MainTab::default(),
             selected_preference: PreferencePanel::default(),
+            preference_tabs: HashMap::new(),
             selected_resource: None,
             github_token: config.github_token.unwrap_or_default(),
             github_username: None,

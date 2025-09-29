@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Margin, RichText, Sense, Stroke};
 
-use crate::state::{AppState, MainTab};
+use crate::state::MainTab;
 
 use super::theme;
 
@@ -10,41 +10,45 @@ const ICON_ACTIVITY: &str = "\u{f201}"; // chart-line
 const ICON_DEBUG: &str = "\u{f120}"; // terminal
 
 #[derive(Clone, Copy)]
-pub struct TabDefinition {
-    pub tab: MainTab,
+pub struct TabDefinition<T> {
+    pub id: T,
     pub label: &'static str,
-    pub icon: &'static str,
+    pub icon: Option<&'static str>,
     pub tooltip: &'static str,
 }
 
-pub const MAIN_TABS: &[TabDefinition] = &[
+pub const CHAT_SECTION_TABS: &[TabDefinition<MainTab>] = &[
     TabDefinition {
-        tab: MainTab::Chat,
-        label: "CHAT",
-        icon: ICON_CHAT,
+        id: MainTab::Chat,
+        label: "Chat",
+        icon: Some(ICON_CHAT),
         tooltip: "Conversación principal",
     },
     TabDefinition {
-        tab: MainTab::Cron,
-        label: "CRON",
-        icon: ICON_CRON,
+        id: MainTab::Cron,
+        label: "Cron",
+        icon: Some(ICON_CRON),
         tooltip: "Tareas programadas y cron jobs",
     },
     TabDefinition {
-        tab: MainTab::Activity,
-        label: "ACTIVITY",
-        icon: ICON_ACTIVITY,
+        id: MainTab::Activity,
+        label: "Activity",
+        icon: Some(ICON_ACTIVITY),
         tooltip: "Actividad reciente del sistema",
     },
     TabDefinition {
-        tab: MainTab::DebugConsole,
-        label: "DEBUG CONSOLE",
-        icon: ICON_DEBUG,
+        id: MainTab::DebugConsole,
+        label: "Debug console",
+        icon: Some(ICON_DEBUG),
         tooltip: "Herramientas de diagnóstico",
     },
 ];
 
-pub fn draw_main_tab_bar(ui: &mut egui::Ui, state: &mut AppState) {
+pub fn draw_tab_bar<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    active: T,
+    definitions: &[TabDefinition<T>],
+) -> Option<T> {
     ui.set_width(ui.available_width());
     let bar_frame = egui::Frame::none()
         .fill(Color32::from_rgb(24, 26, 32))
@@ -56,19 +60,29 @@ pub fn draw_main_tab_bar(ui: &mut egui::Ui, state: &mut AppState) {
             bottom: 6.0,
         });
 
+    let mut selection = None;
+
     bar_frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.x = 24.0;
         ui.horizontal(|ui| {
-            for definition in MAIN_TABS {
-                draw_tab_button(ui, state, definition);
+            for definition in definitions {
+                if draw_tab_button(ui, active, definition) {
+                    selection = Some(definition.id);
+                }
             }
         });
     });
+
+    selection
 }
 
-fn draw_tab_button(ui: &mut egui::Ui, state: &mut AppState, definition: &TabDefinition) {
-    let is_active = state.active_main_tab == definition.tab;
+fn draw_tab_button<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    active: T,
+    definition: &TabDefinition<T>,
+) -> bool {
+    let is_active = active == definition.id;
     let text_color = if is_active {
         theme::COLOR_TEXT_PRIMARY
     } else {
@@ -95,12 +109,16 @@ fn draw_tab_button(ui: &mut egui::Ui, state: &mut AppState, definition: &TabDefi
     let painter = ui.painter_at(rect);
     let mut label_ui = ui.child_ui(rect, egui::Layout::left_to_right(egui::Align::Center));
     label_ui.add_space(2.0);
-    label_ui.label(
-        RichText::new(definition.icon)
-            .font(theme::icon_font(14.0))
-            .color(text_color),
-    );
-    label_ui.add_space(6.0);
+
+    if let Some(icon) = definition.icon {
+        label_ui.label(
+            RichText::new(icon)
+                .font(theme::icon_font(14.0))
+                .color(text_color),
+        );
+        label_ui.add_space(6.0);
+    }
+
     label_ui.label(
         RichText::new(definition.label)
             .color(text_color)
@@ -118,11 +136,11 @@ fn draw_tab_button(ui: &mut egui::Ui, state: &mut AppState, definition: &TabDefi
         );
     }
 
-    if response.clicked() {
-        state.set_active_tab(definition.tab);
-    }
+    let was_clicked = response.clicked();
 
     if !definition.tooltip.is_empty() {
         response.on_hover_text(definition.tooltip);
     }
+
+    was_clicked
 }

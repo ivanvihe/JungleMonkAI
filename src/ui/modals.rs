@@ -1,4 +1,4 @@
-use crate::state::{AppState, AVAILABLE_CUSTOM_ACTIONS};
+use crate::state::AppState;
 use eframe::egui;
 
 pub fn draw_settings_modal(ctx: &egui::Context, state: &mut AppState) {
@@ -24,11 +24,11 @@ pub fn draw_settings_modal(ctx: &egui::Context, state: &mut AppState) {
 }
 
 pub fn draw_functions_modal(ctx: &egui::Context, state: &mut AppState) {
-    if !state.show_functions_modal {
+    if !state.chat.show_functions_modal {
         return;
     }
 
-    let mut is_open = state.show_functions_modal;
+    let mut is_open = state.chat.show_functions_modal;
     egui::Window::new("Available Functions")
         .collapsible(false)
         .resizable(true)
@@ -62,7 +62,8 @@ pub fn draw_functions_modal(ctx: &egui::Context, state: &mut AppState) {
                     ui.heading("Funciones personalizables");
                     ui.add_space(6.0);
 
-                    for action in AVAILABLE_CUSTOM_ACTIONS {
+                    for action in state.command_registry.actions() {
+                        let action = *action;
                         let doc = action.documentation();
                         ui.group(|ui| {
                             ui.strong(doc.signature);
@@ -90,7 +91,7 @@ pub fn draw_functions_modal(ctx: &egui::Context, state: &mut AppState) {
                 });
         });
 
-    state.show_functions_modal = is_open;
+    state.chat.show_functions_modal = is_open;
 }
 
 fn builtin_documentation() -> Vec<(&'static str, &'static str, &'static [&'static str])> {

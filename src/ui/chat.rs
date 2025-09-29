@@ -5,7 +5,7 @@ use crate::state::{
     IntegrationStatus, KnowledgeResourceCard, LogStatus, MainTab, MainView, PreferencePanel,
     ProjectResourceCard, ProjectResourceKind, ReminderStatus, RemoteModelCard, RemoteModelKey,
     RemoteProviderKind, ResourceSection, ScheduledTaskStatus, SyncHealth, WorkflowStatus,
-    WorkflowStepKind, AVAILABLE_CUSTOM_ACTIONS,
+    WorkflowStepKind,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
@@ -497,7 +497,7 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
                 bottom: 18.0,
             })
             .show(ui, |ui| {
-                if let Some(section) = state.selected_resource {
+                if let Some(section) = state.resources.selected_resource {
                     let metadata = section.metadata();
                     let breadcrumb_text = if metadata.breadcrumb.is_empty() {
                         String::new()
@@ -614,7 +614,7 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.add_space(10.0);
                 draw_cron_table(ui, state);
 
-                if let Some(task) = state.cron_board.selected_task() {
+                if let Some(task) = state.automation.cron_board.selected_task() {
                     ui.add_space(14.0);
                     draw_cron_task_detail(ui, state, task);
                 }
@@ -677,13 +677,20 @@ fn draw_debug_console_view(ui: &mut egui::Ui, state: &mut AppState) {
 
 fn draw_cron_summary(ui: &mut egui::Ui, state: &AppState) {
     let total_enabled = state
+        .automation
         .cron_board
         .tasks
         .iter()
         .filter(|task| task.enabled)
         .count();
-    let running = state.cron_board.status_count(ScheduledTaskStatus::Running);
-    let failing = state.cron_board.status_count(ScheduledTaskStatus::Failed);
+    let running = state
+        .automation
+        .cron_board
+        .status_count(ScheduledTaskStatus::Running);
+    let failing = state
+        .automation
+        .cron_board
+        .status_count(ScheduledTaskStatus::Failed);
 
     ui.horizontal(|ui| {
         summary_chip(
@@ -771,7 +778,7 @@ fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 );
                 ui.add_space(ui.available_width());
                 ui.checkbox(
-                    &mut state.automation_workflows.show_only_pinned,
+                    &mut state.automation.workflows.show_only_pinned,
                     "Solo favoritos",
                 )
                 .on_hover_text("Filtra workflows fijados para acceso rápido");
@@ -785,7 +792,7 @@ fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
             );
 
             ui.add_space(8.0);
-            let indices = state.automation_workflows.filtered_indices();
+            let indices = state.automation.workflows.filtered_indices();
             if indices.is_empty() {
                 ui.colored_label(
                     theme::color_text_weak(),
@@ -795,7 +802,7 @@ fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
             }
 
             for index in indices {
-                let workflow_snapshot = state.automation_workflows.workflows[index].clone();
+                let workflow_snapshot = state.automation.workflows.workflows[index].clone();
                 draw_workflow_card(ui, state, index, &workflow_snapshot);
                 ui.add_space(8.0);
             }
@@ -940,7 +947,7 @@ fn draw_workflow_card(
                     .min_size(egui::vec2(150.0, 30.0));
                     if ui.add(select_button).clicked() {
                         if let Some(message) =
-                            state.automation_workflows.workflows.get(index).map(|wf| {
+                            state.automation.workflows.workflows.get(index).map(|wf| {
                                 format!("Workflow '{}' listo para orquestación.", wf.name)
                             })
                         {
@@ -1003,7 +1010,7 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
             );
 
             ui.add_space(8.0);
-            if state.scheduled_reminders.is_empty() {
+            if state.automation.scheduled_reminders.is_empty() {
                 ui.colored_label(
                     theme::color_text_weak(),
                     "No existen recordatorios activos por ahora.",
@@ -1011,7 +1018,7 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
                 return;
             }
 
-            for reminder in &state.scheduled_reminders {
+            for reminder in &state.automation.scheduled_reminders {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
                     .stroke(theme::subtle_border(&state.theme))
@@ -1086,7 +1093,7 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 );
                 ui.add_space(ui.available_width());
                 ui.checkbox(
-                    &mut state.event_automation.show_only_enabled,
+                    &mut state.automation.event_automation.show_only_enabled,
                     "Solo activos",
                 )
                 .on_hover_text("Oculta listeners deshabilitados");
@@ -1101,12 +1108,13 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
 
             ui.add_space(8.0);
             let indices: Vec<usize> = state
+                .automation
                 .event_automation
                 .listeners
                 .iter()
                 .enumerate()
                 .filter(|(_, listener)| {
-                    if state.event_automation.show_only_enabled && !listener.enabled {
+                    if state.automation.event_automation.show_only_enabled && !listener.enabled {
                         return false;
                     }
                     true
@@ -1123,7 +1131,7 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
             }
 
             for index in indices {
-                let listener_snapshot = state.event_automation.listeners[index].clone();
+                let listener_snapshot = state.automation.event_automation.listeners[index].clone();
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
                     .stroke(theme::subtle_border(&state.theme))
@@ -1220,7 +1228,7 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
             );
 
             ui.add_space(8.0);
-            if state.external_integrations.connectors.is_empty() {
+            if state.automation.external_integrations.connectors.is_empty() {
                 ui.colored_label(
                     theme::color_text_weak(),
                     "Sin conectores registrados todavía.",
@@ -1228,7 +1236,7 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
                 return;
             }
 
-            for connector in &state.external_integrations.connectors {
+            for connector in &state.automation.external_integrations.connectors {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
                     .stroke(theme::subtle_border(&state.theme))
@@ -1316,10 +1324,14 @@ fn integration_status_color(status: IntegrationStatus) -> Color32 {
 
 fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
     ui.horizontal(|ui| {
-        let toggle = ui.checkbox(&mut state.cron_board.show_only_enabled, "Solo habilitadas");
+        let toggle = ui.checkbox(
+            &mut state.automation.cron_board.show_only_enabled,
+            "Solo habilitadas",
+        );
         toggle.on_hover_text("Oculta tareas desactivadas o pausadas");
 
         let provider_text = state
+            .automation
             .cron_board
             .provider_filter
             .map(|provider| provider.display_name().to_string())
@@ -1328,20 +1340,23 @@ fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
             .selected_text(provider_text)
             .show_ui(ui, |ui| {
                 if ui
-                    .selectable_label(state.cron_board.provider_filter.is_none(), "Todos")
+                    .selectable_label(
+                        state.automation.cron_board.provider_filter.is_none(),
+                        "Todos",
+                    )
                     .clicked()
                 {
-                    state.cron_board.provider_filter = None;
+                    state.automation.cron_board.provider_filter = None;
                 }
                 for provider in [
                     RemoteProviderKind::Anthropic,
                     RemoteProviderKind::OpenAi,
                     RemoteProviderKind::Groq,
                 ] {
-                    let selected = state.cron_board.provider_filter == Some(provider);
+                    let selected = state.automation.cron_board.provider_filter == Some(provider);
                     let label = format!("{} ({})", provider.display_name(), provider.short_code());
                     if ui.selectable_label(selected, label).clicked() {
-                        state.cron_board.provider_filter = Some(provider);
+                        state.automation.cron_board.provider_filter = Some(provider);
                     }
                 }
             });
@@ -1350,13 +1365,13 @@ fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
             .add(egui::Button::new("Limpiar filtros").min_size(egui::vec2(120.0, 28.0)))
             .clicked()
         {
-            state.cron_board.show_only_enabled = false;
-            state.cron_board.provider_filter = None;
-            state.cron_board.tag_filter = None;
+            state.automation.cron_board.show_only_enabled = false;
+            state.automation.cron_board.provider_filter = None;
+            state.automation.cron_board.tag_filter = None;
         }
     });
 
-    let tags = state.cron_board.unique_tags();
+    let tags = state.automation.cron_board.unique_tags();
     if !tags.is_empty() {
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
@@ -1368,6 +1383,7 @@ fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
             );
             for tag in tags {
                 let selected = state
+                    .automation
                     .cron_board
                     .tag_filter
                     .as_ref()
@@ -1375,27 +1391,28 @@ fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
                     .unwrap_or(false);
                 if selectable_chip(ui, &tag, selected).clicked() {
                     if selected {
-                        state.cron_board.tag_filter = None;
+                        state.automation.cron_board.tag_filter = None;
                     } else {
-                        state.cron_board.tag_filter = Some(tag);
+                        state.automation.cron_board.tag_filter = Some(tag);
                     }
                 }
             }
-            if state.cron_board.tag_filter.is_some() && ui.button("Quitar tag").clicked() {
-                state.cron_board.tag_filter = None;
+            if state.automation.cron_board.tag_filter.is_some() && ui.button("Quitar tag").clicked()
+            {
+                state.automation.cron_board.tag_filter = None;
             }
         });
     }
 }
 
 fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
-    let indices = state.cron_board.filtered_indices();
+    let indices = state.automation.cron_board.filtered_indices();
     if indices.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
             "No hay tareas que coincidan con los filtros seleccionados.",
         );
-        state.cron_board.select_task(None);
+        state.automation.cron_board.select_task(None);
         return;
     }
 
@@ -1464,7 +1481,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
         })
         .body(|mut body| {
             for index in indices {
-                let task_snapshot = state.cron_board.tasks[index].clone();
+                let task_snapshot = state.automation.cron_board.tasks[index].clone();
                 let mut selection_change = None;
                 let mut new_enabled: Option<bool> = None;
                 let mut trigger_run = false;
@@ -1481,7 +1498,8 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                         );
                     });
                     row.col(|ui| {
-                        let selected = state.cron_board.selected_task == Some(task_snapshot.id);
+                        let selected =
+                            state.automation.cron_board.selected_task == Some(task_snapshot.id);
                         let response = ui.add(egui::SelectableLabel::new(
                             selected,
                             RichText::new(&task_snapshot.name)
@@ -1555,13 +1573,13 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                 });
 
                 if let Some(task_id) = selection_change {
-                    state.cron_board.select_task(Some(task_id));
+                    state.automation.cron_board.select_task(Some(task_id));
                 }
 
                 if let Some(enabled) = new_enabled {
                     let mut message = None;
                     {
-                        let task = &mut state.cron_board.tasks[index];
+                        let task = &mut state.automation.cron_board.tasks[index];
                         if task.enabled != enabled {
                             task.enabled = enabled;
                             let task_name = task.name.clone();
@@ -1593,7 +1611,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
 
                 if trigger_run {
                     let name = {
-                        let task = &mut state.cron_board.tasks[index];
+                        let task = &mut state.automation.cron_board.tasks[index];
                         task.status = ScheduledTaskStatus::Running;
                         task.last_run = Some(Local::now().format("%Y-%m-%d %H:%M").to_string());
                         task.name.clone()
@@ -1678,6 +1696,7 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
             );
 
             if let Some(status) = state
+                .automation
                 .activity_logs
                 .iter()
                 .rev()
@@ -1889,7 +1908,7 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
                         .show(ui, |ui| {
                             let feed_width = ui.available_width().min(540.0);
                             ui.set_width(feed_width);
-                            for (index, message) in state.chat_messages.iter().enumerate() {
+                            for (index, message) in state.chat.messages.iter().enumerate() {
                                 draw_message_bubble(
                                     ui,
                                     state,
@@ -2029,12 +2048,12 @@ fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn insert_quick_token(state: &mut AppState, token: &str) {
-    if !state.current_chat_input.is_empty() && !state.current_chat_input.ends_with(' ') {
-        state.current_chat_input.push(' ');
+    if !state.chat.input.is_empty() && !state.chat.input.ends_with(' ') {
+        state.chat.input.push(' ');
     }
-    state.current_chat_input.push_str(token);
+    state.chat.input.push_str(token);
     if !token.ends_with(' ') {
-        state.current_chat_input.push(' ');
+        state.chat.input.push(' ');
     }
 }
 
@@ -2917,13 +2936,12 @@ fn apply_pending_actions(state: &mut AppState, actions: Vec<PendingChatAction>) 
         match action {
             PendingChatAction::Mention(tag) => insert_mention(state, &tag),
             PendingChatAction::Quote(text) => {
-                if !state.current_chat_input.ends_with('\n') && !state.current_chat_input.is_empty()
-                {
-                    state.current_chat_input.push('\n');
+                if !state.chat.input.ends_with('\n') && !state.chat.input.is_empty() {
+                    state.chat.input.push('\n');
                 }
-                state.current_chat_input.push_str(&text);
+                state.chat.input.push_str(&text);
             }
-            PendingChatAction::Reuse(text) => state.current_chat_input = text,
+            PendingChatAction::Reuse(text) => state.chat.input = text,
         }
     }
 }
@@ -2992,7 +3010,7 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
                                 egui::Layout::top_down(egui::Align::LEFT),
                                 |ui| {
                                     let text_edit = egui::TextEdit::multiline(
-                                        &mut state.current_chat_input,
+                                        &mut state.chat.input,
                                     )
                                     .desired_rows(3)
                                     .hint_text(
@@ -3077,9 +3095,9 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn submit_chat_message(state: &mut AppState) {
-    let trimmed = state.current_chat_input.trim();
+    let trimmed = state.chat.input.trim();
     if trimmed.is_empty() {
-        state.current_chat_input.clear();
+        state.chat.input.clear();
         return;
     }
 
@@ -3087,13 +3105,13 @@ fn submit_chat_message(state: &mut AppState) {
     while input.ends_with('\n') {
         input.pop();
     }
-    state.current_chat_input.clear();
+    state.chat.input.clear();
 
     if input.starts_with('/') {
-        state.chat_messages.push(ChatMessage::user(input.clone()));
+        state.chat.messages.push(ChatMessage::user(input.clone()));
         state.handle_command(input);
     } else {
-        state.chat_messages.push(ChatMessage::user(input.clone()));
+        state.chat.messages.push(ChatMessage::user(input.clone()));
         if state.try_route_provider_message(&input) {
             return;
         }
@@ -3106,7 +3124,7 @@ fn submit_chat_message(state: &mut AppState) {
             return;
         }
 
-        if state.jarvis_respond_without_alias {
+        if state.resources.jarvis_respond_without_alias {
             state.respond_with_jarvis(input);
         }
     }
@@ -3171,7 +3189,7 @@ fn draw_project_resources(ui: &mut egui::Ui, state: &mut AppState, kind: Project
 
     ui.add_space(10.0);
 
-    let cards = state.project_resources_by_kind(kind);
+    let cards = state.resources.project_resources_by_kind(kind);
     if cards.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
@@ -3389,11 +3407,11 @@ fn draw_remote_catalog_explorer(
     );
 
     ui.add_space(10.0);
-    let tags = state.remote_catalog.all_tags(provider);
+    let tags = state.resources.remote_catalog.all_tags(provider);
     let mut reset_status = false;
 
     {
-        let filters = state.remote_catalog.filters_mut(provider);
+        let filters = state.resources.remote_catalog.filters_mut(provider);
 
         ui.horizontal(|ui| {
             let search_width = (ui.available_width() - 140.0).max(200.0);
@@ -3509,7 +3527,7 @@ fn draw_remote_catalog_explorer(
     }
 
     if reset_status {
-        state.remote_catalog.update_status(None);
+        state.resources.remote_catalog.update_status(None);
     }
 
     ui.add_space(10.0);
@@ -3517,25 +3535,25 @@ fn draw_remote_catalog_explorer(
         let prompt_width = (ui.available_width() - 140.0).max(200.0);
         ui.add_sized(
             [prompt_width, 30.0],
-            egui::TextEdit::singleline(&mut state.remote_catalog.quick_test_prompt)
+            egui::TextEdit::singleline(&mut state.resources.remote_catalog.quick_test_prompt)
                 .hint_text("Prompt para 'Probar' (ej. Resume los últimos commits)"),
         );
         if ui
             .add_sized([120.0, 30.0], egui::Button::new("Limpiar prompt"))
             .clicked()
         {
-            state.remote_catalog.quick_test_prompt.clear();
+            state.resources.remote_catalog.quick_test_prompt.clear();
         }
     });
 
-    if let Some(status) = &state.remote_catalog.last_status {
+    if let Some(status) = &state.resources.remote_catalog.last_status {
         ui.add_space(6.0);
         ui.colored_label(theme::color_text_weak(), status);
     }
 
     ui.add_space(8.0);
     let cards: Vec<RemoteModelCard> = {
-        let refs = state.remote_catalog.filtered_cards(provider);
+        let refs = state.resources.remote_catalog.filtered_cards(provider);
         refs.into_iter().cloned().collect()
     };
     if cards.is_empty() {
@@ -3606,8 +3624,8 @@ fn draw_remote_model_gallery(ui: &mut egui::Ui, state: &mut AppState, cards: &[R
 }
 
 fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &RemoteModelCard) {
-    let is_favorite = state.remote_catalog.is_favorite(&card.key);
-    let in_comparison = state.remote_catalog.in_comparison(&card.key);
+    let is_favorite = state.resources.remote_catalog.is_favorite(&card.key);
+    let in_comparison = state.resources.remote_catalog.in_comparison(&card.key);
     let fill = if is_favorite {
         Color32::from_rgb(44, 40, 60)
     } else {
@@ -3649,11 +3667,14 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                     if star_response.clicked() {
                         let provider = card.key.provider;
                         let key_clone = card.key.clone();
-                        let was_favorite = state.remote_catalog.is_favorite(&key_clone);
-                        state.remote_catalog.toggle_favorite(key_clone.clone());
-                        let favorites_snapshot = state.remote_catalog.favorites.clone();
+                        let was_favorite = state.resources.remote_catalog.is_favorite(&key_clone);
+                        state
+                            .resources
+                            .remote_catalog
+                            .toggle_favorite(key_clone.clone());
+                        let favorites_snapshot = state.resources.remote_catalog.favorites.clone();
                         {
-                            let cards = state.remote_catalog.cards_for_mut(provider);
+                            let cards = state.resources.remote_catalog.cards_for_mut(provider);
                             cards.sort_by(|a, b| {
                                 let a_fav = favorites_snapshot.contains(&a.key);
                                 let b_fav = favorites_snapshot.contains(&b.key);
@@ -3667,7 +3688,10 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                         } else {
                             format!("{} añadido a favoritos", card.title)
                         };
-                        state.remote_catalog.update_status(Some(message.clone()));
+                        state
+                            .resources
+                            .remote_catalog
+                            .update_status(Some(message.clone()));
                         state.push_debug_event(
                             DebugLogLevel::Info,
                             format!("catalog::{}", provider.short_code()),
@@ -3765,19 +3789,25 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                         favorite_toggled = true;
                     }
                     if favorite_toggled {
-                        state.remote_catalog.toggle_favorite(card.key.clone());
+                        state
+                            .resources
+                            .remote_catalog
+                            .toggle_favorite(card.key.clone());
                         let now_favorite = !is_favorite;
                         let status = if now_favorite {
                             format!("{} marcado como favorito.", card.title)
                         } else {
                             format!("{} eliminado de favoritos.", card.title)
                         };
-                        state.remote_catalog.update_status(Some(status));
+                        state.resources.remote_catalog.update_status(Some(status));
                     }
 
                     if selectable_chip(ui, "Comparar", in_comparison).clicked() {
-                        state.remote_catalog.toggle_comparison(card.key.clone());
-                        state.remote_catalog.update_status(Some(format!(
+                        state
+                            .resources
+                            .remote_catalog
+                            .toggle_comparison(card.key.clone());
+                        state.resources.remote_catalog.update_status(Some(format!(
                             "{} {} en la tabla comparativa.",
                             card.title,
                             if in_comparison {
@@ -3801,7 +3831,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                     {
                         let status = state.execute_remote_quick_test(card.key.clone());
                         if let Some(status) = status {
-                            state.remote_catalog.update_status(Some(status));
+                            state.resources.remote_catalog.update_status(Some(status));
                         }
                     }
                 });
@@ -3810,7 +3840,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
 }
 
 fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
-    if state.remote_catalog.comparison.is_empty() {
+    if state.resources.remote_catalog.comparison.is_empty() {
         return;
     }
 
@@ -3838,7 +3868,7 @@ fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.end_row();
 
                 let mut removals = Vec::new();
-                for key in &state.remote_catalog.comparison {
+                for key in &state.resources.remote_catalog.comparison {
                     if let Some(card) = remote_card_by_key(state, key) {
                         ui.label(
                             RichText::new(&card.title)
@@ -3872,7 +3902,7 @@ fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
                 }
 
                 for key in removals {
-                    state.remote_catalog.toggle_comparison(key);
+                    state.resources.remote_catalog.toggle_comparison(key);
                 }
             });
     });
@@ -3891,6 +3921,7 @@ fn remote_card_by_key<'a>(
     key: &RemoteModelKey,
 ) -> Option<&'a RemoteModelCard> {
     state
+        .resources
         .remote_catalog
         .cards_for(key.provider)
         .iter()
@@ -4074,7 +4105,7 @@ fn draw_custom_commands_configuration(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Link slash commands with built-in automation functions.");
 
     let mut remove_index = None;
-    for (idx, command) in state.custom_commands.iter().enumerate() {
+    for (idx, command) in state.chat.custom_commands.iter().enumerate() {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.strong(&command.trigger);
@@ -4089,9 +4120,9 @@ fn draw_custom_commands_configuration(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     if let Some(idx) = remove_index {
-        if let Some(command) = state.custom_commands.get(idx).cloned() {
-            state.custom_commands.remove(idx);
-            state.command_feedback = Some(format!(
+        if let Some(command) = state.chat.custom_commands.get(idx).cloned() {
+            state.chat.custom_commands.remove(idx);
+            state.chat.command_feedback = Some(format!(
                 "Removed custom command '{}' ({})",
                 command.trigger,
                 command.action.label()
@@ -4104,16 +4135,16 @@ fn draw_custom_commands_configuration(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Create a new command");
     ui.horizontal(|ui| {
         ui.add(
-            egui::TextEdit::singleline(&mut state.new_custom_command)
+            egui::TextEdit::singleline(&mut state.chat.new_command)
                 .hint_text("Trigger (e.g. /time)"),
         );
 
         egui::ComboBox::from_id_source("new_custom_command_action")
-            .selected_text(state.new_custom_command_action.label())
+            .selected_text(state.chat.new_command_action.label())
             .show_ui(ui, |ui| {
-                for action in AVAILABLE_CUSTOM_ACTIONS {
+                for action in state.command_registry.actions() {
                     ui.selectable_value(
-                        &mut state.new_custom_command_action,
+                        &mut state.chat.new_command_action,
                         *action,
                         format!("{} — {}", action.label(), action.description()),
                     );
@@ -4121,9 +4152,9 @@ fn draw_custom_commands_configuration(ui: &mut egui::Ui, state: &mut AppState) {
             });
 
         if ui.button("Add").clicked() {
-            let trimmed = state.new_custom_command.trim();
+            let trimmed = state.chat.new_command.trim();
             if trimmed.is_empty() {
-                state.command_feedback = Some("Command cannot be empty.".to_string());
+                state.chat.command_feedback = Some("Command cannot be empty.".to_string());
             } else {
                 let normalized = if trimmed.starts_with('/') {
                     trimmed.to_string()
@@ -4132,31 +4163,35 @@ fn draw_custom_commands_configuration(ui: &mut egui::Ui, state: &mut AppState) {
                 };
 
                 if state
+                    .chat
                     .custom_commands
                     .iter()
                     .any(|cmd| cmd.trigger == normalized)
                 {
-                    state.command_feedback =
+                    state.chat.command_feedback =
                         Some(format!("Command '{}' already exists.", normalized));
                 } else {
-                    let action = state.new_custom_command_action;
-                    state.custom_commands.push(crate::state::CustomCommand {
-                        trigger: normalized.clone(),
-                        action,
-                    });
-                    state.command_feedback = Some(format!(
+                    let action = state.chat.new_command_action;
+                    state
+                        .chat
+                        .custom_commands
+                        .push(crate::state::CustomCommand {
+                            trigger: normalized.clone(),
+                            action,
+                        });
+                    state.chat.command_feedback = Some(format!(
                         "Added '{}' linked to {}.",
                         normalized,
                         action.label()
                     ));
-                    state.new_custom_command.clear();
+                    state.chat.new_command.clear();
                     state.persist_config();
                 }
             }
         }
     });
 
-    if let Some(feedback) = &state.command_feedback {
+    if let Some(feedback) = &state.chat.command_feedback {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), feedback);
     }
@@ -4167,7 +4202,7 @@ fn draw_custom_commands_configuration(ui: &mut egui::Ui, state: &mut AppState) {
         .on_hover_text("Consulta documentación detallada y ejemplos")
         .clicked()
     {
-        state.show_functions_modal = true;
+        state.chat.show_functions_modal = true;
     }
 }
 
@@ -4179,7 +4214,8 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
     );
 
     ui.add_space(12.0);
-    for action in AVAILABLE_CUSTOM_ACTIONS {
+    for action in state.command_registry.actions() {
+        let action = *action;
         let doc = action.documentation();
         egui::Frame::none()
             .fill(Color32::from_rgb(34, 36, 42))
@@ -4246,7 +4282,7 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
         ui.add_space(8.0);
     }
 
-    if state.custom_commands.is_empty() {
+    if state.chat.custom_commands.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
             "Aún no hay comandos personalizados definidos.",
@@ -4256,7 +4292,7 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
 
 fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
     ui.heading("Actividad de comandos");
-    if let Some(feedback) = &state.command_feedback {
+    if let Some(feedback) = &state.chat.command_feedback {
         ui.label(
             RichText::new(format!("Última acción: {feedback}"))
                 .color(theme::color_text_primary())
@@ -4271,7 +4307,7 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
     }
 
     ui.add_space(10.0);
-    if state.custom_commands.is_empty() {
+    if state.chat.custom_commands.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
             "Agrega comandos personalizados para comenzar a registrar actividad.",
@@ -4285,7 +4321,7 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
             .strong(),
     );
 
-    for command in &state.custom_commands {
+    for command in &state.chat.custom_commands {
         egui::Frame::none()
             .fill(Color32::from_rgb(34, 36, 42))
             .stroke(theme::subtle_border(&state.theme))
@@ -4455,7 +4491,7 @@ fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {
     );
 
     ui.add_space(10.0);
-    let memory_cards = state.personalization_resources.memories.clone();
+    let memory_cards = state.resources.personalization_resources.memories.clone();
     draw_personalization_cards(
         ui,
         state,
@@ -4518,7 +4554,7 @@ fn draw_customization_profiles(ui: &mut egui::Ui, state: &mut AppState) {
     );
 
     ui.add_space(10.0);
-    let profile_cards = state.personalization_resources.profiles.clone();
+    let profile_cards = state.resources.personalization_resources.profiles.clone();
     draw_personalization_cards(
         ui,
         state,
@@ -4563,7 +4599,7 @@ fn draw_customization_projects(ui: &mut egui::Ui, state: &mut AppState) {
     );
 
     ui.add_space(10.0);
-    let context_cards = state.personalization_resources.contexts.clone();
+    let context_cards = state.resources.personalization_resources.contexts.clone();
     draw_personalization_cards(
         ui,
         state,
@@ -4643,7 +4679,7 @@ fn draw_personalization_cards(
                                 .clicked()
                             {
                                 ui.output_mut(|out| out.copied_text = link.clone());
-                                state.personalization_feedback =
+                                state.resources.personalization_feedback =
                                     Some(format!("Enlace copiado: {}", card.title));
                             }
                         }
@@ -4661,7 +4697,7 @@ fn draw_personalization_cards(
                             )
                             .clicked()
                         {
-                            state.personalization_feedback = Some(format!(
+                            state.resources.personalization_feedback = Some(format!(
                                 "{} marcado para sincronización contextual.",
                                 card.title
                             ));
@@ -4673,7 +4709,7 @@ fn draw_personalization_cards(
         ui.add_space(8.0);
     }
 
-    if let Some(status) = &state.personalization_feedback {
+    if let Some(status) = &state.resources.personalization_feedback {
         ui.colored_label(theme::color_text_weak(), status);
     }
 }
@@ -4815,6 +4851,7 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
 
     ui.add_space(12.0);
     let installed: Vec<InstalledLocalModel> = state
+        .resources
         .installed_local_models
         .iter()
         .cloned()
@@ -5071,13 +5108,14 @@ fn draw_installed_model_card(
     record: &InstalledLocalModel,
 ) {
     let is_active = state
+        .resources
         .jarvis_active_model
         .as_ref()
         .map(|model| model == &record.identifier)
         .unwrap_or(false);
 
     let install_path = if record.install_path.trim().is_empty() {
-        Path::new(&state.jarvis_install_dir)
+        Path::new(&state.resources.jarvis_install_dir)
             .join(record.identifier.sanitized_dir_name())
             .display()
             .to_string()
@@ -5498,42 +5536,45 @@ fn selectable_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Resp
 }
 
 fn insert_mention(state: &mut AppState, mention: &str) {
-    let trimmed = state.current_chat_input.trim();
+    let trimmed = state.chat.input.trim();
     if trimmed.starts_with(mention) {
-        if !state.current_chat_input.ends_with(' ') {
-            state.current_chat_input.push(' ');
+        if !state.chat.input.ends_with(' ') {
+            state.chat.input.push(' ');
         }
         return;
     }
 
     if trimmed.is_empty() {
-        state.current_chat_input = format!("{} ", mention);
+        state.chat.input = format!("{} ", mention);
     } else {
-        state.current_chat_input = format!("{} {}", mention, trimmed);
+        state.chat.input = format!("{} {}", mention, trimmed);
     }
 }
 
 fn insert_code_template(state: &mut AppState) {
     let template = "```language\n\n```";
-    if state.current_chat_input.trim().is_empty() {
-        state.current_chat_input = template.to_string();
+    if state.chat.input.trim().is_empty() {
+        state.chat.input = template.to_string();
     } else {
-        if !state.current_chat_input.ends_with('\n') {
-            state.current_chat_input.push('\n');
+        if !state.chat.input.ends_with('\n') {
+            state.chat.input.push('\n');
         }
-        state.current_chat_input.push_str(template);
+        state.chat.input.push_str(template);
     }
 }
 
 fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Alias para mencionar a Jarvis en el chat");
-    if ui.text_edit_singleline(&mut state.jarvis_alias).changed() {
+    if ui
+        .text_edit_singleline(&mut state.resources.jarvis_alias)
+        .changed()
+    {
         state.persist_config();
     }
 
     ui.label("Model path");
     if ui
-        .text_edit_singleline(&mut state.jarvis_model_path)
+        .text_edit_singleline(&mut state.resources.jarvis_model_path)
         .changed()
     {
         state.persist_config();
@@ -5541,20 +5582,21 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
 
     ui.label("Model install directory");
     if ui
-        .text_edit_singleline(&mut state.jarvis_install_dir)
+        .text_edit_singleline(&mut state.resources.jarvis_install_dir)
         .changed()
     {
         state.persist_config();
     }
 
-    if state.installed_local_models.is_empty() {
+    if state.resources.installed_local_models.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
             "Instala un modelo desde Hugging Face para habilitar Jarvis.",
         );
     } else {
-        let mut provider = state.jarvis_selected_provider;
+        let mut provider = state.resources.jarvis_selected_provider;
         let mut available_providers: Vec<LocalModelProvider> = state
+            .resources
             .installed_local_models
             .iter()
             .map(|model| model.identifier.provider)
@@ -5564,6 +5606,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
 
         if !available_providers.contains(&provider) {
             provider = state
+                .resources
                 .installed_local_models
                 .first()
                 .map(|model| model.identifier.provider)
@@ -5580,20 +5623,22 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 }
             });
 
-        if provider != state.jarvis_selected_provider {
-            state.jarvis_selected_provider = provider;
+        if provider != state.resources.jarvis_selected_provider {
+            state.resources.jarvis_selected_provider = provider;
             if state
+                .resources
                 .jarvis_active_model
                 .as_ref()
                 .map(|model| model.provider)
                 != Some(provider)
             {
-                state.jarvis_active_model = None;
+                state.resources.jarvis_active_model = None;
             }
             state.persist_config();
         }
 
         let available_models: Vec<LocalModelIdentifier> = state
+            .resources
             .installed_local_models
             .iter()
             .filter(|model| model.identifier.provider == provider)
@@ -5601,6 +5646,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             .collect();
 
         let mut selected_model = state
+            .resources
             .jarvis_active_model
             .as_ref()
             .filter(|model| model.provider == provider)
@@ -5624,7 +5670,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 }
             });
 
-        if selected_model != state.jarvis_active_model {
+        if selected_model != state.resources.jarvis_active_model {
             if let Some(model) = selected_model.clone() {
                 let status = state.activate_jarvis_model(&model);
                 state.provider_state_mut(provider).install_status = Some(status);
@@ -5634,7 +5680,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             }
         }
 
-        if let Some(active) = state.jarvis_active_model.clone() {
+        if let Some(active) = state.resources.jarvis_active_model.clone() {
             if let Some(record) = state.installed_model(&active) {
                 ui.add_space(10.0);
                 ui.heading(
@@ -5644,7 +5690,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 );
                 ui.add_space(6.0);
                 let install_path = if record.install_path.trim().is_empty() {
-                    Path::new(&state.jarvis_install_dir)
+                    Path::new(&state.resources.jarvis_install_dir)
                         .join(record.identifier.sanitized_dir_name())
                         .display()
                         .to_string()
@@ -5688,34 +5734,37 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     if ui
-        .checkbox(&mut state.jarvis_auto_start, "Start Jarvis automatically")
+        .checkbox(
+            &mut state.resources.jarvis_auto_start,
+            "Start Jarvis automatically",
+        )
         .changed()
     {
         state.persist_config();
-        if state.jarvis_auto_start {
+        if state.resources.jarvis_auto_start {
             match state.ensure_jarvis_runtime() {
                 Ok(runtime) => {
-                    state.jarvis_status = Some(format!(
+                    state.resources.jarvis_status = Some(format!(
                         "Jarvis se iniciará automáticamente con {}.",
                         runtime.model_label()
                     ));
                 }
                 Err(err) => {
-                    state.jarvis_status =
+                    state.resources.jarvis_status =
                         Some(format!("No se pudo preparar el autoarranque: {}", err));
                 }
             }
         } else {
-            state.jarvis_status =
+            state.resources.jarvis_status =
                 Some("El autoarranque de Jarvis ha sido desactivado.".to_string());
-            state.jarvis_runtime = None;
+            state.resources.jarvis_runtime = None;
         }
     }
 
     ui.horizontal(|ui| {
         if ui
             .checkbox(
-                &mut state.jarvis_respond_without_alias,
+                &mut state.resources.jarvis_respond_without_alias,
                 "Responder automáticamente sin mención",
             )
             .changed()
@@ -5731,19 +5780,19 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
     });
 
     if ui.button("Apply settings").clicked() {
-        state.jarvis_status = Some(format!(
+        state.resources.jarvis_status = Some(format!(
             "Jarvis will {} at startup with model at {}.",
-            if state.jarvis_auto_start {
+            if state.resources.jarvis_auto_start {
                 "start"
             } else {
                 "remain stopped"
             },
-            state.jarvis_model_path
+            state.resources.jarvis_model_path
         ));
         state.persist_config();
     }
 
-    if let Some(status) = &state.jarvis_status {
+    if let Some(status) = &state.resources.jarvis_status {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
@@ -5760,7 +5809,10 @@ fn draw_provider_anthropic(ui: &mut egui::Ui, state: &mut AppState, tab_index: u
 
 fn draw_provider_anthropic_configuration(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Chat alias");
-    if ui.text_edit_singleline(&mut state.claude_alias).changed() {
+    if ui
+        .text_edit_singleline(&mut state.resources.claude_alias)
+        .changed()
+    {
         state.persist_config();
     }
 
@@ -5782,7 +5834,7 @@ fn draw_provider_anthropic_configuration(ui: &mut egui::Ui, state: &mut AppState
 
     ui.label("Default Claude model");
     if ui
-        .text_edit_singleline(&mut state.claude_default_model)
+        .text_edit_singleline(&mut state.resources.claude_default_model)
         .changed()
     {
         state.persist_config();
@@ -5793,27 +5845,29 @@ fn draw_provider_anthropic_configuration(ui: &mut egui::Ui, state: &mut AppState
 
     if ui.button("Test connection").clicked() {
         if anthropic_key_trimmed.is_empty() {
-            state.anthropic_test_status = Some("Enter an API key before testing.".to_string());
+            state.resources.anthropic_test_status =
+                Some("Enter an API key before testing.".to_string());
         } else {
             match crate::api::claude::send_message(
                 anthropic_key_trimmed.as_str(),
-                &state.claude_default_model,
+                &state.resources.claude_default_model,
                 "Responde únicamente con la palabra 'pong'.",
             ) {
                 Ok(response) => {
                     let snippet: String = response.chars().take(60).collect();
-                    state.anthropic_test_status =
+                    state.resources.anthropic_test_status =
                         Some(format!("API reachable. Sample response: {}", snippet));
                 }
                 Err(err) => {
-                    state.anthropic_test_status = Some(format!("Anthropic test failed: {}", err));
+                    state.resources.anthropic_test_status =
+                        Some(format!("Anthropic test failed: {}", err));
                 }
             }
             state.persist_config();
         }
     }
 
-    if let Some(status) = &state.anthropic_test_status {
+    if let Some(status) = &state.resources.anthropic_test_status {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
@@ -5860,47 +5914,47 @@ fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &
 
     if refresh_triggered {
         if anthropic_key.is_empty() {
-            state.claude_models_status =
+            state.resources.claude_models_status =
                 Some("Ingresa una API key válida antes de solicitar el catálogo.".to_string());
         } else {
             match crate::api::claude::list_models(anthropic_key) {
                 Ok(models) => {
                     let count = models.len();
-                    state.claude_available_models = models;
-                    state.claude_models_status = Some(if count == 0 {
+                    state.resources.claude_available_models = models;
+                    state.resources.claude_models_status = Some(if count == 0 {
                         "No se encontraron modelos disponibles para esta cuenta.".to_string()
                     } else {
                         format!("Se encontraron {count} modelos disponibles.")
                     });
                 }
                 Err(err) => {
-                    state.claude_models_status =
+                    state.resources.claude_models_status =
                         Some(format!("No se pudo obtener el listado de modelos: {}", err));
                 }
             }
         }
     }
 
-    if let Some(status) = &state.claude_models_status {
+    if let Some(status) = &state.resources.claude_models_status {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
 
     ui.add_space(12.0);
 
-    if state.claude_available_models.is_empty() {
+    if state.resources.claude_available_models.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
             "Pulsa \"Actualizar catálogo\" para listar los modelos disponibles.",
         );
     } else {
-        let models = state.claude_available_models.clone();
+        let models = state.resources.claude_available_models.clone();
         draw_claude_models_gallery(ui, state, &models);
     }
 }
 
 fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
-    if state.installed_local_models.is_empty() {
+    if state.resources.installed_local_models.is_empty() {
         ui.colored_label(
             theme::color_text_weak(),
             "Aún no hay modelos instalados. Usa una galería local para descargar uno y aparecerá aquí.",
@@ -5909,7 +5963,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     {
-        let library = &mut state.local_library;
+        let library = &mut state.resources.local_library;
         ui.horizontal(|ui| {
             let filter_width = (ui.available_width() - 160.0).max(200.0);
             ui.add_sized(
@@ -5943,9 +5997,9 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     ui.add_space(8.0);
-    let filter_lower = state.local_library.filter.to_lowercase();
-    let show_only_ready = state.local_library.show_only_ready;
-    let installed = state.installed_local_models.clone();
+    let filter_lower = state.resources.local_library.filter.to_lowercase();
+    let show_only_ready = state.resources.local_library.show_only_ready;
+    let installed = state.resources.installed_local_models.clone();
     let mut removals: Vec<LocalModelIdentifier> = Vec::new();
     let mut pending_feedback: Option<String> = None;
 
@@ -5959,6 +6013,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
             .format("%Y-%m-%d %H:%M")
             .to_string();
         let is_active = state
+            .resources
             .jarvis_active_model
             .as_ref()
             .map(|active| {
@@ -5968,6 +6023,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
             .unwrap_or(false);
         let is_ready = !record.install_path.trim().is_empty();
         let is_selected = state
+            .resources
             .local_library
             .selection
             .as_ref()
@@ -6054,7 +6110,8 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                         if ui.button("Activar").clicked() {
                             let status = state.activate_jarvis_model(&record.identifier);
                             pending_feedback = Some(status);
-                            state.local_library.selection = Some(record.identifier.clone());
+                            state.resources.local_library.selection =
+                                Some(record.identifier.clone());
                         }
 
                         if ui.button("Actualizar").clicked() {
@@ -6062,7 +6119,8 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                             {
                                 pending_feedback = Some(status);
                             }
-                            state.local_library.selection = Some(record.identifier.clone());
+                            state.resources.local_library.selection =
+                                Some(record.identifier.clone());
                         }
 
                         if ui
@@ -6080,6 +6138,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
 
     for identifier in removals {
         let removed_selected = state
+            .resources
             .local_library
             .selection
             .as_ref()
@@ -6089,12 +6148,12 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
             pending_feedback = Some(status);
         }
         if removed_selected {
-            state.local_library.selection = None;
+            state.resources.local_library.selection = None;
         }
     }
 
     if let Some(feedback) = pending_feedback {
-        state.local_library.operation_feedback = Some(feedback);
+        state.resources.local_library.operation_feedback = Some(feedback);
     }
 }
 
@@ -6135,7 +6194,7 @@ fn draw_claude_models_gallery(ui: &mut egui::Ui, state: &mut AppState, models: &
 }
 
 fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &AnthropicModel) {
-    let is_selected = state.claude_default_model.trim() == model.id;
+    let is_selected = state.resources.claude_default_model.trim() == model.id;
     let fill = Color32::from_rgb(34, 38, 44);
     let border = if is_selected {
         theme::color_primary()
@@ -6242,9 +6301,9 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                     )
                     .clicked()
                 {
-                    state.claude_default_model = model.id.clone();
+                    state.resources.claude_default_model = model.id.clone();
                     state.persist_config();
-                    state.claude_models_status = Some(format!(
+                    state.resources.claude_models_status = Some(format!(
                         "Modelo '{}' establecido como predeterminado.",
                         model.id
                     ));
@@ -6264,7 +6323,10 @@ fn draw_provider_openai(ui: &mut egui::Ui, state: &mut AppState, tab_index: usiz
 
 fn draw_provider_openai_configuration(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Chat alias");
-    if ui.text_edit_singleline(&mut state.openai_alias).changed() {
+    if ui
+        .text_edit_singleline(&mut state.resources.openai_alias)
+        .changed()
+    {
         state.persist_config();
     }
 
@@ -6282,7 +6344,7 @@ fn draw_provider_openai_configuration(ui: &mut egui::Ui, state: &mut AppState) {
 
     ui.label("Default OpenAI model");
     if ui
-        .text_edit_singleline(&mut state.openai_default_model)
+        .text_edit_singleline(&mut state.resources.openai_default_model)
         .changed()
     {
         state.persist_config();
@@ -6292,27 +6354,29 @@ fn draw_provider_openai_configuration(ui: &mut egui::Ui, state: &mut AppState) {
 
     if ui.button("Test connection").clicked() {
         if openai_key.trim().is_empty() {
-            state.openai_test_status = Some("Enter an API key before testing.".to_string());
+            state.resources.openai_test_status =
+                Some("Enter an API key before testing.".to_string());
         } else {
             match crate::api::openai::send_message(
                 openai_key.trim(),
-                &state.openai_default_model,
+                &state.resources.openai_default_model,
                 "Responde con la palabra 'pong'.",
             ) {
                 Ok(response) => {
                     let snippet: String = response.chars().take(60).collect();
-                    state.openai_test_status =
+                    state.resources.openai_test_status =
                         Some(format!("API reachable. Sample response: {}", snippet));
                 }
                 Err(err) => {
-                    state.openai_test_status = Some(format!("OpenAI test failed: {}", err));
+                    state.resources.openai_test_status =
+                        Some(format!("OpenAI test failed: {}", err));
                 }
             }
             state.persist_config();
         }
     }
 
-    if let Some(status) = &state.openai_test_status {
+    if let Some(status) = &state.resources.openai_test_status {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
@@ -6329,7 +6393,10 @@ fn draw_provider_groq(ui: &mut egui::Ui, state: &mut AppState, tab_index: usize)
 
 fn draw_provider_groq_configuration(ui: &mut egui::Ui, state: &mut AppState) {
     ui.label("Chat alias");
-    if ui.text_edit_singleline(&mut state.groq_alias).changed() {
+    if ui
+        .text_edit_singleline(&mut state.resources.groq_alias)
+        .changed()
+    {
         state.persist_config();
     }
 
@@ -6347,7 +6414,7 @@ fn draw_provider_groq_configuration(ui: &mut egui::Ui, state: &mut AppState) {
 
     ui.label("Default Groq model");
     if ui
-        .text_edit_singleline(&mut state.groq_default_model)
+        .text_edit_singleline(&mut state.resources.groq_default_model)
         .changed()
     {
         state.persist_config();
@@ -6357,27 +6424,27 @@ fn draw_provider_groq_configuration(ui: &mut egui::Ui, state: &mut AppState) {
 
     if ui.button("Test connection").clicked() {
         if groq_key.trim().is_empty() {
-            state.groq_test_status = Some("Enter an API key before testing.".to_string());
+            state.resources.groq_test_status = Some("Enter an API key before testing.".to_string());
         } else {
             match crate::api::groq::send_message(
                 groq_key.trim(),
-                &state.groq_default_model,
+                &state.resources.groq_default_model,
                 "Contesta con la palabra 'pong'.",
             ) {
                 Ok(response) => {
                     let snippet: String = response.chars().take(60).collect();
-                    state.groq_test_status =
+                    state.resources.groq_test_status =
                         Some(format!("API reachable. Sample response: {}", snippet));
                 }
                 Err(err) => {
-                    state.groq_test_status = Some(format!("Groq test failed: {}", err));
+                    state.resources.groq_test_status = Some(format!("Groq test failed: {}", err));
                 }
             }
             state.persist_config();
         }
     }
 
-    if let Some(status) = &state.groq_test_status {
+    if let Some(status) = &state.resources.groq_test_status {
         ui.add_space(6.0);
         ui.colored_label(ui.visuals().weak_text_color(), status);
     }
@@ -6397,7 +6464,7 @@ fn draw_provider_model_preview(ui: &mut egui::Ui, state: &AppState, provider: Re
     );
 
     ui.add_space(10.0);
-    if let Some(cards) = state.remote_catalog.provider_cards.get(&provider) {
+    if let Some(cards) = state.resources.remote_catalog.provider_cards.get(&provider) {
         if cards.is_empty() {
             ui.colored_label(
                 theme::color_text_weak(),
@@ -6475,18 +6542,21 @@ fn draw_provider_usage_overview(ui: &mut egui::Ui, state: &AppState, provider: R
 
     ui.add_space(10.0);
     let total_models = state
+        .resources
         .remote_catalog
         .provider_cards
         .get(&provider)
         .map(|cards| cards.len())
         .unwrap_or(0);
     let favorites = state
+        .resources
         .remote_catalog
         .favorites
         .iter()
         .filter(|key| key.provider == provider)
         .count();
     let comparisons = state
+        .resources
         .remote_catalog
         .comparison
         .iter()
@@ -6506,7 +6576,7 @@ fn draw_provider_usage_overview(ui: &mut egui::Ui, state: &AppState, provider: R
     });
 
     ui.add_space(12.0);
-    if let Some(status) = &state.remote_catalog.last_status {
+    if let Some(status) = &state.resources.remote_catalog.last_status {
         ui.label(
             RichText::new(format!("Última actualización: {status}"))
                 .color(theme::color_text_weak())

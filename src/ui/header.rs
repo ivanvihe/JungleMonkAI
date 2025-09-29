@@ -126,7 +126,7 @@ impl HeaderModel for AppHeader<'_> {
     fn on_action(&mut self, action_id: &str) {
         match action_id {
             "open_settings" => self.state.show_settings_modal = true,
-            "open_functions" => self.state.show_functions_modal = true,
+            "open_functions" => self.state.chat.show_functions_modal = true,
             _ => {}
         }
     }

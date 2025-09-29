@@ -110,7 +110,7 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
             });
         })
         .body(|mut body| {
-            for (index, entry) in state.activity_logs.iter().enumerate() {
+            for (index, entry) in state.automation.activity_logs.iter().enumerate() {
                 let bg = if index % 2 == 0 { row_even } else { row_odd };
                 body.row(32.0, |mut row| {
                     row.col(|ui| {

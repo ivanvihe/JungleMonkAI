@@ -10,12 +10,13 @@ const COLOR_WARNING: Color32 = Color32::from_rgb(255, 196, 0);
 const COLOR_RUNNING: Color32 = Color32::from_rgb(64, 172, 255);
 
 pub fn draw_logs_view(ui: &mut egui::Ui, state: &AppState) {
+    let tokens = &state.theme;
     ui.set_width(ui.available_width());
     ui.set_min_height(ui.available_height());
 
     egui::Frame::none()
         .fill(Color32::from_rgb(26, 28, 32))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(tokens))
         .rounding(egui::Rounding::same(18.0))
         .inner_margin(egui::Margin {
             left: 20.0,
@@ -32,11 +33,11 @@ pub fn draw_logs_view(ui: &mut egui::Ui, state: &AppState) {
                 ui.label(
                     RichText::new(ICON_LOGS)
                         .font(theme::icon_font(18.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.heading(
                     RichText::new("Registros y tareas")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
             });
@@ -75,7 +76,7 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                 header_cell(ui, header_bg, |ui| {
                     ui.label(
                         RichText::new("Estado")
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .monospace(),
                     );
                 });
@@ -84,7 +85,7 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                 header_cell(ui, header_bg, |ui| {
                     ui.label(
                         RichText::new("Origen")
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .monospace(),
                     );
                 });
@@ -93,7 +94,7 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                 header_cell(ui, header_bg, |ui| {
                     ui.label(
                         RichText::new("Detalle")
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .monospace(),
                     );
                 });
@@ -102,7 +103,7 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                 header_cell(ui, header_bg, |ui| {
                     ui.label(
                         RichText::new("Hora")
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .monospace(),
                     );
                 });
@@ -115,9 +116,9 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                     row.col(|ui| {
                         row_cell(ui, bg, |ui| {
                             let (text, color) = match entry.status {
-                                LogStatus::Ok => ("OK", theme::COLOR_SUCCESS),
+                                LogStatus::Ok => ("OK", theme::color_success()),
                                 LogStatus::Warning => ("WARN", COLOR_WARNING),
-                                LogStatus::Error => ("ERR", theme::COLOR_DANGER),
+                                LogStatus::Error => ("ERR", theme::color_danger()),
                                 LogStatus::Running => ("RUN", COLOR_RUNNING),
                             };
                             ui.label(RichText::new(text).color(color).monospace());
@@ -127,21 +128,21 @@ fn draw_logs_table(ui: &mut egui::Ui, state: &AppState) {
                         row_cell(ui, bg, |ui| {
                             ui.label(
                                 RichText::new(&entry.source)
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .monospace(),
                             );
                         });
                     });
                     row.col(|ui| {
                         row_cell(ui, bg, |ui| {
-                            ui.label(RichText::new(&entry.message).color(theme::COLOR_TEXT_WEAK));
+                            ui.label(RichText::new(&entry.message).color(theme::color_text_weak()));
                         });
                     });
                     row.col(|ui| {
                         row_cell(ui, bg, |ui| {
                             ui.label(
                                 RichText::new(&entry.timestamp)
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .monospace(),
                             );
                         });

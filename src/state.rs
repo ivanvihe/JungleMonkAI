@@ -2,6 +2,7 @@ use crate::{
     api::{claude::AnthropicModel, local::JarvisRuntime},
     config::{AppConfig, InstalledModelConfig},
     local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider},
+    ui::theme::{self, FontSource, ThemeTokens},
 };
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
@@ -2185,6 +2186,10 @@ pub struct AppState {
     pub chat_messages: Vec<ChatMessage>,
     /// Configuración de la aplicación.
     pub config: AppConfig, // New field
+    /// Tokens visuales que definen paletas, espaciados y radios.
+    pub theme: ThemeTokens,
+    /// Fuentes registradas en egui (iconos, tipografías personalizadas, etc.).
+    pub font_sources: Vec<FontSource>,
     /// Vista principal activa (chat, recursos o panel de preferencias).
     pub active_main_view: MainView,
     /// Tab principal activo dentro del contenedor central.
@@ -2443,6 +2448,8 @@ impl Default for AppState {
             current_chat_input: String::new(),
             chat_messages: vec![ChatMessage::default()],
             config: config.clone(),
+            theme: ThemeTokens::default(),
+            font_sources: theme::default_font_sources(),
             active_main_view: MainView::default(),
             active_main_tab: MainTab::default(),
             selected_preference: PreferencePanel::default(),
@@ -5074,7 +5081,8 @@ impl ConditionValue {
 
 impl AppShell for AppState {
     fn init(&mut self, cc: &eframe::CreationContext<'_>) {
-        crate::ui::theme::apply(&cc.egui_ctx);
+        theme::install_fonts(&cc.egui_ctx, self.font_sources.clone());
+        theme::apply(&cc.egui_ctx, &self.theme);
     }
 
     fn update(&mut self, ctx: &eframe::egui::Context) {

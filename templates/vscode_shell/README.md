@@ -69,3 +69,65 @@ where
 Con este patrón puedes inyectar cualquier vista declarativa sin modificar la
 plantilla: basta con encapsular el estado y la _closure_ dentro de un tipo que
 implemente `AppShell` y pasarlo a `run`.
+
+## Personalizar tema y fuentes
+
+El módulo [`ui::theme`](../../src/ui/theme.rs) expone la estructura
+`ThemeTokens`, que agrupa paletas de color, escalas de espaciado y radios de
+redondeo. Al arrancar la aplicación puedes clonar el tema predeterminado,
+ajustar sus valores y aplicarlo desde tu implementación de `AppShell`:
+
+```rust
+use jungle_monk_ai::ui::theme::{self, ThemeTokens};
+
+fn init(&mut self, cc: &eframe::CreationContext<'_>) {
+    let mut tokens = ThemeTokens::default();
+    // Tema claro: mayor contraste en paneles y texto oscuro.
+    tokens.palette.dark_mode = false;
+    tokens.palette.root_background = egui::Color32::from_rgb(245, 247, 250);
+    tokens.palette.panel_background = egui::Color32::from_rgb(255, 255, 255);
+    tokens.palette.text_primary = egui::Color32::from_rgb(45, 55, 72);
+    tokens.palette.text_weak = egui::Color32::from_rgb(113, 128, 150);
+    tokens.palette.border = egui::Color32::from_rgb(226, 232, 240);
+
+    // Instala las fuentes que utilizará el tema antes de aplicarlo.
+    theme::install_fonts(&cc.egui_ctx, theme::default_font_sources());
+    theme::apply(&cc.egui_ctx, &tokens);
+}
+```
+
+Para variantes oscuras basta con modificar los campos `palette.*` apropiados:
+
+```rust
+let mut dark_tokens = ThemeTokens::default();
+dark_tokens.palette.primary = egui::Color32::from_rgb(102, 126, 234); // azul frío
+dark_tokens.palette.hover_background = egui::Color32::from_rgb(48, 54, 70);
+dark_tokens.spacing.button_padding = egui::vec2(16.0, 8.0);
+```
+
+### Fuentes personalizadas e iconos
+
+`install_fonts` acepta cualquier iterador de [`FontSource`], lo que permite
+cargar tipografías desde bytes estáticos, vectores en memoria o cargadores
+dinámicos. Para sustituir la fuente de iconos por un archivo local basta con
+crear un `FontSource::from_loader` que devuelva los bytes en tiempo de ejecución
+y lo asocie a la familia `"icons"` (la utilizada por `theme::icon_font`):
+
+```rust
+use std::fs;
+use jungle_monk_ai::ui::theme::{self, FontFamily, FontSource};
+
+let icon_loader = FontSource::from_loader(
+    "custom-icons",
+    FontFamily::Name("icons".into()),
+    0,
+    || fs::read("assets/icons.ttf").ok(),
+);
+
+theme::install_fonts(&cc.egui_ctx, [icon_loader]);
+```
+
+También puedes combinar varias fuentes (por ejemplo, tipografía principal e
+iconos) concatenando iteradores. Si necesitas conservar la fuente de iconos por
+defecto, añade `theme::default_font_sources()` a la colección antes de llamar a
+`install_fonts`.

@@ -14,6 +14,7 @@ use egui_extras::{Column, TableBuilder};
 use std::path::Path;
 
 use super::{logs, tabs, theme};
+use crate::ui::theme::ThemeTokens;
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -94,6 +95,7 @@ fn with_centered_main_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut 
 }
 
 pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
+    let tokens = state.theme.clone();
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(Color32::from_rgb(20, 22, 26)))
         .show(ctx, |ui| {
@@ -130,8 +132,8 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                 .frame(egui::Frame::none())
                 .show_inside(&mut frame_ui, |ui| {
                     egui::Frame::none()
-                        .fill(theme::COLOR_PANEL)
-                        .stroke(theme::subtle_border())
+                        .fill(theme::color_panel())
+                        .stroke(theme::subtle_border(&tokens))
                         .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin {
                             left: 18.0,
@@ -160,7 +162,7 @@ fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
             .fill(Color32::from_rgb(26, 28, 32))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 18.0,
@@ -202,7 +204,7 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
@@ -248,17 +250,17 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                 if !breadcrumb_text.is_empty() {
                     ui.label(
                         RichText::new(breadcrumb_text)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(12.0),
                     );
                 }
 
                 ui.heading(
                     RichText::new(heading)
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
-                ui.label(RichText::new(metadata.description).color(theme::COLOR_TEXT_WEAK));
+                ui.label(RichText::new(metadata.description).color(theme::color_text_weak()));
                 ui.add_space(12.0);
 
                 let active_tab_index = *active_tab_entry;
@@ -392,7 +394,7 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
@@ -432,19 +434,19 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
                     if !breadcrumb_text.is_empty() {
                         ui.label(
                             RichText::new(breadcrumb_text)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(12.0),
                         );
                     }
 
                     ui.heading(
                         RichText::new(heading)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                     ui.label(
                         RichText::new(metadata.description)
-                            .color(theme::COLOR_TEXT_WEAK),
+                            .color(theme::color_text_weak()),
                     );
                     ui.add_space(12.0);
 
@@ -461,7 +463,7 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
                             RichText::new(
                                 "Selecciona un recurso en el panel izquierdo para explorar su contenido.",
                             )
-                            .color(theme::COLOR_TEXT_WEAK),
+                            .color(theme::color_text_weak()),
                         );
                     });
                 }
@@ -473,7 +475,7 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
@@ -487,11 +489,11 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.label(
                         RichText::new(ICON_CALENDAR)
                             .font(theme::icon_font(18.0))
-                            .color(theme::COLOR_PRIMARY),
+                            .color(theme::color_primary()),
                     );
                     ui.heading(
                         RichText::new("Tareas programadas")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                 });
@@ -499,7 +501,7 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
                     RichText::new(
                         "Gestiona cron jobs, automatizaciones y recordatorios ejecutados por JungleMonkAI.",
                     )
-                    .color(theme::COLOR_TEXT_WEAK),
+                    .color(theme::color_text_weak()),
                 );
 
                 ui.add_space(12.0);
@@ -536,7 +538,7 @@ fn draw_debug_console_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
             .fill(Color32::from_rgb(26, 28, 32))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
@@ -550,22 +552,22 @@ fn draw_debug_console_view(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.label(
                         RichText::new(ICON_BUG)
                             .font(theme::icon_font(18.0))
-                            .color(theme::COLOR_PRIMARY),
+                            .color(theme::color_primary()),
                     );
                     ui.heading(
                         RichText::new("Debug console")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                 });
                 let (info, warning, error) = state.debug_console.level_totals();
                 ui.label(
                     RichText::new("Inspecciona errores, advertencias e información del runtime.")
-                        .color(theme::COLOR_TEXT_WEAK),
+                        .color(theme::color_text_weak()),
                 );
 
                 ui.add_space(10.0);
-                draw_debug_summary(ui, info, warning, error);
+                draw_debug_summary(ui, info, warning, error, &state.theme);
                 ui.add_space(10.0);
                 draw_debug_filters(ui, state);
                 ui.add_space(10.0);
@@ -590,7 +592,8 @@ fn draw_cron_summary(ui: &mut egui::Ui, state: &AppState) {
             ICON_REPEAT,
             "Activas",
             total_enabled,
-            theme::COLOR_PRIMARY,
+            theme::color_primary(),
+            &state.theme,
         );
         summary_chip(
             ui,
@@ -598,15 +601,30 @@ fn draw_cron_summary(ui: &mut egui::Ui, state: &AppState) {
             "En ejecución",
             running,
             Color32::from_rgb(64, 172, 255),
+            &state.theme,
         );
-        summary_chip(ui, ICON_STOP, "Con errores", failing, theme::COLOR_DANGER);
+        summary_chip(
+            ui,
+            ICON_STOP,
+            "Con errores",
+            failing,
+            theme::color_danger(),
+            &state.theme,
+        );
     });
 }
 
-fn summary_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize, color: Color32) {
+fn summary_chip(
+    ui: &mut egui::Ui,
+    icon: &str,
+    label: &str,
+    value: usize,
+    color: Color32,
+    tokens: &ThemeTokens,
+) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(tokens))
         .rounding(egui::Rounding::same(12.0))
         .inner_margin(egui::Margin::symmetric(16.0, 12.0))
         .show(ui, |ui| {
@@ -619,12 +637,12 @@ fn summary_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize, color:
                 ui.vertical(|ui| {
                     ui.label(
                         RichText::new(label)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     ui.label(
                         RichText::new(value.to_string())
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(16.0)
                             .strong(),
                     );
@@ -636,7 +654,7 @@ fn summary_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize, color:
 fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(egui::Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -645,11 +663,11 @@ fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.label(
                     RichText::new(ICON_LIGHTNING)
                         .font(theme::icon_font(16.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.heading(
                     RichText::new("Workflows automatizados")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
                 ui.add_space(ui.available_width());
@@ -663,7 +681,7 @@ fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 RichText::new(
                     "Encadena modelos remotos con scripts locales y orquesta pipelines desde el chat.",
                 )
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
             );
 
@@ -671,7 +689,7 @@ fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
             let indices = state.automation_workflows.filtered_indices();
             if indices.is_empty() {
                 ui.colored_label(
-                    theme::COLOR_TEXT_WEAK,
+                    theme::color_text_weak(),
                     "No hay workflows guardados con los filtros actuales.",
                 );
                 return;
@@ -693,7 +711,7 @@ fn draw_workflow_card(
 ) {
     egui::Frame::none()
         .fill(Color32::from_rgb(28, 30, 36))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(12.0))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
@@ -701,7 +719,7 @@ fn draw_workflow_card(
                 ui.horizontal(|ui| {
                     ui.heading(
                         RichText::new(&workflow.name)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(15.0)
                             .strong(),
                     );
@@ -723,7 +741,7 @@ fn draw_workflow_card(
 
                 ui.label(
                     RichText::new(&workflow.description)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(12.0),
                 );
 
@@ -731,14 +749,14 @@ fn draw_workflow_card(
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!("Disparador: {}", workflow.trigger.label()))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     if let Some(command) = &workflow.chat_command {
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(format!("Comando: {}", command))
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .monospace()
                                 .size(11.0),
                         );
@@ -747,7 +765,7 @@ fn draw_workflow_card(
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(format!("Vinculado a tarea #{cron_id}"))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                     }
@@ -760,17 +778,17 @@ fn draw_workflow_card(
                         ui.label(
                             RichText::new(workflow_step_icon(step.kind))
                                 .font(theme::icon_font(14.0))
-                                .color(theme::COLOR_PRIMARY),
+                                .color(theme::color_primary()),
                         );
                         ui.label(
                             RichText::new(format!("{} · {}", step.kind.label(), step.label))
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .size(12.0),
                         );
                         if let Some(provider) = step.provider {
                             ui.label(
                                 RichText::new(format!("@{}", provider.short_code()))
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0)
                                     .monospace(),
                             );
@@ -778,7 +796,7 @@ fn draw_workflow_card(
                     });
                     ui.label(
                         RichText::new(&step.detail)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     ui.add_space(4.0);
@@ -787,13 +805,13 @@ fn draw_workflow_card(
                 if let Some(last_run) = &workflow.last_run {
                     ui.label(
                         RichText::new(format!("Última ejecución: {last_run}"))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                 } else {
                     ui.label(
                         RichText::new("Nunca ejecutado")
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                 }
@@ -804,19 +822,21 @@ fn draw_workflow_card(
                         RichText::new("Lanzar pipeline")
                             .color(Color32::WHITE)
                             .strong(),
+                        &state.theme,
                     )
                     .min_size(egui::vec2(150.0, 30.0));
                     if ui.add(run_button).clicked() {
                         if let Some(message) = state.trigger_workflow(workflow.id) {
-                            ui.colored_label(theme::COLOR_TEXT_WEAK, message);
+                            ui.colored_label(theme::color_text_weak(), message);
                         }
                     }
 
                     ui.add_space(8.0);
                     let select_button = theme::secondary_button(
                         RichText::new("Registrar en chat")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
+                        &state.theme,
                     )
                     .min_size(egui::vec2(150.0, 30.0));
                     if ui.add(select_button).clicked() {
@@ -848,9 +868,9 @@ fn workflow_step_icon(kind: WorkflowStepKind) -> &'static str {
 
 fn workflow_status_color(status: WorkflowStatus) -> Color32 {
     match status {
-        WorkflowStatus::Ready => theme::COLOR_PRIMARY,
+        WorkflowStatus::Ready => theme::color_primary(),
         WorkflowStatus::Running => Color32::from_rgb(64, 172, 255),
-        WorkflowStatus::Failed => theme::COLOR_DANGER,
+        WorkflowStatus::Failed => theme::color_danger(),
         WorkflowStatus::Draft => Color32::from_rgb(160, 160, 160),
     }
 }
@@ -858,7 +878,7 @@ fn workflow_status_color(status: WorkflowStatus) -> Color32 {
 fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(egui::Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -867,11 +887,11 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
                 ui.label(
                     RichText::new(ICON_CLOCK)
                         .font(theme::icon_font(16.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.heading(
                     RichText::new("Recordatorios programados")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
             });
@@ -879,14 +899,14 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
                 RichText::new(
                     "Visualiza próximos avisos y confirma su canal de entrega en tiempo real.",
                 )
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
             );
 
             ui.add_space(8.0);
             if state.scheduled_reminders.is_empty() {
                 ui.colored_label(
-                    theme::COLOR_TEXT_WEAK,
+                    theme::color_text_weak(),
                     "No existen recordatorios activos por ahora.",
                 );
                 return;
@@ -895,7 +915,7 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
             for reminder in &state.scheduled_reminders {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
-                    .stroke(theme::subtle_border())
+                    .stroke(theme::subtle_border(&state.theme))
                     .rounding(egui::Rounding::same(10.0))
                     .inner_margin(egui::Margin::symmetric(12.0, 10.0))
                     .show(ui, |ui| {
@@ -904,7 +924,7 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
                             ui.label(RichText::new("●").color(color).size(14.0).monospace());
                             ui.label(
                                 RichText::new(format!("#{} {}", reminder.id, reminder.title))
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .strong()
                                     .size(13.0),
                             );
@@ -921,7 +941,7 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
                                 "Cadencia: {} · Próximo envío {}",
                                 reminder.cadence, reminder.next_trigger
                             ))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                         );
                         ui.label(
@@ -929,7 +949,7 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
                                 "Canal: {} · Audiencia: {}",
                                 reminder.delivery_channel, reminder.audience
                             ))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                         );
                     });
@@ -940,8 +960,8 @@ fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
 
 fn reminder_status_color(status: ReminderStatus) -> Color32 {
     match status {
-        ReminderStatus::Scheduled => theme::COLOR_PRIMARY,
-        ReminderStatus::Sent => theme::COLOR_SUCCESS,
+        ReminderStatus::Scheduled => theme::color_primary(),
+        ReminderStatus::Sent => theme::color_success(),
         ReminderStatus::Snoozed => Color32::from_rgb(255, 196, 0),
     }
 }
@@ -949,7 +969,7 @@ fn reminder_status_color(status: ReminderStatus) -> Color32 {
 fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(egui::Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -958,11 +978,11 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.label(
                     RichText::new(ICON_INFO)
                         .font(theme::icon_font(16.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.heading(
                     RichText::new("Listeners y disparadores")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
                 ui.add_space(ui.available_width());
@@ -976,7 +996,7 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 RichText::new(
                     "Configura automatizaciones basadas en eventos de chat, repositorios o jobs.",
                 )
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
             );
 
@@ -997,7 +1017,7 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
 
             if indices.is_empty() {
                 ui.colored_label(
-                    theme::COLOR_TEXT_WEAK,
+                    theme::color_text_weak(),
                     "No hay listeners configurados para estos filtros.",
                 );
                 return;
@@ -1007,46 +1027,46 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
                 let listener_snapshot = state.event_automation.listeners[index].clone();
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
-                    .stroke(theme::subtle_border())
+                    .stroke(theme::subtle_border(&state.theme))
                     .rounding(egui::Rounding::same(10.0))
                     .inner_margin(egui::Margin::symmetric(12.0, 10.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(&listener_snapshot.name)
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .strong()
                                     .size(13.0),
                             );
                             ui.add_space(ui.available_width());
                             ui.label(
                                 RichText::new(listener_snapshot.event.label())
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         });
                         ui.label(
                             RichText::new(&listener_snapshot.description)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new(format!("Condición: {}", listener_snapshot.condition))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0)
                                 .monospace(),
                         );
                         ui.label(
                             RichText::new(format!("Acción: {}", listener_snapshot.action))
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .size(11.0)
                                 .monospace(),
                         );
                         if let Some(last) = &listener_snapshot.last_triggered {
                             ui.label(
                                 RichText::new(format!("Último disparo: {last}"))
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         }
@@ -1058,8 +1078,9 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
                         }
                         let toggle_button = theme::secondary_button(
                             RichText::new(enabled_label)
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .strong(),
+                            &state.theme,
                         )
                         .min_size(egui::vec2(130.0, 28.0));
                         if ui.add(toggle_button).clicked() {
@@ -1074,7 +1095,7 @@ fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(egui::Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -1083,11 +1104,11 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
                 ui.label(
                     RichText::new(ICON_LINK)
                         .font(theme::icon_font(16.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.heading(
                     RichText::new("Integraciones externas")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
             });
@@ -1095,14 +1116,14 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
                 RichText::new(
                     "Gmail, Calendar, CI/CD e IFTTT se orquestan como triggers y acciones del agente.",
                 )
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
             );
 
             ui.add_space(8.0);
             if state.external_integrations.connectors.is_empty() {
                 ui.colored_label(
-                    theme::COLOR_TEXT_WEAK,
+                    theme::color_text_weak(),
                     "Sin conectores registrados todavía.",
                 );
                 return;
@@ -1111,21 +1132,21 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
             for connector in &state.external_integrations.connectors {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
-                    .stroke(theme::subtle_border())
+                    .stroke(theme::subtle_border(&state.theme))
                     .rounding(egui::Rounding::same(10.0))
                     .inner_margin(egui::Margin::symmetric(12.0, 10.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(connector.service.label())
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .strong()
                                     .size(12.0),
                             );
                             ui.add_space(8.0);
                             ui.label(
                                 RichText::new(format!("#{} {}", connector.id, connector.name))
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                             ui.add_space(ui.available_width());
@@ -1138,20 +1159,20 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
                         });
                         ui.label(
                             RichText::new(&connector.status_detail)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                         if let Some(last) = &connector.last_event {
                             ui.label(
                                 RichText::new(format!("Último evento: {last}"))
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         }
                         if let Some(next) = &connector.next_sync {
                             ui.label(
                                 RichText::new(format!("Próxima sincronización: {next}"))
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         }
@@ -1169,8 +1190,9 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
                                 for action in &connector.quick_actions {
                                     let button = theme::secondary_button(
                                         RichText::new(action)
-                                            .color(theme::COLOR_TEXT_PRIMARY)
+                                            .color(theme::color_text_primary())
                                             .strong(),
+                                        &state.theme,
                                     )
                                     .min_size(egui::vec2(130.0, 26.0));
                                     ui.add(button);
@@ -1186,9 +1208,9 @@ fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
 
 fn integration_status_color(status: IntegrationStatus) -> Color32 {
     match status {
-        IntegrationStatus::Connected => theme::COLOR_SUCCESS,
+        IntegrationStatus::Connected => theme::color_success(),
         IntegrationStatus::Warning => Color32::from_rgb(255, 196, 0),
-        IntegrationStatus::Error => theme::COLOR_DANGER,
+        IntegrationStatus::Error => theme::color_danger(),
         IntegrationStatus::Syncing => Color32::from_rgb(64, 172, 255),
     }
 }
@@ -1242,7 +1264,7 @@ fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.label(
                 RichText::new(format!("{} Tags", ICON_FOLDER))
-                    .color(theme::COLOR_TEXT_WEAK)
+                    .color(theme::color_text_weak())
                     .size(11.0),
             );
             for tag in tags {
@@ -1271,7 +1293,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
     let indices = state.cron_board.filtered_indices();
     if indices.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "No hay tareas que coincidan con los filtros seleccionados.",
         );
         state.cron_board.select_task(None);
@@ -1294,49 +1316,49 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
             header.col(|ui| {
                 ui.label(
                     RichText::new("Estado")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
             header.col(|ui| {
                 ui.label(
                     RichText::new("Tarea")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
             header.col(|ui| {
                 ui.label(
                     RichText::new("Cadencia")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
             header.col(|ui| {
                 ui.label(
                     RichText::new("Próxima ejecución")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
             header.col(|ui| {
                 ui.label(
                     RichText::new("Última ejecución")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
             header.col(|ui| {
                 ui.label(
                     RichText::new("Proveedor")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
             header.col(|ui| {
                 ui.label(
                     RichText::new("Acciones")
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
@@ -1364,7 +1386,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                         let response = ui.add(egui::SelectableLabel::new(
                             selected,
                             RichText::new(&task_snapshot.name)
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .size(13.0),
                         ));
                         if response.clicked() {
@@ -1374,7 +1396,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                     row.col(|ui| {
                         ui.label(
                             RichText::new(&task_snapshot.cadence_label)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                     });
@@ -1386,7 +1408,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                                     .clone()
                                     .unwrap_or_else(|| "—".to_string()),
                             )
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(11.0),
                         );
                     });
@@ -1398,7 +1420,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                                     .clone()
                                     .unwrap_or_else(|| "—".to_string()),
                             )
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                         );
                     });
@@ -1408,7 +1430,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
                             .unwrap_or_else(|| "local".to_string());
                         ui.label(
                             RichText::new(badge)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .monospace(),
                         );
                     });
@@ -1495,7 +1517,7 @@ fn draw_cron_table(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::state::ScheduledTask) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(egui::Margin::symmetric(18.0, 14.0))
         .show(ui, |ui| {
@@ -1504,11 +1526,11 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
                 ui.label(
                     RichText::new(ICON_INFO)
                         .font(theme::icon_font(16.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.heading(
                     RichText::new(&task.name)
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .size(16.0)
                         .strong(),
                 );
@@ -1522,7 +1544,7 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
             ui.add_space(4.0);
             ui.label(
                 RichText::new(&task.description)
-                    .color(theme::COLOR_TEXT_WEAK)
+                    .color(theme::color_text_weak())
                     .size(12.0),
             );
 
@@ -1530,7 +1552,7 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!("Expresión cron: `{}`", task.cron_expression))
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .monospace(),
                 );
             });
@@ -1552,7 +1574,7 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
                     "Responsable: {} · Proveedor: {}",
                     task.owner, badge
                 ))
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(11.0),
             );
 
@@ -1568,7 +1590,7 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
                         "Última actividad registrada: {} ({})",
                         status.message, status.timestamp
                     ))
-                    .color(theme::COLOR_TEXT_WEAK)
+                    .color(theme::color_text_weak())
                     .size(11.0),
                 );
             }
@@ -1577,25 +1599,39 @@ fn draw_cron_task_detail(ui: &mut egui::Ui, state: &AppState, task: &crate::stat
 
 fn cron_status_color(status: ScheduledTaskStatus) -> Color32 {
     match status {
-        ScheduledTaskStatus::Scheduled => theme::COLOR_PRIMARY,
+        ScheduledTaskStatus::Scheduled => theme::color_primary(),
         ScheduledTaskStatus::Running => Color32::from_rgb(64, 172, 255),
-        ScheduledTaskStatus::Success => theme::COLOR_SUCCESS,
-        ScheduledTaskStatus::Failed => theme::COLOR_DANGER,
+        ScheduledTaskStatus::Success => theme::color_success(),
+        ScheduledTaskStatus::Failed => theme::color_danger(),
         ScheduledTaskStatus::Paused => Color32::from_rgb(160, 160, 160),
     }
 }
 
-fn draw_debug_summary(ui: &mut egui::Ui, info: usize, warning: usize, error: usize) {
+fn draw_debug_summary(
+    ui: &mut egui::Ui,
+    info: usize,
+    warning: usize,
+    error: usize,
+    tokens: &ThemeTokens,
+) {
     ui.horizontal(|ui| {
-        summary_chip(ui, ICON_INFO, "Info", info, theme::COLOR_PRIMARY);
+        summary_chip(ui, ICON_INFO, "Info", info, theme::color_primary(), tokens);
         summary_chip(
             ui,
             ICON_LIGHTNING,
             "Warnings",
             warning,
             Color32::from_rgb(255, 196, 0),
+            tokens,
         );
-        summary_chip(ui, ICON_STOP, "Errores", error, theme::COLOR_DANGER);
+        summary_chip(
+            ui,
+            ICON_STOP,
+            "Errores",
+            error,
+            theme::color_danger(),
+            tokens,
+        );
     });
 }
 
@@ -1664,7 +1700,7 @@ fn draw_debug_entries(ui: &mut egui::Ui, state: &AppState) {
     let entries = state.debug_console.filtered_entries();
     if entries.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Sin eventos registrados bajo los filtros actuales.",
         );
         return;
@@ -1678,7 +1714,7 @@ fn draw_debug_entries(ui: &mut egui::Ui, state: &AppState) {
             for entry in entries {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(32, 34, 40))
-                    .stroke(theme::subtle_border())
+                    .stroke(theme::subtle_border(&state.theme))
                     .rounding(egui::Rounding::same(10.0))
                     .inner_margin(egui::Margin::symmetric(14.0, 10.0))
                     .show(ui, |ui| {
@@ -1690,14 +1726,14 @@ fn draw_debug_entries(ui: &mut egui::Ui, state: &AppState) {
                             );
                             ui.label(
                                 RichText::new(&entry.timestamp)
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .monospace()
                                     .size(11.0),
                             );
                             ui.add_space(ui.available_width());
                             ui.label(
                                 RichText::new(&entry.component)
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .monospace()
                                     .size(11.0),
                             );
@@ -1705,7 +1741,7 @@ fn draw_debug_entries(ui: &mut egui::Ui, state: &AppState) {
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new(&entry.message)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(12.0),
                         );
                     });
@@ -1716,9 +1752,9 @@ fn draw_debug_entries(ui: &mut egui::Ui, state: &AppState) {
 
 fn debug_level_color(level: DebugLogLevel) -> Color32 {
     match level {
-        DebugLogLevel::Info => theme::COLOR_PRIMARY,
+        DebugLogLevel::Info => theme::color_primary(),
         DebugLogLevel::Warning => Color32::from_rgb(255, 196, 0),
-        DebugLogLevel::Error => theme::COLOR_DANGER,
+        DebugLogLevel::Error => theme::color_danger(),
     }
 }
 
@@ -1734,7 +1770,7 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
             ui.set_width(max_width);
             egui::Frame::none()
                 .fill(Color32::from_rgb(26, 28, 32))
-                .stroke(theme::subtle_border())
+                .stroke(theme::subtle_border(&state.theme))
                 .rounding(egui::Rounding::same(16.0))
                 .inner_margin(egui::Margin {
                     left: 20.0,
@@ -1776,7 +1812,7 @@ fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.label(
             RichText::new("Proveedor activo")
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
         );
 
@@ -1844,7 +1880,7 @@ fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
 
     if let Some(status) = &state.chat_routing.status {
         ui.add_space(4.0);
-        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+        ui.colored_label(theme::color_text_weak(), status);
     }
 
     if !state.chat_routing.suggestions.is_empty() {
@@ -1968,7 +2004,7 @@ fn draw_message_bubble(
                 draw_message_header(ui, state, message, icon, accent, pending_actions);
                 ui.add_space(6.0);
                 draw_message_body(ui, message, accent);
-                draw_developer_artifacts(ui, message);
+                draw_developer_artifacts(ui, message, &state.theme);
             });
         });
 
@@ -2004,7 +2040,7 @@ fn draw_message_header(
         ui.label(
             RichText::new(sender_label)
                 .strong()
-                .color(theme::COLOR_TEXT_PRIMARY),
+                .color(theme::color_text_primary()),
         );
         if message.sender != "User" && message.sender != "System" {
             let provider = state.chat_routing.active_thread_provider.display_name();
@@ -2013,13 +2049,13 @@ fn draw_message_header(
         ui.label(
             RichText::new(ICON_CLOCK)
                 .font(theme::icon_font(12.0))
-                .color(theme::COLOR_TEXT_WEAK),
+                .color(theme::color_text_weak()),
         );
         ui.label(
             RichText::new(&message.timestamp)
                 .italics()
                 .size(12.0)
-                .color(theme::COLOR_TEXT_WEAK),
+                .color(theme::color_text_weak()),
         );
         ui.add_space(ui.available_width());
         draw_message_actions(ui, message, pending_actions);
@@ -2079,7 +2115,7 @@ fn draw_message_body(ui: &mut egui::Ui, message: &ChatMessage, accent: Color32) 
             ui.add(Spinner::new().size(18.0));
             ui.label(
                 RichText::new(&message.text)
-                    .color(theme::COLOR_TEXT_WEAK)
+                    .color(theme::color_text_weak())
                     .italics()
                     .size(14.0),
             );
@@ -2089,7 +2125,7 @@ fn draw_message_body(ui: &mut egui::Ui, message: &ChatMessage, accent: Color32) 
 
     let blocks = parse_markdown_blocks(&message.text);
     if blocks.is_empty() {
-        render_formatted_text(ui, &message.text, theme::COLOR_TEXT_PRIMARY, 15.0);
+        render_formatted_text(ui, &message.text, theme::color_text_primary(), 15.0);
     } else {
         render_markdown_blocks(ui, &blocks, accent);
     }
@@ -2114,7 +2150,7 @@ fn render_markdown_blocks(ui: &mut egui::Ui, blocks: &[MarkdownBlock], accent: C
                 ui.label(RichText::new(text).color(accent).strong().size(size));
             }
             MarkdownBlock::Paragraph(text) => {
-                render_formatted_text(ui, text, theme::COLOR_TEXT_PRIMARY, 15.0);
+                render_formatted_text(ui, text, theme::color_text_primary(), 15.0);
             }
             MarkdownBlock::BulletList(items) => {
                 ui.vertical(|ui| {
@@ -2122,7 +2158,7 @@ fn render_markdown_blocks(ui: &mut egui::Ui, blocks: &[MarkdownBlock], accent: C
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
                             ui.label(RichText::new("•").color(accent).strong().size(16.0));
-                            render_formatted_text(ui, item, theme::COLOR_TEXT_PRIMARY, 15.0);
+                            render_formatted_text(ui, item, theme::color_text_primary(), 15.0);
                         });
                     }
                 });
@@ -2147,7 +2183,7 @@ fn draw_code_block(ui: &mut egui::Ui, language: &str, code: &str) {
 
     egui::CollapsingHeader::new(
         RichText::new(format!("{} {}", ICON_CODE, header_label))
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong()
             .size(13.0),
     )
@@ -2204,7 +2240,7 @@ fn draw_markdown_table(ui: &mut egui::Ui, headers: &[String], rows: &[Vec<String
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!("{} Tabla", ICON_TABLE))
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong()
                         .size(13.0),
                 );
@@ -2238,7 +2274,7 @@ fn draw_markdown_table(ui: &mut egui::Ui, headers: &[String], rows: &[Vec<String
                         for header in headers {
                             ui.label(
                                 RichText::new(header)
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .strong(),
                             );
                         }
@@ -2247,7 +2283,9 @@ fn draw_markdown_table(ui: &mut egui::Ui, headers: &[String], rows: &[Vec<String
                         for row in rows {
                             for cell in row {
                                 ui.label(
-                                    RichText::new(cell).color(theme::COLOR_TEXT_WEAK).size(12.0),
+                                    RichText::new(cell)
+                                        .color(theme::color_text_weak())
+                                        .size(12.0),
                                 );
                             }
                             ui.end_row();
@@ -2257,7 +2295,7 @@ fn draw_markdown_table(ui: &mut egui::Ui, headers: &[String], rows: &[Vec<String
         });
 }
 
-fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage) {
+fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage, tokens: &ThemeTokens) {
     if message.sender == "User" || message.sender == "System" || message.is_pending() {
         return;
     }
@@ -2274,13 +2312,13 @@ fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage) {
     ui.add_space(10.0);
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 38, 44))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(tokens))
         .rounding(egui::Rounding::same(10.0))
         .inner_margin(egui::Margin::symmetric(12.0, 10.0))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("Herramientas de desarrollo")
-                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .color(theme::color_text_primary())
                     .strong()
                     .size(13.0),
             );
@@ -2291,11 +2329,11 @@ fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage) {
                     ui.label(
                         RichText::new(ICON_QUOTE)
                             .font(theme::icon_font(12.0))
-                            .color(theme::COLOR_PRIMARY),
+                            .color(theme::color_primary()),
                     );
                     ui.label(
                         RichText::new(summary)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(12.0),
                     );
                 });
@@ -2305,7 +2343,7 @@ fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage) {
                 ui.add_space(6.0);
                 egui::CollapsingHeader::new(
                     RichText::new(format!("{} Diferencias detectadas", ICON_COMPARE))
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong()
                         .size(12.0),
                 )
@@ -2338,7 +2376,7 @@ fn draw_developer_artifacts(ui: &mut egui::Ui, message: &ChatMessage) {
                 ui.add_space(6.0);
                 egui::CollapsingHeader::new(
                     RichText::new(format!("{} Vista previa de {}", ICON_FILE_DOC, language))
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong()
                         .size(12.0),
                 )
@@ -2800,7 +2838,7 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
             ui.set_width(max_width);
             egui::Frame::none()
                 .fill(Color32::from_rgb(24, 26, 32))
-                .stroke(theme::subtle_border())
+                .stroke(theme::subtle_border(&state.theme))
                 .rounding(egui::Rounding::same(16.0))
                 .inner_margin(egui::Margin::symmetric(18.0, 14.0))
                 .show(ui, |ui| {
@@ -2867,7 +2905,7 @@ fn draw_chat_input(ui: &mut egui::Ui, state: &mut AppState) {
 
                                     let text_frame = egui::Frame::none()
                                         .fill(Color32::from_rgb(30, 32, 38))
-                                        .stroke(theme::subtle_border())
+                                        .stroke(theme::subtle_border(&state.theme))
                                         .rounding(egui::Rounding::same(12.0))
                                         .inner_margin(egui::Margin::symmetric(14.0, 10.0));
 
@@ -3021,13 +3059,13 @@ fn draw_project_resources(ui: &mut egui::Ui, state: &mut AppState, kind: Project
 
     ui.heading(
         RichText::new(title)
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong()
             .size(18.0),
     );
     ui.label(
         RichText::new(subtitle)
-            .color(theme::COLOR_TEXT_WEAK)
+            .color(theme::color_text_weak())
             .size(12.0),
     );
 
@@ -3036,7 +3074,7 @@ fn draw_project_resources(ui: &mut egui::Ui, state: &mut AppState, kind: Project
     let cards = state.project_resources_by_kind(kind);
     if cards.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "No hay recursos sincronizados en esta categoría todavía.",
         );
         return;
@@ -3051,7 +3089,7 @@ fn draw_project_resources(ui: &mut egui::Ui, state: &mut AppState, kind: Project
 fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &ProjectResourceCard) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(16.0))
         .inner_margin(egui::Margin {
             left: 18.0,
@@ -3065,7 +3103,7 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                 ui.horizontal(|ui| {
                     ui.heading(
                         RichText::new(&card.name)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(16.0)
                             .strong(),
                     );
@@ -3081,7 +3119,7 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
 
                 ui.label(
                     RichText::new(card.status.detail())
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(12.0),
                 );
 
@@ -3089,19 +3127,19 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!("Ubicación: {}", card.location))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     ui.add_space(18.0);
                     ui.label(
                         RichText::new(format!("Última sincronización: {}", card.last_sync))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     ui.add_space(18.0);
                     ui.label(
                         RichText::new(format!("Rama principal: {}", card.default_branch))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                 });
@@ -3112,7 +3150,7 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                         ui.spacing_mut().item_spacing.x = 6.0;
                         ui.label(
                             RichText::new("Tags")
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                         for tag in &card.tags {
@@ -3124,20 +3162,20 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                 ui.add_space(10.0);
                 ui.label(
                     RichText::new("README destacado")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .size(12.0)
                         .strong(),
                 );
                 ui.add_space(4.0);
                 egui::Frame::none()
                     .fill(Color32::from_rgb(28, 30, 36))
-                    .stroke(theme::subtle_border())
+                    .stroke(theme::subtle_border(&state.theme))
                     .rounding(egui::Rounding::same(12.0))
                     .inner_margin(egui::Margin::same(12.0))
                     .show(ui, |ui| {
                         ui.label(
                             RichText::new(&card.readme_preview)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .monospace()
                                 .size(12.0),
                         );
@@ -3147,14 +3185,14 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new("Acciones sugeridas")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(12.0)
                             .strong(),
                     );
                     for action in &card.pending_actions {
                         ui.label(
                             RichText::new(format!("• {}", action))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                     }
@@ -3164,8 +3202,9 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                 ui.horizontal(|ui| {
                     let open_button = theme::secondary_button(
                         RichText::new("Abrir README")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
+                        &state.theme,
                     )
                     .min_size(egui::vec2(140.0, 30.0));
                     if ui.add(open_button).clicked() {
@@ -3182,6 +3221,7 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
                         RichText::new("Sincronizar ahora")
                             .color(Color32::WHITE)
                             .strong(),
+                        &state.theme,
                     )
                     .min_size(egui::vec2(150.0, 30.0));
                     if ui.add(sync_button).clicked() {
@@ -3203,9 +3243,9 @@ fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &Pr
 
 fn sync_health_color(health: SyncHealth) -> Color32 {
     match health {
-        SyncHealth::Healthy => theme::COLOR_SUCCESS,
+        SyncHealth::Healthy => theme::color_success(),
         SyncHealth::Warning => Color32::from_rgb(255, 196, 0),
-        SyncHealth::Error => theme::COLOR_DANGER,
+        SyncHealth::Error => theme::color_danger(),
     }
 }
 
@@ -3236,7 +3276,7 @@ fn draw_remote_catalog_explorer(
     let provider_label = provider.display_name();
     ui.heading(
         RichText::new(format!("{} · Galería enriquecida", provider_label))
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong()
             .size(18.0),
     );
@@ -3244,7 +3284,7 @@ fn draw_remote_catalog_explorer(
         RichText::new(
             "Compara capacidades, costos y lanza pruebas rápidas directamente desde JungleMonkAI.",
         )
-        .color(theme::COLOR_TEXT_WEAK)
+        .color(theme::color_text_weak())
         .size(12.0),
     );
 
@@ -3342,7 +3382,7 @@ fn draw_remote_catalog_explorer(
                 ui.spacing_mut().item_spacing.x = 6.0;
                 ui.label(
                     RichText::new(format!("{} Tags", ICON_FILTER))
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
                 for tag in &tags {
@@ -3390,7 +3430,7 @@ fn draw_remote_catalog_explorer(
 
     if let Some(status) = &state.remote_catalog.last_status {
         ui.add_space(6.0);
-        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+        ui.colored_label(theme::color_text_weak(), status);
     }
 
     ui.add_space(8.0);
@@ -3400,14 +3440,14 @@ fn draw_remote_catalog_explorer(
     };
     if cards.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Ajusta los filtros o actualiza tus credenciales para mostrar modelos disponibles.",
         );
     } else {
         ui.horizontal(|ui| {
             ui.heading(
                 RichText::new(format!("{} resultados", cards.len()))
-                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .color(theme::color_text_primary())
                     .size(16.0),
             );
             ui.add_space(ui.available_width());
@@ -3415,7 +3455,7 @@ fn draw_remote_catalog_explorer(
                 RichText::new(
                     "Utiliza 'Probar' para lanzar una solicitud con el prompt configurado.",
                 )
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(11.0),
             );
         });
@@ -3487,13 +3527,13 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                     ui.label(
                         RichText::new(&card.title)
                             .strong()
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(16.0),
                     );
                     let star_color = if is_favorite {
                         Color32::from_rgb(255, 201, 71)
                     } else {
-                        theme::COLOR_TEXT_WEAK
+                        theme::color_text_weak()
                     };
                     let star = egui::Label::new(
                         RichText::new(ICON_STAR)
@@ -3538,7 +3578,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                     if card.multimodal {
                         ui.label(
                             RichText::new("Multimodal")
-                                .color(theme::COLOR_PRIMARY)
+                                .color(theme::color_primary())
                                 .size(11.0),
                         );
                     }
@@ -3547,7 +3587,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(&card.description)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(12.0),
                 );
 
@@ -3558,7 +3598,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                             "Contexto: {} tokens · Salida máx: {} tokens",
                             card.context_tokens, card.max_output_tokens
                         ))
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .size(11.0),
                     );
                     ui.label(
@@ -3568,7 +3608,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                             format_cost_label(card.output_cost_per_million),
                             card.latency_ms
                         ))
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                     );
                 });
@@ -3580,7 +3620,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                         for capability in &card.capabilities {
                             ui.label(
                                 RichText::new(capability)
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         }
@@ -3604,7 +3644,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                         for action in &card.quick_actions {
                             ui.label(
                                 RichText::new(action)
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         }
@@ -3614,7 +3654,7 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                 ui.add_space(8.0);
                 ui.label(
                     RichText::new(&card.favorite_hint)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
 
@@ -3653,7 +3693,10 @@ fn draw_remote_model_card(ui: &mut egui::Ui, state: &mut AppState, card: &Remote
                     let test_label = RichText::new(format!("{} Probar", ICON_LIGHTNING))
                         .color(Color32::from_rgb(240, 240, 240));
                     if ui
-                        .add(theme::primary_button(test_label).min_size(egui::vec2(110.0, 32.0)))
+                        .add(
+                            theme::primary_button(test_label, &state.theme)
+                                .min_size(egui::vec2(110.0, 32.0)),
+                        )
                         .clicked()
                     {
                         let status = state.execute_remote_quick_test(card.key.clone());
@@ -3676,7 +3719,7 @@ fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
     ui.add_space(6.0);
     ui.heading(
         RichText::new("Comparativa rápida")
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .size(16.0)
             .strong(),
     );
@@ -3699,12 +3742,12 @@ fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
                     if let Some(card) = remote_card_by_key(state, key) {
                         ui.label(
                             RichText::new(&card.title)
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .size(12.0),
                         );
                         ui.label(
                             RichText::new(format!("{} tokens", card.context_tokens))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                         ui.label(
@@ -3713,12 +3756,12 @@ fn draw_remote_comparison(ui: &mut egui::Ui, state: &mut AppState) {
                                 format_cost_label(card.input_cost_per_million),
                                 format_cost_label(card.output_cost_per_million)
                             ))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                         );
                         ui.label(
                             RichText::new(card.key.provider.display_name())
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                         if ui.button(RichText::new("Quitar").size(11.0)).clicked() {
@@ -4032,7 +4075,7 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
     ui.heading("Documentación de comandos personalizados");
     ui.label(
         RichText::new("Cada comando ejecuta una acción predefinida con parámetros opcionales.")
-            .color(theme::COLOR_TEXT_WEAK),
+            .color(theme::color_text_weak()),
     );
 
     ui.add_space(12.0);
@@ -4040,7 +4083,7 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
         let doc = action.documentation();
         egui::Frame::none()
             .fill(Color32::from_rgb(34, 36, 42))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::same(12.0))
             .inner_margin(egui::Margin::symmetric(14.0, 12.0))
             .show(ui, |ui| {
@@ -4048,20 +4091,20 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
                     ui.label(
                         RichText::new(doc.signature)
                             .monospace()
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                     ui.add_space(ui.available_width());
                     ui.label(
                         RichText::new(action.label())
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .monospace()
                             .size(11.0),
                     );
                 });
                 ui.label(
                     RichText::new(doc.summary)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(12.0),
                 );
 
@@ -4069,14 +4112,14 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
                     ui.add_space(6.0);
                     ui.label(
                         RichText::new("Parámetros disponibles")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(11.0)
                             .strong(),
                     );
                     for parameter in doc.parameters {
                         ui.label(
                             RichText::new(format!("• {parameter}"))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                     }
@@ -4086,14 +4129,14 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
                     ui.add_space(6.0);
                     ui.label(
                         RichText::new("Ejemplos")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(11.0)
                             .strong(),
                     );
                     for example in doc.examples {
                         ui.label(
                             RichText::new(*example)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .monospace()
                                 .size(11.0),
                         );
@@ -4105,7 +4148,7 @@ fn draw_custom_commands_documentation(ui: &mut egui::Ui, state: &AppState) {
 
     if state.custom_commands.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Aún no hay comandos personalizados definidos.",
         );
     }
@@ -4116,13 +4159,13 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
     if let Some(feedback) = &state.command_feedback {
         ui.label(
             RichText::new(format!("Última acción: {feedback}"))
-                .color(theme::COLOR_TEXT_PRIMARY)
+                .color(theme::color_text_primary())
                 .size(12.0),
         );
     } else {
         ui.label(
             RichText::new("No hay actividad reciente registrada.")
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
         );
     }
@@ -4130,7 +4173,7 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
     ui.add_space(10.0);
     if state.custom_commands.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Agrega comandos personalizados para comenzar a registrar actividad.",
         );
         return;
@@ -4138,21 +4181,21 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
 
     ui.label(
         RichText::new("Comandos configurados actualmente")
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong(),
     );
 
     for command in &state.custom_commands {
         egui::Frame::none()
             .fill(Color32::from_rgb(34, 36, 42))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::same(10.0))
             .inner_margin(egui::Margin::symmetric(12.0, 10.0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(&command.trigger)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong()
                             .size(13.0)
                             .monospace(),
@@ -4160,14 +4203,14 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
                     ui.add_space(ui.available_width());
                     ui.label(
                         RichText::new(command.action.label())
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .monospace()
                             .size(11.0),
                     );
                 });
                 ui.label(
                     RichText::new(command.action.description())
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 );
             });
@@ -4326,14 +4369,14 @@ fn draw_personalization_cards(
     empty_message: &str,
 ) {
     if cards.is_empty() {
-        ui.colored_label(theme::COLOR_TEXT_WEAK, empty_message);
+        ui.colored_label(theme::color_text_weak(), empty_message);
         return;
     }
 
     for card in cards {
         egui::Frame::none()
             .fill(Color32::from_rgb(34, 38, 44))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::same(12.0))
             .inner_margin(egui::Margin::symmetric(14.0, 12.0))
             .show(ui, |ui| {
@@ -4341,25 +4384,25 @@ fn draw_personalization_cards(
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new(&card.title)
-                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .color(theme::color_text_primary())
                                 .strong()
                                 .size(14.0),
                         );
                         ui.add_space(ui.available_width());
                         ui.label(
                             RichText::new(&card.resource_type)
-                                .color(theme::COLOR_PRIMARY)
+                                .color(theme::color_primary())
                                 .size(11.0),
                         );
                     });
                     ui.label(
                         RichText::new(&card.subtitle)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     ui.label(
                         RichText::new(format!("Última sincronización: {}", card.last_synced))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(10.0),
                     );
 
@@ -4421,13 +4464,14 @@ fn draw_personalization_cards(
     }
 
     if let Some(status) = &state.personalization_feedback {
-        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+        ui.colored_label(theme::color_text_weak(), status);
     }
 }
 
 fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalModelProvider) {
     let mut persist_changes = false;
     let mut search_request: Option<(String, Option<String>)> = None;
+    let tokens = state.theme.clone();
 
     {
         let provider_state = state.provider_state_mut(provider);
@@ -4440,7 +4484,7 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
             }
 
             let save_label = RichText::new("Guardar").color(Color32::from_rgb(240, 240, 240));
-            let button = theme::primary_button(save_label).min_size(egui::vec2(0.0, 28.0));
+            let button = theme::primary_button(save_label, &tokens).min_size(egui::vec2(0.0, 28.0));
             if ui.add_sized([110.0, 30.0], button).clicked() {
                 let trimmed = provider_state.token_input.trim();
                 if trimmed.is_empty() {
@@ -4464,7 +4508,7 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
         ui.add_space(6.0);
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
-            .stroke(theme::subtle_border())
+            .stroke(theme::subtle_border(&tokens))
             .rounding(egui::Rounding::same(12.0))
             .inner_margin(egui::Margin::symmetric(14.0, 12.0))
             .show(ui, |ui| {
@@ -4488,7 +4532,7 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
                         if ui
                             .add_sized(
                                 [button_width, 32.0],
-                                theme::primary_button(search_label.clone()),
+                                theme::primary_button(search_label.clone(), &tokens),
                             )
                             .clicked()
                         {
@@ -4539,19 +4583,19 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
 
     if models.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Busca un término para poblar la galería de modelos.",
         );
     } else {
         ui.horizontal(|ui| {
             ui.heading(
                 RichText::new(format!("Galería de modelos ({} resultados)", models.len()))
-                    .color(theme::COLOR_TEXT_PRIMARY),
+                    .color(theme::color_text_primary()),
             );
             ui.add_space(ui.available_width());
             ui.label(
                 RichText::new("Clic en una tarjeta para seleccionarla o instalarla.")
-                    .color(theme::COLOR_TEXT_WEAK)
+                    .color(theme::color_text_weak())
                     .size(12.0),
             );
         });
@@ -4569,20 +4613,20 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
 
     if installed.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Todavía no hay modelos instalados desde este proveedor.",
         );
     } else {
         ui.horizontal(|ui| {
             ui.heading(
                 RichText::new("Modelos instalados")
-                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .color(theme::color_text_primary())
                     .size(16.0),
             );
             ui.add_space(ui.available_width());
             ui.label(
                 RichText::new("Gestiona tus descargas locales y actívalas para Jarvis.")
-                    .color(theme::COLOR_TEXT_WEAK)
+                    .color(theme::color_text_weak())
                     .size(11.0),
             );
         });
@@ -4601,7 +4645,7 @@ fn draw_local_provider(ui: &mut egui::Ui, state: &mut AppState, provider: LocalM
 
     if let Some(status) = state.provider_state(provider).install_status.clone() {
         ui.add_space(10.0);
-        ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+        ui.colored_label(theme::color_text_weak(), status);
     }
 }
 
@@ -4685,11 +4729,11 @@ fn draw_model_card(
     };
     let incompatible = model.incompatible_reason.is_some();
     let border = if is_selected {
-        theme::COLOR_PRIMARY
+        theme::color_primary()
     } else if premium {
         Color32::from_rgb(182, 134, 242)
     } else if incompatible {
-        theme::COLOR_DANGER
+        theme::color_danger()
     } else {
         Color32::from_rgb(70, 80, 96)
     };
@@ -4721,14 +4765,14 @@ fn draw_model_card(
                     ui.label(
                         RichText::new(&model.id)
                             .strong()
-                            .color(theme::COLOR_TEXT_PRIMARY),
+                            .color(theme::color_text_primary()),
                     );
                 });
 
                 if let Some(author) = &model.author {
                     ui.label(
                         RichText::new(format!("Autor: {}", author))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(12.0),
                     );
                 }
@@ -4736,7 +4780,7 @@ fn draw_model_card(
                 if let Some(pipeline) = &model.pipeline_tag {
                     ui.label(
                         RichText::new(format!("Pipeline: {}", pipeline))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(12.0),
                     );
                 }
@@ -4746,7 +4790,7 @@ fn draw_model_card(
                         model.tags.iter().take(3).map(|tag| tag.as_str()).collect();
                     ui.label(
                         RichText::new(format!("Etiquetas: {}", tags.join(", ")))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                 }
@@ -4755,7 +4799,7 @@ fn draw_model_card(
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(description)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                 }
@@ -4764,7 +4808,7 @@ fn draw_model_card(
                     ui.add_space(6.0);
                     ui.label(
                         RichText::new(reason)
-                            .color(theme::COLOR_DANGER)
+                            .color(theme::color_danger())
                             .italics()
                             .size(11.0),
                     );
@@ -4781,7 +4825,7 @@ fn draw_model_card(
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(metrics.join("  · "))
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(12.0),
                     );
                 }
@@ -4798,6 +4842,7 @@ fn draw_model_card(
                     !incompatible,
                     theme::primary_button(
                         RichText::new(button_label).color(Color32::from_rgb(240, 240, 240)),
+                        &state.theme,
                     )
                     .min_size(egui::vec2(button_width, 30.0)),
                 );
@@ -4839,7 +4884,7 @@ fn draw_installed_model_card(
 
     egui::Frame::none()
         .fill(Color32::from_rgb(30, 32, 36))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(12.0))
         .inner_margin(egui::Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -4848,20 +4893,20 @@ fn draw_installed_model_card(
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(record.identifier.provider.display_name())
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(12.0),
                     );
                     ui.add_space(6.0);
                     ui.label(
                         RichText::new(&record.identifier.model_id)
                             .strong()
-                            .color(theme::COLOR_TEXT_PRIMARY),
+                            .color(theme::color_text_primary()),
                     );
                     if is_active {
                         ui.add_space(10.0);
                         ui.label(
                             RichText::new("Activo")
-                                .color(theme::COLOR_SUCCESS)
+                                .color(theme::color_success())
                                 .size(12.0),
                         );
                     }
@@ -4870,13 +4915,13 @@ fn draw_installed_model_card(
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new(&subtitle)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(12.0),
                 );
 
                 ui.label(
                     RichText::new(&path_display)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                 )
                 .on_hover_text(&install_path);
@@ -4890,6 +4935,7 @@ fn draw_installed_model_card(
                             theme::secondary_button(
                                 RichText::new("Activo en Jarvis")
                                     .color(Color32::from_rgb(240, 240, 240)),
+                                &state.theme,
                             ),
                         );
                     });
@@ -4897,6 +4943,7 @@ fn draw_installed_model_card(
                     let button = theme::primary_button(
                         RichText::new(format!("{} Activar en Jarvis", ICON_SEND))
                             .color(Color32::from_rgb(240, 240, 240)),
+                        &state.theme,
                     );
                     if ui.add_sized([ui.available_width(), 30.0], button).clicked() {
                         let status = state.activate_jarvis_model(&record.identifier);
@@ -5222,7 +5269,7 @@ fn quick_chip_with_icon(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::R
 
 fn selectable_chip(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
     let fill = if selected {
-        theme::COLOR_PRIMARY
+        theme::color_primary()
     } else {
         Color32::from_rgb(44, 46, 54)
     };
@@ -5292,7 +5339,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
 
     if state.installed_local_models.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Instala un modelo desde Hugging Face para habilitar Jarvis.",
         );
     } else {
@@ -5382,7 +5429,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.add_space(10.0);
                 ui.heading(
                     RichText::new("Resumen del modelo activo")
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .size(16.0),
                 );
                 ui.add_space(6.0);
@@ -5398,7 +5445,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
 
                 egui::Frame::none()
                     .fill(Color32::from_rgb(34, 38, 44))
-                    .stroke(theme::subtle_border())
+                    .stroke(theme::subtle_border(&state.theme))
                     .rounding(egui::Rounding::same(12.0))
                     .inner_margin(egui::Margin::symmetric(14.0, 12.0))
                     .show(ui, |ui| {
@@ -5406,7 +5453,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                             ui.label(
                                 RichText::new(active.display_label())
                                     .strong()
-                                    .color(theme::COLOR_TEXT_PRIMARY),
+                                    .color(theme::color_text_primary()),
                             );
                             ui.add_space(4.0);
                             ui.label(
@@ -5415,12 +5462,12 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
                                     format_bytes(record.size_bytes),
                                     format_timestamp(record.installed_at)
                                 ))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(12.0),
                             );
                             ui.label(
                                 RichText::new(path_display)
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             )
                             .on_hover_text(install_path);
@@ -5468,7 +5515,7 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
         ui.add_space(8.0);
         ui.label(
             RichText::new("Cuando está activo, Jarvis contestará todos los mensajes.")
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(12.0),
         );
     });
@@ -5575,14 +5622,14 @@ fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &
 
     ui.heading(
         RichText::new("Catálogo de modelos disponibles")
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong(),
     );
     ui.label(
         RichText::new(
             "Consulta la API de Anthropic para descubrir los modelos compatibles con tu cuenta.",
         )
-        .color(theme::COLOR_TEXT_WEAK)
+        .color(theme::color_text_weak())
         .size(12.0),
     );
     ui.add_space(10.0);
@@ -5593,6 +5640,7 @@ fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &
             [180.0, 32.0],
             theme::primary_button(
                 RichText::new("Actualizar catálogo").color(Color32::from_rgb(240, 240, 240)),
+                &state.theme,
             ),
         )
         .clicked()
@@ -5632,7 +5680,7 @@ fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &
 
     if state.claude_available_models.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Pulsa \"Actualizar catálogo\" para listar los modelos disponibles.",
         );
     } else {
@@ -5644,7 +5692,7 @@ fn draw_claude_catalog(ui: &mut egui::Ui, state: &mut AppState, anthropic_key: &
 fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
     if state.installed_local_models.is_empty() {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Aún no hay modelos instalados. Usa una galería local para descargar uno y aparecerá aquí.",
         );
         return;
@@ -5680,7 +5728,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
 
         if let Some(status) = &library.operation_feedback {
             ui.add_space(6.0);
-            ui.colored_label(theme::COLOR_TEXT_WEAK, status);
+            ui.colored_label(theme::color_text_weak(), status);
         }
     }
 
@@ -5727,9 +5775,9 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
             continue;
         }
 
-        let mut border = theme::subtle_border();
+        let mut border = theme::subtle_border(&state.theme);
         if is_selected {
-            border = egui::Stroke::new(1.6, theme::COLOR_PRIMARY);
+            border = egui::Stroke::new(1.6, theme::color_primary());
         }
 
         egui::Frame::none()
@@ -5747,13 +5795,13 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         ui.label(
                             RichText::new(provider_name)
-                                .color(theme::COLOR_PRIMARY)
+                                .color(theme::color_primary())
                                 .strong(),
                         );
                         if is_active {
                             ui.label(
                                 RichText::new("Activo")
-                                    .color(theme::COLOR_PRIMARY)
+                                    .color(theme::color_primary())
                                     .size(11.0)
                                     .italics(),
                             );
@@ -5761,7 +5809,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                         if is_selected {
                             ui.label(
                                 RichText::new("Seleccionado")
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .size(10.0),
                             );
                         }
@@ -5769,7 +5817,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
 
                     ui.label(
                         RichText::new(label)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(13.0),
                     );
 
@@ -5779,14 +5827,14 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                             "Tamaño: {} · Instalado: {}",
                             size_label, installed_at
                         ))
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(11.0),
                     );
 
                     if !record.install_path.trim().is_empty() {
                         ui.label(
                             RichText::new(format!("Ruta: {}", record.install_path))
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(10.0),
                         );
                     }
@@ -5808,7 +5856,7 @@ fn draw_local_library_overview(ui: &mut egui::Ui, state: &mut AppState) {
                         }
 
                         if ui
-                            .button(RichText::new("Eliminar").color(theme::COLOR_DANGER))
+                            .button(RichText::new("Eliminar").color(theme::color_danger()))
                             .clicked()
                         {
                             removals.push(record.identifier.clone());
@@ -5880,7 +5928,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
     let is_selected = state.claude_default_model.trim() == model.id;
     let fill = Color32::from_rgb(34, 38, 44);
     let border = if is_selected {
-        theme::COLOR_PRIMARY
+        theme::color_primary()
     } else {
         Color32::from_rgb(70, 80, 96)
     };
@@ -5904,7 +5952,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                 ui.label(
                     RichText::new(title)
                         .strong()
-                        .color(theme::COLOR_TEXT_PRIMARY),
+                        .color(theme::color_text_primary()),
                 );
 
                 if model
@@ -5915,7 +5963,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                 {
                     ui.label(
                         RichText::new(&model.id)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(12.0),
                     );
                 }
@@ -5938,7 +5986,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                 if !metrics.is_empty() {
                     ui.label(
                         RichText::new(metrics.join("  ·  "))
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(12.0),
                     );
                 }
@@ -5956,7 +6004,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                     };
                     ui.label(
                         RichText::new(format!("Aliases: {}{}", aliases.join(", "), suffix))
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                 }
@@ -5966,7 +6014,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new(description)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                     }
@@ -5979,6 +6027,7 @@ fn draw_claude_model_card(ui: &mut egui::Ui, state: &mut AppState, model: &Anthr
                         [ui.available_width(), 30.0],
                         theme::primary_button(
                             RichText::new("Use this model").color(Color32::from_rgb(240, 240, 240)),
+                            &state.theme,
                         ),
                     )
                     .clicked()
@@ -6128,12 +6177,12 @@ fn draw_provider_model_preview(ui: &mut egui::Ui, state: &AppState, provider: Re
     let heading = format!("Modelos destacados de {}", provider.display_name());
     ui.heading(
         RichText::new(heading)
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong(),
     );
     ui.label(
         RichText::new("Ajusta los modelos recomendados y su contexto disponible.")
-            .color(theme::COLOR_TEXT_WEAK)
+            .color(theme::color_text_weak())
             .size(12.0),
     );
 
@@ -6141,7 +6190,7 @@ fn draw_provider_model_preview(ui: &mut egui::Ui, state: &AppState, provider: Re
     if let Some(cards) = state.remote_catalog.provider_cards.get(&provider) {
         if cards.is_empty() {
             ui.colored_label(
-                theme::COLOR_TEXT_WEAK,
+                theme::color_text_weak(),
                 "No hay modelos precargados para este proveedor.",
             );
             return;
@@ -6150,7 +6199,7 @@ fn draw_provider_model_preview(ui: &mut egui::Ui, state: &AppState, provider: Re
         for card in cards.iter().take(5) {
             egui::Frame::none()
                 .fill(Color32::from_rgb(34, 36, 42))
-                .stroke(theme::subtle_border())
+                .stroke(theme::subtle_border(&state.theme))
                 .rounding(egui::Rounding::same(12.0))
                 .inner_margin(egui::Margin::symmetric(14.0, 12.0))
                 .show(ui, |ui| {
@@ -6158,20 +6207,20 @@ fn draw_provider_model_preview(ui: &mut egui::Ui, state: &AppState, provider: Re
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(&card.title)
-                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .color(theme::color_text_primary())
                                     .strong()
                                     .size(14.0),
                             );
                             ui.add_space(ui.available_width());
                             ui.label(
                                 RichText::new(format!("Contexto: {} tokens", card.context_tokens))
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         });
                         ui.label(
                             RichText::new(&card.description)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(11.0),
                         );
                         if !card.tags.is_empty() {
@@ -6189,13 +6238,13 @@ fn draw_provider_model_preview(ui: &mut egui::Ui, state: &AppState, provider: Re
         }
         if cards.len() > 5 {
             ui.colored_label(
-                theme::COLOR_TEXT_WEAK,
+                theme::color_text_weak(),
                 "Explora el catálogo completo desde la sección de Recursos › Catálogos remotos.",
             );
         }
     } else {
         ui.colored_label(
-            theme::COLOR_TEXT_WEAK,
+            theme::color_text_weak(),
             "Aún no se ha consultado el catálogo remoto de este proveedor.",
         );
     }
@@ -6205,12 +6254,12 @@ fn draw_provider_usage_overview(ui: &mut egui::Ui, state: &AppState, provider: R
     let provider_name = provider.display_name();
     ui.heading(
         RichText::new(format!("Uso de {provider_name}"))
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong(),
     );
     ui.label(
         RichText::new("Monitorea el consumo y mantén tus límites bajo control.")
-            .color(theme::COLOR_TEXT_WEAK)
+            .color(theme::color_text_weak())
             .size(12.0),
     );
 
@@ -6235,37 +6284,43 @@ fn draw_provider_usage_overview(ui: &mut egui::Ui, state: &AppState, provider: R
         .count();
 
     ui.horizontal(|ui| {
-        usage_chip(ui, ICON_DATABASE, "Modelos cargados", total_models);
-        usage_chip(ui, ICON_STAR, "Favoritos", favorites);
-        usage_chip(ui, ICON_COMPARE, "Comparador", comparisons);
+        usage_chip(
+            ui,
+            ICON_DATABASE,
+            "Modelos cargados",
+            total_models,
+            &state.theme,
+        );
+        usage_chip(ui, ICON_STAR, "Favoritos", favorites, &state.theme);
+        usage_chip(ui, ICON_COMPARE, "Comparador", comparisons, &state.theme);
     });
 
     ui.add_space(12.0);
     if let Some(status) = &state.remote_catalog.last_status {
         ui.label(
             RichText::new(format!("Última actualización: {status}"))
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(11.0),
         );
     } else {
         ui.label(
             RichText::new("Aún no se han sincronizado métricas para este proveedor.")
-                .color(theme::COLOR_TEXT_WEAK)
+                .color(theme::color_text_weak())
                 .size(11.0),
         );
     }
 
     ui.add_space(10.0);
     ui.colored_label(
-        theme::COLOR_TEXT_WEAK,
+        theme::color_text_weak(),
         "Próximamente podrás definir límites de consumo y alertas personalizadas desde aquí.",
     );
 }
 
-fn usage_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize) {
+fn usage_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize, tokens: &ThemeTokens) {
     egui::Frame::none()
         .fill(Color32::from_rgb(34, 36, 42))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(tokens))
         .rounding(egui::Rounding::same(12.0))
         .inner_margin(egui::Margin::symmetric(16.0, 12.0))
         .show(ui, |ui| {
@@ -6273,17 +6328,17 @@ fn usage_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize) {
                 ui.label(
                     RichText::new(icon)
                         .font(theme::icon_font(16.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.vertical(|ui| {
                     ui.label(
                         RichText::new(label)
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(11.0),
                     );
                     ui.label(
                         RichText::new(value.to_string())
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(16.0)
                             .strong(),
                     );

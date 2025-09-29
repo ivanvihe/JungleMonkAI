@@ -21,8 +21,8 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
             .exact_width(COLLAPSED_HANDLE_WIDTH)
             .frame(
                 egui::Frame::none()
-                    .fill(theme::COLOR_PANEL)
-                    .stroke(theme::subtle_border())
+                    .fill(theme::color_panel())
+                    .stroke(theme::subtle_border(&state.theme))
                     .inner_margin(egui::Margin::same(8.0))
                     .rounding(egui::Rounding::same(14.0)),
             )
@@ -32,7 +32,7 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     let button = egui::Button::new(
                         RichText::new(ICON_EXPAND_LEFT)
                             .font(theme::icon_font(16.0))
-                            .color(theme::COLOR_TEXT_PRIMARY),
+                            .color(theme::color_text_primary()),
                     )
                     .frame(false);
                     if ui.add_sized([20.0, 24.0], button).clicked() {
@@ -48,8 +48,8 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
         .exact_width(state.right_panel_width)
         .frame(
             egui::Frame::none()
-                .fill(theme::COLOR_PANEL)
-                .stroke(theme::subtle_border())
+                .fill(theme::color_panel())
+                .stroke(theme::subtle_border(&state.theme))
                 .inner_margin(egui::Margin {
                     left: 18.0,
                     right: 18.0,
@@ -71,7 +71,7 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     let button = egui::Button::new(
                         RichText::new(ICON_COLLAPSE_RIGHT)
                             .font(theme::icon_font(15.0))
-                            .color(theme::COLOR_TEXT_PRIMARY),
+                            .color(theme::color_text_primary()),
                     )
                     .frame(false);
                     if ui.add_sized([26.0, 24.0], button).clicked() {
@@ -79,11 +79,11 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
                     }
                     ui.heading(
                         RichText::new("Resumen de recursos")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                 });
-                ui.label(RichText::new("Actualizado ahora").color(theme::COLOR_TEXT_WEAK));
+                ui.label(RichText::new("Actualizado ahora").color(theme::color_text_weak()));
                 ui.add_space(12.0);
 
                 egui::ScrollArea::vertical()
@@ -116,19 +116,19 @@ fn draw_led(ui: &mut egui::Ui, color: Color32, tooltip: &str) {
 fn draw_actions_section(ui: &mut egui::Ui, state: &AppState) {
     ui.label(
         RichText::new("Acciones")
-            .color(theme::COLOR_TEXT_PRIMARY)
+            .color(theme::color_text_primary())
             .strong(),
     );
     ui.label(
         RichText::new("Herramientas rápidas para tu sesión actual")
-            .color(theme::COLOR_TEXT_WEAK)
+            .color(theme::color_text_weak())
             .size(12.0),
     );
     ui.add_space(8.0);
 
     Frame::none()
         .fill(Color32::from_rgb(28, 30, 36))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -136,15 +136,16 @@ fn draw_actions_section(ui: &mut egui::Ui, state: &AppState) {
 
             let button = theme::secondary_button(
                 RichText::new("Copiar conversación")
-                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .color(theme::color_text_primary())
                     .strong(),
+                &state.theme,
             );
 
             if ui.add_sized([ui.available_width(), 32.0], button).clicked() {
                 let transcript = build_conversation_transcript(&state.chat_messages);
                 ui.output_mut(|out| out.copied_text = transcript);
                 ui.colored_label(
-                    theme::COLOR_TEXT_WEAK,
+                    theme::color_text_weak(),
                     "Conversación copiada al portapapeles",
                 );
             }
@@ -208,7 +209,7 @@ struct ModelOverview {
 fn draw_jarvis_card(ui: &mut egui::Ui, state: &AppState) {
     Frame::none()
         .fill(Color32::from_rgb(28, 30, 36))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
@@ -220,17 +221,17 @@ fn draw_jarvis_card(ui: &mut egui::Ui, state: &AppState) {
                 ui.label(
                     RichText::new(ICON_JARVIS)
                         .font(theme::icon_font(22.0))
-                        .color(theme::COLOR_PRIMARY),
+                        .color(theme::color_primary()),
                 );
                 ui.vertical(|ui| {
                     ui.label(
                         RichText::new("Jarvis")
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                     ui.label(
                         RichText::new("Runtime de incrustaciones")
-                            .color(theme::COLOR_TEXT_WEAK)
+                            .color(theme::color_text_weak())
                             .size(12.0),
                     );
                 });
@@ -247,13 +248,13 @@ fn draw_jarvis_card(ui: &mut egui::Ui, state: &AppState) {
                     if let Some(label) = &detail.label {
                         ui.label(
                             RichText::new(label)
-                                .color(theme::COLOR_TEXT_WEAK)
+                                .color(theme::color_text_weak())
                                 .size(12.0),
                         );
                     }
                     ui.label(
                         RichText::new(&detail.value)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .size(13.0),
                     );
                 }
@@ -297,14 +298,14 @@ fn draw_models_card(ui: &mut egui::Ui, state: &AppState) {
 
     Frame::none()
         .fill(Color32::from_rgb(28, 30, 36))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(&state.theme))
         .rounding(egui::Rounding::same(14.0))
         .inner_margin(Margin::symmetric(16.0, 14.0))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(
                 RichText::new("Modelos conectados")
-                    .color(theme::COLOR_TEXT_PRIMARY)
+                    .color(theme::color_text_primary())
                     .strong(),
             );
 
@@ -321,7 +322,7 @@ fn draw_models_card(ui: &mut egui::Ui, state: &AppState) {
                     ui.spacing_mut().item_spacing.x = 10.0;
                     ui.label(
                         RichText::new(entry.handle)
-                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .color(theme::color_text_primary())
                             .strong(),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -332,7 +333,7 @@ fn draw_models_card(ui: &mut egui::Ui, state: &AppState) {
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(&entry.detail)
-                        .color(theme::COLOR_TEXT_WEAK)
+                        .color(theme::color_text_weak())
                         .size(12.0),
                 );
             }
@@ -365,7 +366,7 @@ fn jarvis_indicator(state: &AppState) -> StatusIndicator {
         }
     } else {
         StatusIndicator::Led {
-            color: theme::COLOR_SUCCESS,
+            color: theme::color_success(),
             status: format!("{} modelos listos", state.installed_local_models.len()),
         }
     }
@@ -479,7 +480,7 @@ fn led_from_message(message: &str) -> StatusIndicator {
         || lower.contains("timeout")
         || lower.contains("rechaz")
     {
-        theme::COLOR_DANGER
+        theme::color_danger()
     } else if lower.contains("alcanzable")
         || lower.contains("reachable")
         || lower.contains("ok")
@@ -487,7 +488,7 @@ fn led_from_message(message: &str) -> StatusIndicator {
         || lower.contains("instal")
         || lower.contains("disponible")
     {
-        theme::COLOR_SUCCESS
+        theme::color_success()
     } else {
         COLOR_WARNING
     };

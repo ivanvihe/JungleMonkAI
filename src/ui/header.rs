@@ -1,16 +1,18 @@
 use eframe::egui::{self, Area, Color32, Frame, Id, Margin, Order, RichText, Rounding};
 
 use crate::state::AppState;
+use crate::ui::theme::ThemeTokens;
 
 use super::theme;
 
 pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
+    let tokens = state.theme.clone();
     egui::TopBottomPanel::top("global_header")
         .exact_height(64.0)
         .frame(
             egui::Frame::none()
-                .fill(theme::COLOR_HEADER)
-                .stroke(theme::subtle_border())
+                .fill(theme::color_header())
+                .stroke(theme::subtle_border(&tokens))
                 .inner_margin(egui::Margin {
                     left: 18.0,
                     right: 18.0,
@@ -27,7 +29,7 @@ pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
                 ui.label(
                     RichText::new("Jungle MonkAI")
                         .size(18.0)
-                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .color(theme::color_text_primary())
                         .strong(),
                 );
 
@@ -46,7 +48,7 @@ pub fn draw_header(ctx: &egui::Context, state: &mut AppState) {
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
                         ui.set_width(search_width);
-                        draw_search(ui, state);
+                        draw_search(ui, state, &tokens);
                     },
                 );
             });
@@ -69,7 +71,7 @@ fn draw_logo(ui: &mut egui::Ui) {
     painter.circle(
         inner_rect.center(),
         inner_rect.width() * 0.35,
-        theme::COLOR_HEADER,
+        theme::color_header(),
         egui::Stroke::new(1.2, Color32::from_rgb(0, 204, 102)),
     );
 
@@ -82,14 +84,14 @@ fn draw_logo(ui: &mut egui::Ui) {
     );
 }
 
-fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
+fn draw_search(ui: &mut egui::Ui, state: &mut AppState, tokens: &ThemeTokens) {
     let ctx = ui.ctx().clone();
     let mut search_rect = egui::Rect::NOTHING;
     let mut has_focus = false;
 
     Frame::none()
         .fill(Color32::from_rgb(44, 46, 52))
-        .stroke(theme::subtle_border())
+        .stroke(theme::subtle_border(tokens))
         .rounding(Rounding::same(12.0))
         .inner_margin(Margin::symmetric(14.0, 10.0))
         .show(ui, |ui| {
@@ -97,7 +99,7 @@ fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
             ui.set_height(36.0);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                ui.label(RichText::new("🔍").color(theme::COLOR_TEXT_WEAK));
+                ui.label(RichText::new("🔍").color(theme::color_text_weak()));
                 let input_width = ui.available_width().max(160.0);
                 let response = ui.add_sized(
                     [input_width, 28.0],
@@ -125,7 +127,7 @@ fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
         .show(&ctx, |ui| {
             egui::Frame::none()
                 .fill(Color32::from_rgb(28, 30, 36))
-                .stroke(theme::subtle_border())
+                .stroke(theme::subtle_border(tokens))
                 .rounding(Rounding::same(14.0))
                 .inner_margin(Margin::symmetric(16.0, 14.0))
                 .show(ui, |ui| {
@@ -134,14 +136,14 @@ fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new("⌘K / Ctrl+K")
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .monospace()
                                     .size(11.0),
                             );
                             ui.add_space(ui.available_width());
                             ui.label(
                                 RichText::new("Enter para abrir")
-                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .color(theme::color_text_weak())
                                     .size(11.0),
                             );
                         });
@@ -150,7 +152,7 @@ fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
 
                         if groups.is_empty() {
                             ui.colored_label(
-                                theme::COLOR_TEXT_WEAK,
+                                theme::color_text_weak(),
                                 "Sin resultados para la búsqueda actual.",
                             );
                             return;
@@ -162,7 +164,7 @@ fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
                                 for group in groups {
                                     ui.label(
                                         RichText::new(group.title)
-                                            .color(theme::COLOR_TEXT_PRIMARY)
+                                            .color(theme::color_text_primary())
                                             .strong()
                                             .size(12.0),
                                     );
@@ -170,25 +172,25 @@ fn draw_search(ui: &mut egui::Ui, state: &mut AppState) {
                                     for result in group.results {
                                         egui::Frame::none()
                                             .fill(Color32::from_rgb(34, 36, 42))
-                                            .stroke(theme::subtle_border())
+                                            .stroke(theme::subtle_border(tokens))
                                             .rounding(Rounding::same(10.0))
                                             .inner_margin(Margin::symmetric(12.0, 10.0))
                                             .show(ui, |ui| {
                                                 ui.vertical(|ui| {
                                                     ui.label(
                                                         RichText::new(&result.title)
-                                                            .color(theme::COLOR_TEXT_PRIMARY)
+                                                            .color(theme::color_text_primary())
                                                             .strong()
                                                             .size(12.0),
                                                     );
                                                     ui.label(
                                                         RichText::new(&result.subtitle)
-                                                            .color(theme::COLOR_TEXT_WEAK)
+                                                            .color(theme::color_text_weak())
                                                             .size(11.0),
                                                     );
                                                     ui.label(
                                                         RichText::new(&result.action_hint)
-                                                            .color(theme::COLOR_TEXT_WEAK)
+                                                            .color(theme::color_text_weak())
                                                             .size(10.0)
                                                             .italics(),
                                                     );

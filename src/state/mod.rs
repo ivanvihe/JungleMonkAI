@@ -1,3 +1,13 @@
+pub mod automation;
+pub mod chat;
+pub mod feature;
+pub mod resources;
+
+pub use automation::AutomationState;
+pub use chat::ChatState;
+pub use feature::{CommandRegistry, FeatureModule};
+pub use resources::ResourceState;
+
 use crate::{
     api::{claude::AnthropicModel, local::JarvisRuntime},
     config::{AppConfig, InstalledModelConfig},
@@ -9,14 +19,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
 use vscode_shell::{layout::LayoutConfig, AppShell};
 
 pub use navigation::{
-    NavigationNode, NavigationRegistry, NavigationTarget, SECTION_PREFERENCES_CUSTOMIZATION,
-    SECTION_PREFERENCES_LOCAL, SECTION_PREFERENCES_PROVIDERS, SECTION_PREFERENCES_SYSTEM,
-    SECTION_PRIMARY, SECTION_RESOURCES_INSTALLED, SECTION_RESOURCES_LOCAL,
-    SECTION_RESOURCES_REMOTE,
+    NavigationNode, NavigationRegistry, NavigationTarget, SECTION_PRIMARY,
+    SECTION_RESOURCES_INSTALLED, SECTION_RESOURCES_LOCAL, SECTION_RESOURCES_REMOTE,
 };
 
 /// Define metadatos reutilizables para paneles y recursos navegables.
@@ -598,50 +605,6 @@ fn build_navigation_registry(config: &AppConfig) -> NavigationRegistry {
         visible_in_sidebar: true,
     });
 
-    let main_nodes = [
-        (
-            NavigationTarget::main(MainView::ChatMultimodal),
-            "Chat multimodal",
-            "💬",
-            "Conversa con JungleMonkAI en modo multimodal.",
-            0,
-        ),
-        (
-            NavigationTarget::main(MainView::CronScheduler),
-            "Cron",
-            "⏱️",
-            "Programa y supervisa tareas automáticas.",
-            1,
-        ),
-        (
-            NavigationTarget::main(MainView::ActivityFeed),
-            "Actividad",
-            "📈",
-            "Consulta los eventos recientes del agente.",
-            2,
-        ),
-        (
-            NavigationTarget::main(MainView::DebugConsole),
-            "Debug",
-            "🪲",
-            "Accede a diagnósticos y registros de depuración.",
-            3,
-        ),
-    ];
-
-    for (target, label, icon, description, order) in main_nodes {
-        registry.register_node(NavigationNode {
-            id: target.id(),
-            label: label.into(),
-            description: Some(description.into()),
-            icon: Some(icon.into()),
-            badge: None,
-            target,
-            order,
-            section_id: SECTION_PRIMARY.to_string(),
-        });
-    }
-
     let preference_groups: [(&str, &[PreferencePanel]); 4] = [
         (
             SECTION_PREFERENCES_SYSTEM,
@@ -692,89 +655,6 @@ fn build_navigation_registry(config: &AppConfig) -> NavigationRegistry {
                 section_id: section_id.to_string(),
             });
         }
-    }
-
-    let remote_providers = [
-        RemoteProviderKind::Anthropic,
-        RemoteProviderKind::OpenAi,
-        RemoteProviderKind::Groq,
-    ];
-
-    for (index, provider) in remote_providers.into_iter().enumerate() {
-        let section = ResourceSection::RemoteCatalog(provider);
-        let metadata = section.metadata();
-        let label = metadata
-            .breadcrumb
-            .last()
-            .copied()
-            .unwrap_or(metadata.title);
-        let target = NavigationTarget::resource(section);
-        registry.register_node(NavigationNode {
-            id: target.id(),
-            label: label.to_string(),
-            description: Some(metadata.description.to_string()),
-            icon: Some("☁️".into()),
-            badge: None,
-            target,
-            order: index as u32,
-            section_id: SECTION_RESOURCES_REMOTE.to_string(),
-        });
-    }
-
-    let local_providers = [
-        LocalModelProvider::HuggingFace,
-        LocalModelProvider::GithubModels,
-        LocalModelProvider::Replicate,
-        LocalModelProvider::Ollama,
-        LocalModelProvider::OpenRouter,
-        LocalModelProvider::Modelscope,
-    ];
-
-    for (index, provider) in local_providers.into_iter().enumerate() {
-        let section = ResourceSection::LocalCatalog(provider);
-        let metadata = section.metadata();
-        let label = metadata
-            .breadcrumb
-            .last()
-            .copied()
-            .unwrap_or(metadata.title);
-        let target = NavigationTarget::resource(section);
-        registry.register_node(NavigationNode {
-            id: target.id(),
-            label: label.to_string(),
-            description: Some(metadata.description.to_string()),
-            icon: Some("💾".into()),
-            badge: None,
-            target,
-            order: index as u32,
-            section_id: SECTION_RESOURCES_LOCAL.to_string(),
-        });
-    }
-
-    let connected_resources = [
-        (ResourceSection::InstalledLocal, "🧩", 0u32),
-        (ResourceSection::ConnectedProjects, "🗂️", 1u32),
-        (ResourceSection::GithubRepositories, "📁", 2u32),
-    ];
-
-    for (section, icon, order) in connected_resources {
-        let metadata = section.metadata();
-        let label = metadata
-            .breadcrumb
-            .last()
-            .copied()
-            .unwrap_or(metadata.title);
-        let target = NavigationTarget::resource(section);
-        registry.register_node(NavigationNode {
-            id: target.id(),
-            label: label.to_string(),
-            description: Some(metadata.description.to_string()),
-            icon: Some(icon.into()),
-            badge: None,
-            target,
-            order,
-            section_id: SECTION_RESOURCES_INSTALLED.to_string(),
-        });
     }
 
     registry
@@ -1957,7 +1837,7 @@ impl DebugConsoleState {
 }
 
 #[derive(Debug)]
-enum LocalInstallMessage {
+pub(crate) enum LocalInstallMessage {
     Success {
         provider: LocalModelProvider,
         model: LocalModelCard,
@@ -1971,7 +1851,7 @@ enum LocalInstallMessage {
 }
 
 #[derive(Clone, Debug)]
-struct PendingLocalInstall {
+pub(crate) struct PendingLocalInstall {
     provider: LocalModelProvider,
     model_id: String,
 }
@@ -2130,22 +2010,6 @@ pub struct CustomCommand {
     pub trigger: String,
     pub action: CustomCommandAction,
 }
-
-pub const AVAILABLE_CUSTOM_ACTIONS: &[CustomCommandAction] = &[
-    CustomCommandAction::ShowCurrentTime,
-    CustomCommandAction::ShowSystemStatus,
-    CustomCommandAction::ShowSystemDiagnostics,
-    CustomCommandAction::ShowUsageStatistics,
-    CustomCommandAction::ListActiveProjects,
-    CustomCommandAction::ListConfiguredProfiles,
-    CustomCommandAction::ShowCacheConfiguration,
-    CustomCommandAction::ListAvailableModels,
-    CustomCommandAction::ShowGithubSummary,
-    CustomCommandAction::ShowMemorySettings,
-    CustomCommandAction::ShowActiveProviders,
-    CustomCommandAction::ShowJarvisStatus,
-    CustomCommandAction::ShowCommandHelp,
-];
 
 pub fn default_custom_commands() -> Vec<CustomCommand> {
     vec![
@@ -2674,10 +2538,8 @@ pub struct AppState {
     pub show_settings_modal: bool,
     /// Texto del buscador en el header.
     pub search_buffer: String,
-    /// El texto actual en el campo de entrada del chat.
-    pub current_chat_input: String,
-    /// Historial de mensajes del chat.
-    pub chat_messages: Vec<ChatMessage>,
+    /// Estado del chat multimodal.
+    pub chat: ChatState,
     /// Configuración de la aplicación.
     pub config: AppConfig, // New field
     /// Tokens visuales que definen paletas, espaciados y radios.
@@ -2692,8 +2554,8 @@ pub struct AppState {
     pub selected_preference: PreferencePanel,
     /// Índice de tab activo por panel de preferencias.
     pub preference_tabs: HashMap<PreferencePanel, usize>,
-    /// Recurso seleccionado dentro del explorador de recursos.
-    pub selected_resource: Option<ResourceSection>,
+    /// Estado del explorador de recursos y catálogos.
+    pub resources: ResourceState,
     /// Token de acceso personal de GitHub.
     pub github_token: String,
     /// Nombre de usuario autenticado en GitHub.
@@ -2718,16 +2580,8 @@ pub struct AppState {
     pub resource_memory_limit_gb: f32,
     /// Límite de disco en GB para la caché.
     pub resource_disk_limit_gb: f32,
-    /// Lista de comandos personalizados disponibles.
-    pub custom_commands: Vec<CustomCommand>,
-    /// Campo auxiliar para agregar un nuevo comando.
-    pub new_custom_command: String,
-    /// Acción asociada al nuevo comando que se agregará.
-    pub new_custom_command_action: CustomCommandAction,
-    /// Mensaje de retroalimentación para comandos.
-    pub command_feedback: Option<String>,
-    /// Controla la visibilidad de la documentación de funciones disponibles.
-    pub show_functions_modal: bool,
+    /// Registro centralizado de comandos declarados por los módulos.
+    pub command_registry: CommandRegistry,
     /// Indica si se almacena memoria de contexto.
     pub enable_memory_tracking: bool,
     /// Días que se conserva la memoria contextual.
@@ -2740,105 +2594,23 @@ pub struct AppState {
     pub projects: Vec<String>,
     /// Proyecto actualmente seleccionado.
     pub selected_project: Option<usize>,
-    /// Estado por proveedor del explorador de modelos locales.
-    pub local_provider_states: BTreeMap<LocalModelProvider, LocalProviderState>,
-    /// Ruta del modelo local de Jarvis.
-    pub jarvis_model_path: String,
-    /// Directorio donde se instalarán los modelos locales de Jarvis.
-    pub jarvis_install_dir: String,
-    /// Determina si Jarvis inicia automáticamente.
-    pub jarvis_auto_start: bool,
-    /// Mensaje de estado sobre la configuración local de Jarvis.
-    pub jarvis_status: Option<String>,
-    /// Modelos instalados para Jarvis.
-    pub installed_local_models: Vec<InstalledLocalModel>,
-    /// Proveedor seleccionado en la sección de configuración local.
-    pub jarvis_selected_provider: LocalModelProvider,
-    /// Identificador del modelo activo para Jarvis.
-    pub jarvis_active_model: Option<LocalModelIdentifier>,
-    /// Runtime actualmente cargado del modelo local.
-    pub jarvis_runtime: Option<JarvisRuntime>,
-    /// Alias que el usuario debe mencionar para despertar a Jarvis en el chat.
-    pub jarvis_alias: String,
-    /// Permite que Jarvis responda incluso si no se lo menciona explícitamente.
-    pub jarvis_respond_without_alias: bool,
-    /// Modelo por defecto de Anthropic/Claude.
-    pub claude_default_model: String,
-    /// Alias configurado para invocar a Claude desde el chat.
-    pub claude_alias: String,
-    /// Mensaje de prueba de conexión con Anthropic.
-    pub anthropic_test_status: Option<String>,
-    /// Catálogo recuperado de modelos de Claude.
-    pub claude_available_models: Vec<AnthropicModel>,
-    /// Mensaje de estado asociado al catálogo de modelos de Claude.
-    pub claude_models_status: Option<String>,
-    /// Modelo por defecto de OpenAI.
-    pub openai_default_model: String,
-    /// Alias configurado para invocar a OpenAI desde el chat.
-    pub openai_alias: String,
-    /// Mensaje de prueba de conexión con OpenAI.
-    pub openai_test_status: Option<String>,
-    /// Modelo por defecto de Groq.
-    pub groq_default_model: String,
-    /// Alias configurado para invocar a Groq desde el chat.
-    pub groq_alias: String,
-    /// Mensaje de prueba de conexión con Groq.
-    pub groq_test_status: Option<String>,
-    /// Estado del catálogo remoto unificado.
-    pub remote_catalog: RemoteCatalogState,
-    /// Estado de la biblioteca local de Jarvis.
-    pub local_library: LocalLibraryState,
-    /// Recursos de personalización navegables.
-    pub personalization_resources: PersonalizationResourcesState,
-    /// Mensajes informativos para acciones de personalización.
-    pub personalization_feedback: Option<String>,
-    /// Preferencias de enrutamiento por hilo en el chat.
+    /// Preferencias de enrutamiento por hilo en el chat (obsoleto, se mantiene para compatibilidad).
     pub chat_routing: ChatRoutingState,
     /// Registro centralizado de secciones y nodos de navegación.
     pub navigation: NavigationRegistry,
     /// Configuración de layout para los paneles del shell.
     pub layout: LayoutConfig,
-    /// Solicitud diferida para copiar la conversación actual.
-    pub pending_copy_conversation: bool,
-    /// Registros de actividad recientes.
-    pub activity_logs: Vec<LogEntry>,
-    /// Tablero con tareas programadas y filtros activos.
-    pub cron_board: CronBoardState,
-    /// Workflows automatizados listos para lanzarse desde el chat.
-    pub automation_workflows: AutomationWorkflowBoard,
-    /// Recordatorios y avisos programados.
-    pub scheduled_reminders: Vec<ScheduledReminder>,
-    /// Listeners configurables para automatización basada en eventos.
-    pub event_automation: EventAutomationState,
-    /// Integraciones externas conectadas y su estado.
-    pub external_integrations: ExternalIntegrationsState,
-    /// Recursos de proyectos y repositorios conectados.
-    pub project_resources: Vec<ProjectResourceCard>,
+    /// Estado de automatizaciones y cron jobs.
+    pub automation: AutomationState,
     /// Consola de depuración del sistema.
     pub debug_console: DebugConsoleState,
     /// Consultas recientes en el buscador global.
     pub global_search_recent: Vec<String>,
-    /// Canal para recibir respuestas de proveedores remotos.
-    provider_response_rx: Receiver<ProviderResponse>,
-    /// Canal para enviar respuestas desde hilos de proveedores.
-    provider_response_tx: Sender<ProviderResponse>,
-    /// Canal para recibir resultados de instalaciones locales en segundo plano.
-    local_install_rx: Receiver<LocalInstallMessage>,
-    /// Canal para enviar resultados desde los hilos de instalación local.
-    local_install_tx: Sender<LocalInstallMessage>,
-    /// Instalaciones locales en curso.
-    pending_local_installs: Vec<PendingLocalInstall>,
-    /// Llamadas pendientes a proveedores remotos.
-    pending_provider_calls: Vec<PendingProviderCall>,
-    /// Identificador incremental de llamadas a proveedores.
-    next_provider_call_id: u64,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         let config = AppConfig::load_or_default();
-        let (provider_response_tx, provider_response_rx) = mpsc::channel();
-        let (local_install_tx, local_install_rx) = mpsc::channel();
 
         let mut profiles = if config.profiles.is_empty() {
             vec![
@@ -2864,56 +2636,6 @@ impl Default for AppState {
             projects.push("Autonomous Agent".to_string());
         }
 
-        let mut local_provider_states: BTreeMap<LocalModelProvider, LocalProviderState> =
-            BTreeMap::new();
-        for provider in LocalModelProvider::ALL {
-            let mut provider_state = LocalProviderState::from_config(provider, &config);
-            if provider == LocalModelProvider::HuggingFace
-                && provider_state.search_query.trim().is_empty()
-            {
-                provider_state.models = vec![
-                    LocalModelCard::placeholder(
-                        LocalModelProvider::HuggingFace,
-                        "sentence-transformers/all-MiniLM-L6-v2",
-                    ),
-                    LocalModelCard::placeholder(
-                        LocalModelProvider::HuggingFace,
-                        "openai/whisper-small",
-                    ),
-                    LocalModelCard::placeholder(
-                        LocalModelProvider::HuggingFace,
-                        "stabilityai/stable-diffusion-xl",
-                    ),
-                ];
-            }
-            local_provider_states.insert(provider, provider_state);
-        }
-
-        let mut installed_local_models: Vec<InstalledLocalModel> = config
-            .jarvis
-            .installed_models
-            .iter()
-            .map(InstalledLocalModel::from_config)
-            .collect();
-
-        installed_local_models.sort_by(|a, b| b.installed_at.cmp(&a.installed_at));
-
-        let jarvis_active_model = config
-            .jarvis
-            .active_model
-            .as_ref()
-            .map(|entry| LocalModelIdentifier::parse(entry))
-            .or_else(|| {
-                installed_local_models
-                    .first()
-                    .map(|model| model.identifier.clone())
-            });
-
-        let jarvis_selected_provider = jarvis_active_model
-            .as_ref()
-            .map(|model| model.provider)
-            .unwrap_or(LocalModelProvider::HuggingFace);
-
         let selected_profile = config
             .selected_profile
             .filter(|idx| profiles.get(*idx).is_some())
@@ -2923,17 +2645,11 @@ impl Default for AppState {
             .filter(|idx| projects.get(*idx).is_some())
             .or(Some(0));
 
-        let personalization_resources =
-            PersonalizationResourcesState::from_sources(&profiles, &projects, &Vec::new());
-        let remote_catalog = RemoteCatalogState::default();
+        let chat = ChatState::from_config(&config);
+        let automation = AutomationState::from_config(&config);
+        let mut resources = ResourceState::from_config(&config, &profiles, &projects);
+        resources.ensure_library_selection();
         let chat_routing = ChatRoutingState::default();
-        let automation_workflows =
-            AutomationWorkflowBoard::with_workflows(default_automation_workflows());
-        let scheduled_reminders = default_scheduled_reminders();
-        let event_automation = EventAutomationState::with_listeners(default_event_listeners());
-        let external_integrations =
-            ExternalIntegrationsState::with_connectors(default_external_integrations());
-        let project_resources = default_project_resources();
         let global_search_recent = default_global_search_recent();
 
         let theme_preset = config.theme;
@@ -2941,8 +2657,7 @@ impl Default for AppState {
         let mut state = Self {
             show_settings_modal: false,
             search_buffer: String::new(),
-            current_chat_input: String::new(),
-            chat_messages: vec![ChatMessage::default()],
+            chat,
             config: config.clone(),
             theme: ThemeTokens::from_preset(theme_preset),
             font_sources: theme::default_font_sources(),
@@ -2950,7 +2665,7 @@ impl Default for AppState {
             active_main_tab: MainTab::default(),
             selected_preference: PreferencePanel::default(),
             preference_tabs: HashMap::new(),
-            selected_resource: None,
+            resources,
             github_token: config.github_token.clone().unwrap_or_default(),
             github_username: None,
             github_repositories: Vec::new(),
@@ -2963,111 +2678,31 @@ impl Default for AppState {
             last_cache_cleanup: None,
             resource_memory_limit_gb: config.resource_memory_limit_gb,
             resource_disk_limit_gb: config.resource_disk_limit_gb,
-            custom_commands: if config.custom_commands.is_empty() {
-                default_custom_commands()
-            } else {
-                config.custom_commands.clone()
-            },
-            new_custom_command: String::new(),
-            new_custom_command_action: CustomCommandAction::ShowCurrentTime,
-            command_feedback: None,
-            show_functions_modal: false,
+            command_registry: CommandRegistry::default(),
             enable_memory_tracking: config.enable_memory_tracking,
             memory_retention_days: config.memory_retention_days,
             profiles,
             selected_profile,
             projects,
             selected_project,
-            local_provider_states,
-            jarvis_model_path: config.jarvis.model_path.clone(),
-            jarvis_install_dir: config.jarvis.install_dir.clone(),
-            jarvis_auto_start: config.jarvis.auto_start,
-            jarvis_status: None,
-            installed_local_models,
-            jarvis_selected_provider,
-            jarvis_active_model,
-            jarvis_runtime: None,
-            jarvis_alias: if config.jarvis.chat_alias.trim().is_empty() {
-                "jarvis".to_string()
-            } else {
-                config.jarvis.chat_alias.clone()
-            },
-            jarvis_respond_without_alias: config.jarvis.respond_without_alias,
-            claude_default_model: if config.anthropic.default_model.is_empty() {
-                "claude-3-opus-20240229".to_string()
-            } else {
-                config.anthropic.default_model.clone()
-            },
-            claude_alias: if config.anthropic.alias.is_empty() {
-                "claude".to_string()
-            } else {
-                config.anthropic.alias.clone()
-            },
-            anthropic_test_status: None,
-            claude_available_models: Vec::new(),
-            claude_models_status: None,
-            openai_default_model: if config.openai.default_model.is_empty() {
-                "gpt-4.1-mini".to_string()
-            } else {
-                config.openai.default_model.clone()
-            },
-            openai_alias: if config.openai.alias.is_empty() {
-                "gpt".to_string()
-            } else {
-                config.openai.alias.clone()
-            },
-            openai_test_status: None,
-            groq_default_model: if config.groq.default_model.is_empty() {
-                "llama3-70b-8192".to_string()
-            } else {
-                config.groq.default_model.clone()
-            },
-            groq_alias: if config.groq.alias.is_empty() {
-                "groq".to_string()
-            } else {
-                config.groq.alias.clone()
-            },
-            groq_test_status: None,
-            remote_catalog,
-            local_library: LocalLibraryState::default(),
-            personalization_resources,
-            personalization_feedback: None,
             chat_routing,
             navigation: build_navigation_registry(&config),
             layout: LayoutConfig::default(),
-            pending_copy_conversation: false,
-            activity_logs: default_logs(),
-            cron_board: CronBoardState::with_tasks(default_scheduled_tasks()),
-            automation_workflows,
-            scheduled_reminders,
-            event_automation,
-            external_integrations,
-            project_resources,
+            automation,
             debug_console: DebugConsoleState::with_entries(default_debug_console_entries()),
             global_search_recent,
-            provider_response_rx,
-            provider_response_tx,
-            local_install_rx,
-            local_install_tx,
-            pending_local_installs: Vec::new(),
-            pending_provider_calls: Vec::new(),
-            next_provider_call_id: 0,
         };
 
-        if state.local_library.selection.is_none() {
-            state.local_library.selection = state.jarvis_active_model.clone();
-        }
-
-        if state.jarvis_auto_start {
+        if state.resources.jarvis_auto_start {
             match state.ensure_jarvis_runtime() {
                 Ok(runtime) => {
-                    state.jarvis_status = Some(format!(
+                    state.resources.jarvis_status = Some(format!(
                         "Jarvis iniciado con el modelo {}.",
                         runtime.model_label()
                     ));
                 }
                 Err(err) => {
-                    state.jarvis_status = Some(format!(
+                    state.resources.jarvis_status = Some(format!(
                         "No se pudo iniciar Jarvis automáticamente: {}",
                         err
                     ));
@@ -3076,6 +2711,8 @@ impl Default for AppState {
         }
 
         state.refresh_personalization_resources();
+        state.rebuild_navigation();
+        state.rebuild_command_registry();
 
         state
     }
@@ -3142,7 +2779,7 @@ impl Default for ChatMessage {
 pub const MAX_COMMAND_DEPTH: usize = 5;
 
 #[derive(Clone, Debug)]
-struct PendingProviderCall {
+pub(crate) struct PendingProviderCall {
     id: u64,
     provider_kind: RemoteProviderKind,
     provider_name: String,
@@ -3152,7 +2789,7 @@ struct PendingProviderCall {
 }
 
 #[derive(Debug)]
-struct ProviderResponse {
+pub(crate) struct ProviderResponse {
     id: u64,
     outcome: std::result::Result<String, String>,
 }
@@ -3357,12 +2994,12 @@ impl AppState {
             }
             NavigationTarget::Preference(panel) => {
                 self.selected_preference = panel;
-                self.selected_resource = None;
+                self.resources.selected_resource = None;
                 self.active_main_view = MainView::Preferences;
                 self.sync_active_tab_from_view();
             }
             NavigationTarget::Resource(section) => {
-                self.selected_resource = Some(section);
+                self.resources.selected_resource = Some(section);
                 self.active_main_view = MainView::ResourceBrowser;
                 self.sync_active_tab_from_view();
             }
@@ -3386,7 +3023,7 @@ impl AppState {
             }
             NavigationTarget::Resource(section) => {
                 self.active_main_view == MainView::ResourceBrowser
-                    && self.selected_resource == Some(section)
+                    && self.resources.selected_resource == Some(section)
             }
         }
     }
@@ -3430,7 +3067,7 @@ impl AppState {
         }
 
         let mut model_results = Vec::new();
-        for (provider, cards) in &self.remote_catalog.provider_cards {
+        for (provider, cards) in &self.resources.remote_catalog.provider_cards {
             for card in cards {
                 let haystack = format!(
                     "{} {} {} {}",
@@ -3462,7 +3099,7 @@ impl AppState {
         }
 
         let mut conversation_results = Vec::new();
-        for message in self.chat_messages.iter().rev().take(12) {
+        for message in self.chat.messages.iter().rev().take(12) {
             let haystack = format!("{} {}", message.sender, message.text).to_lowercase();
             if query.is_empty() || haystack.contains(&query) {
                 let mut preview = message.text.clone();
@@ -3521,7 +3158,7 @@ impl AppState {
         }
 
         let mut document_results = Vec::new();
-        for card in &self.project_resources {
+        for card in &self.resources.project_resources {
             let haystack = format!(
                 "{} {} {}",
                 card.name,
@@ -3546,7 +3183,7 @@ impl AppState {
         }
 
         let mut workflow_results = Vec::new();
-        for workflow in &self.automation_workflows.workflows {
+        for workflow in &self.automation.workflows.workflows {
             let haystack = format!("{} {}", workflow.name, workflow.description).to_lowercase();
             if query.is_empty() || haystack.contains(&query) {
                 let command_hint = workflow
@@ -3583,7 +3220,8 @@ impl AppState {
 
     pub fn trigger_workflow(&mut self, workflow_id: u32) -> Option<String> {
         if let Some(workflow) = self
-            .automation_workflows
+            .automation
+            .workflows
             .workflows
             .iter_mut()
             .find(|wf| wf.id == workflow_id)
@@ -3609,6 +3247,7 @@ impl AppState {
         let mut message = None;
 
         if let Some(listener) = self
+            .automation
             .event_automation
             .listeners
             .iter_mut()
@@ -3631,14 +3270,6 @@ impl AppState {
         result
     }
 
-    pub fn project_resources_by_kind(&self, kind: ProjectResourceKind) -> Vec<ProjectResourceCard> {
-        self.project_resources
-            .iter()
-            .filter(|card| card.kind == kind)
-            .cloned()
-            .collect()
-    }
-
     pub(crate) fn push_activity_log(
         &mut self,
         status: LogStatus,
@@ -3652,11 +3283,11 @@ impl AppState {
             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         };
 
-        self.activity_logs.push(entry);
+        self.automation.activity_logs.push(entry);
         const MAX_ACTIVITY_LOGS: usize = 200;
-        if self.activity_logs.len() > MAX_ACTIVITY_LOGS {
-            let overflow = self.activity_logs.len() - MAX_ACTIVITY_LOGS;
-            self.activity_logs.drain(0..overflow);
+        if self.automation.activity_logs.len() > MAX_ACTIVITY_LOGS {
+            let overflow = self.automation.activity_logs.len() - MAX_ACTIVITY_LOGS;
+            self.automation.activity_logs.drain(0..overflow);
         }
     }
 
@@ -3670,22 +3301,22 @@ impl AppState {
     }
 
     pub fn activate_jarvis_model(&mut self, identifier: &LocalModelIdentifier) -> String {
-        self.jarvis_selected_provider = identifier.provider;
-        self.jarvis_active_model = Some(identifier.clone());
-        self.jarvis_runtime = None;
+        self.resources.jarvis_selected_provider = identifier.provider;
+        self.resources.jarvis_active_model = Some(identifier.clone());
+        self.resources.jarvis_runtime = None;
 
         let install_path = self
             .installed_model(identifier)
             .map(|record| record.install_path.clone())
             .filter(|path| !path.trim().is_empty())
             .unwrap_or_else(|| {
-                Path::new(&self.jarvis_install_dir)
+                Path::new(&self.resources.jarvis_install_dir)
                     .join(identifier.sanitized_dir_name())
                     .display()
                     .to_string()
             });
 
-        self.jarvis_model_path = install_path.clone();
+        self.resources.jarvis_model_path = install_path.clone();
 
         let mut status = format!(
             "Modelo '{}' seleccionado para Jarvis.",
@@ -3701,7 +3332,7 @@ impl AppState {
             ),
         );
 
-        if self.jarvis_auto_start {
+        if self.resources.jarvis_auto_start {
             match self.ensure_jarvis_runtime() {
                 Ok(runtime) => {
                     let label = runtime.model_label();
@@ -3734,30 +3365,36 @@ impl AppState {
             }
         }
 
-        self.jarvis_status = Some(status.clone());
+        self.resources.jarvis_status = Some(status.clone());
         self.persist_config();
         status
     }
 
     pub fn deactivate_jarvis_model(&mut self) -> String {
-        self.jarvis_active_model = None;
-        self.jarvis_runtime = None;
-        self.jarvis_model_path.clear();
+        self.resources.jarvis_active_model = None;
+        self.resources.jarvis_runtime = None;
+        self.resources.jarvis_model_path.clear();
 
         let status = "Jarvis quedó sin modelo activo.".to_string();
-        self.jarvis_status = Some(status.clone());
+        self.resources.jarvis_status = Some(status.clone());
         self.push_activity_log(LogStatus::Ok, "Jarvis", &status);
         self.persist_config();
         status
     }
 
     pub fn uninstall_local_model(&mut self, identifier: &LocalModelIdentifier) -> Option<String> {
-        if let Some(position) = self.installed_local_models.iter().position(|model| {
-            model.identifier.provider == identifier.provider
-                && model.identifier.model_id == identifier.model_id
-        }) {
-            let removed = self.installed_local_models.remove(position);
+        if let Some(position) = self
+            .resources
+            .installed_local_models
+            .iter()
+            .position(|model| {
+                model.identifier.provider == identifier.provider
+                    && model.identifier.model_id == identifier.model_id
+            })
+        {
+            let removed = self.resources.installed_local_models.remove(position);
             if self
+                .resources
                 .jarvis_active_model
                 .as_ref()
                 .map(|active| {
@@ -3765,8 +3402,8 @@ impl AppState {
                 })
                 .unwrap_or(false)
             {
-                self.jarvis_active_model = None;
-                self.jarvis_runtime = None;
+                self.resources.jarvis_active_model = None;
+                self.resources.jarvis_runtime = None;
             }
             self.persist_config();
             let label = removed.identifier.display_label();
@@ -3782,10 +3419,15 @@ impl AppState {
         &mut self,
         identifier: &LocalModelIdentifier,
     ) -> Option<String> {
-        if let Some(entry) = self.installed_local_models.iter_mut().find(|model| {
-            model.identifier.provider == identifier.provider
-                && model.identifier.model_id == identifier.model_id
-        }) {
+        if let Some(entry) = self
+            .resources
+            .installed_local_models
+            .iter_mut()
+            .find(|model| {
+                model.identifier.provider == identifier.provider
+                    && model.identifier.model_id == identifier.model_id
+            })
+        {
             entry.installed_at = Utc::now();
             self.persist_config();
             let message = format!(
@@ -3806,6 +3448,7 @@ impl AppState {
     ) -> bool {
         let provider = model.provider;
         if self
+            .chat
             .pending_local_installs
             .iter()
             .any(|pending| pending.provider == provider && pending.model_id == model.id)
@@ -3826,14 +3469,14 @@ impl AppState {
             }
         });
 
-        let install_dir = PathBuf::from(&self.jarvis_install_dir);
-        let tx = self.local_install_tx.clone();
+        let install_dir = PathBuf::from(&self.resources.jarvis_install_dir);
+        let tx = self.chat.local_install_tx.clone();
         let thread_model = model.clone();
         let pending = PendingLocalInstall {
             provider,
             model_id: model.id.clone(),
         };
-        self.pending_local_installs.push(pending);
+        self.chat.pending_local_installs.push(pending);
 
         std::thread::spawn(move || {
             let token_ref = trimmed_token.as_deref();
@@ -3860,35 +3503,39 @@ impl AppState {
     }
 
     pub fn provider_state(&self, provider: LocalModelProvider) -> &LocalProviderState {
-        self.local_provider_states
+        self.resources
+            .local_provider_states
             .get(&provider)
             .expect("estado del proveedor no inicializado")
     }
 
     pub fn provider_state_mut(&mut self, provider: LocalModelProvider) -> &mut LocalProviderState {
-        if !self.local_provider_states.contains_key(&provider) {
-            self.local_provider_states.insert(
+        if !self.resources.local_provider_states.contains_key(&provider) {
+            self.resources.local_provider_states.insert(
                 provider,
                 LocalProviderState::from_config(provider, &self.config),
             );
         }
-        self.local_provider_states
+        self.resources
+            .local_provider_states
             .get_mut(&provider)
             .expect("estado del proveedor no inicializado")
     }
 
     pub fn upsert_installed_model(&mut self, record: InstalledLocalModel) {
         if let Some(existing) = self
+            .resources
             .installed_local_models
             .iter_mut()
             .find(|entry| entry.identifier == record.identifier)
         {
             *existing = record;
         } else {
-            self.installed_local_models.push(record);
+            self.resources.installed_local_models.push(record);
         }
 
-        self.installed_local_models
+        self.resources
+            .installed_local_models
             .sort_by(|a, b| b.installed_at.cmp(&a.installed_at));
     }
 
@@ -3896,7 +3543,8 @@ impl AppState {
         &self,
         identifier: &LocalModelIdentifier,
     ) -> Option<&InstalledLocalModel> {
-        self.installed_local_models
+        self.resources
+            .installed_local_models
             .iter()
             .find(|model| &model.identifier == identifier)
     }
@@ -3904,17 +3552,18 @@ impl AppState {
     pub fn update_async_tasks(&mut self) -> bool {
         let mut updated = false;
 
-        while let Ok(response) = self.provider_response_rx.try_recv() {
+        while let Ok(response) = self.chat.provider_response_rx.try_recv() {
             if let Some(position) = self
+                .chat
                 .pending_provider_calls
                 .iter()
                 .position(|pending| pending.id == response.id)
             {
-                let pending = self.pending_provider_calls.remove(position);
+                let pending = self.chat.pending_provider_calls.remove(position);
 
                 match response.outcome {
                     Ok(text) => {
-                        if let Some(message) = self.chat_messages.get_mut(pending.message_index) {
+                        if let Some(message) = self.chat.messages.get_mut(pending.message_index) {
                             message.text = text.clone();
                             message.status = ChatMessageStatus::Normal;
                             message.timestamp = Local::now().format("%H:%M:%S").to_string();
@@ -3942,7 +3591,7 @@ impl AppState {
                             format!("Fallo al invocar '{}': {}", pending.model, err),
                         );
 
-                        if let Some(message) = self.chat_messages.get_mut(pending.message_index) {
+                        if let Some(message) = self.chat.messages.get_mut(pending.message_index) {
                             *message = ChatMessage::system(format!(
                                 "{}: error al solicitar respuesta: {}",
                                 pending.alias, err
@@ -3955,7 +3604,7 @@ impl AppState {
             }
         }
 
-        while let Ok(message) = self.local_install_rx.try_recv() {
+        while let Ok(message) = self.chat.local_install_rx.try_recv() {
             match message {
                 LocalInstallMessage::Success {
                     provider,
@@ -3995,7 +3644,7 @@ impl AppState {
                         ),
                     );
 
-                    self.jarvis_status = Some(status_message.clone());
+                    self.resources.jarvis_status = Some(status_message.clone());
 
                     {
                         let provider_state = self.provider_state_mut(provider);
@@ -4008,7 +3657,7 @@ impl AppState {
                         }
                     }
 
-                    self.pending_local_installs.retain(|pending| {
+                    self.chat.pending_local_installs.retain(|pending| {
                         !(pending.provider == provider && pending.model_id == model_id)
                     });
                 }
@@ -4017,12 +3666,12 @@ impl AppState {
                     model_id,
                     error,
                 } => {
-                    self.pending_local_installs.retain(|pending| {
+                    self.chat.pending_local_installs.retain(|pending| {
                         !(pending.provider == provider && pending.model_id == model_id)
                     });
 
                     let status = format!("Fallo al instalar '{}': {}", model_id, error);
-                    self.jarvis_status = Some(status.clone());
+                    self.resources.jarvis_status = Some(status.clone());
                     self.push_activity_log(
                         LogStatus::Error,
                         "Jarvis",
@@ -4061,7 +3710,7 @@ impl AppState {
         self.config.cache_cleanup_interval_hours = self.cache_cleanup_interval_hours;
         self.config.resource_memory_limit_gb = self.resource_memory_limit_gb;
         self.config.resource_disk_limit_gb = self.resource_disk_limit_gb;
-        self.config.custom_commands = self.custom_commands.clone();
+        self.config.custom_commands = self.chat.custom_commands.clone();
         self.config.enable_memory_tracking = self.enable_memory_tracking;
         self.config.memory_retention_days = self.memory_retention_days;
         self.config.profiles = self.profiles.clone();
@@ -4093,30 +3742,32 @@ impl AppState {
         let modelscope_state = self.provider_state(LocalModelProvider::Modelscope).clone();
         self.config.modelscope.last_search_query = modelscope_state.search_query;
         self.config.modelscope.access_token = modelscope_state.access_token;
-        self.config.jarvis.model_path = self.jarvis_model_path.clone();
-        self.config.jarvis.install_dir = self.jarvis_install_dir.clone();
-        self.config.jarvis.auto_start = self.jarvis_auto_start;
+        self.config.jarvis.model_path = self.resources.jarvis_model_path.clone();
+        self.config.jarvis.install_dir = self.resources.jarvis_install_dir.clone();
+        self.config.jarvis.auto_start = self.resources.jarvis_auto_start;
         self.config.jarvis.installed_models = self
+            .resources
             .installed_local_models
             .iter()
             .map(InstalledLocalModel::to_config)
             .collect();
         self.config.jarvis.active_model = self
+            .resources
             .jarvis_active_model
             .as_ref()
             .map(LocalModelIdentifier::serialize);
-        self.config.jarvis.chat_alias = self.jarvis_alias.trim().to_string();
+        self.config.jarvis.chat_alias = self.resources.jarvis_alias.trim().to_string();
         if self.config.jarvis.chat_alias.is_empty() {
             self.config.jarvis.chat_alias = "jarvis".to_string();
         }
-        self.jarvis_alias = self.config.jarvis.chat_alias.clone();
-        self.config.jarvis.respond_without_alias = self.jarvis_respond_without_alias;
-        self.config.anthropic.default_model = self.claude_default_model.clone();
-        self.config.anthropic.alias = self.claude_alias.clone();
-        self.config.openai.default_model = self.openai_default_model.clone();
-        self.config.openai.alias = self.openai_alias.clone();
-        self.config.groq.default_model = self.groq_default_model.clone();
-        self.config.groq.alias = self.groq_alias.clone();
+        self.resources.jarvis_alias = self.config.jarvis.chat_alias.clone();
+        self.config.jarvis.respond_without_alias = self.resources.jarvis_respond_without_alias;
+        self.config.anthropic.default_model = self.resources.claude_default_model.clone();
+        self.config.anthropic.alias = self.resources.claude_alias.clone();
+        self.config.openai.default_model = self.resources.openai_default_model.clone();
+        self.config.openai.alias = self.resources.openai_alias.clone();
+        self.config.groq.default_model = self.resources.groq_default_model.clone();
+        self.config.groq.alias = self.resources.groq_alias.clone();
 
         Self::normalize_string_option(&mut self.config.anthropic.api_key);
         Self::normalize_string_option(&mut self.config.openai.api_key);
@@ -4132,8 +3783,9 @@ impl AppState {
 
     pub fn persist_config(&mut self) {
         self.sync_config_from_state();
+        self.rebuild_navigation();
         if let Err(err) = self.config.save() {
-            self.chat_messages.push(ChatMessage::system(format!(
+            self.chat.messages.push(ChatMessage::system(format!(
                 "No se pudo guardar la configuración: {}",
                 err
             )));
@@ -4141,15 +3793,31 @@ impl AppState {
     }
 
     pub fn refresh_personalization_resources(&mut self) {
-        self.personalization_resources = PersonalizationResourcesState::from_sources(
+        self.resources.personalization_resources = PersonalizationResourcesState::from_sources(
             &self.profiles,
             &self.projects,
             &self.github_repositories,
         );
     }
 
+    pub fn rebuild_command_registry(&mut self) {
+        let mut registry = CommandRegistry::new();
+        self.chat.register_commands(&mut registry);
+        self.automation.register_commands(&mut registry);
+        self.resources.register_commands(&mut registry);
+        self.command_registry = registry;
+    }
+
+    pub fn rebuild_navigation(&mut self) {
+        let mut registry = build_navigation_registry(&self.config);
+        self.chat.register_navigation(&mut registry);
+        self.automation.register_navigation(&mut registry);
+        self.resources.register_navigation(&mut registry);
+        self.navigation = registry;
+    }
+
     fn jarvis_model_directory(&self) -> Option<PathBuf> {
-        let direct_path = self.jarvis_model_path.trim();
+        let direct_path = self.resources.jarvis_model_path.trim();
         if !direct_path.is_empty() {
             let dir = Path::new(direct_path);
             if dir.is_dir() {
@@ -4162,7 +3830,8 @@ impl AppState {
             }
         }
 
-        self.jarvis_active_model
+        self.resources
+            .jarvis_active_model
             .as_ref()
             .map(|model| self.jarvis_model_directory_for(model))
     }
@@ -4175,7 +3844,7 @@ impl AppState {
             }
         }
 
-        Path::new(&self.jarvis_install_dir).join(model.sanitized_dir_name())
+        Path::new(&self.resources.jarvis_install_dir).join(model.sanitized_dir_name())
     }
 
     pub fn ensure_jarvis_runtime(&mut self) -> anyhow::Result<&mut JarvisRuntime> {
@@ -4183,7 +3852,7 @@ impl AppState {
             .jarvis_model_directory()
             .ok_or_else(|| anyhow::anyhow!("No hay un modelo local configurado para Jarvis."))?;
 
-        let needs_reload = match &self.jarvis_runtime {
+        let needs_reload = match &self.resources.jarvis_runtime {
             Some(runtime) => !runtime.matches(&target_dir),
             None => true,
         };
@@ -4196,13 +3865,15 @@ impl AppState {
             );
             let runtime = JarvisRuntime::load(
                 target_dir.clone(),
-                self.jarvis_active_model
+                self.resources
+                    .jarvis_active_model
                     .as_ref()
                     .map(|model| model.model_id.clone()),
             )?;
-            self.jarvis_runtime = Some(runtime);
-            self.jarvis_model_path = target_dir.display().to_string();
+            self.resources.jarvis_runtime = Some(runtime);
+            self.resources.jarvis_model_path = target_dir.display().to_string();
             let loaded_label = self
+                .resources
                 .jarvis_runtime
                 .as_ref()
                 .map(|runtime| runtime.model_label());
@@ -4212,14 +3883,15 @@ impl AppState {
                     "Jarvis",
                     format!("Modelo {} listo para responder.", label),
                 );
-                self.jarvis_status = Some(format!(
+                self.resources.jarvis_status = Some(format!(
                     "Jarvis cargó {} desde {}.",
-                    label, self.jarvis_model_path
+                    label, self.resources.jarvis_model_path
                 ));
             }
         }
 
         Ok(self
+            .resources
             .jarvis_runtime
             .as_mut()
             .expect("runtime recién cargado"))
@@ -4241,21 +3913,21 @@ impl AppState {
                 let _ = runtime;
                 match reply_result {
                     Ok(reply) => {
-                        self.jarvis_status =
+                        self.resources.jarvis_status =
                             Some(format!("Jarvis responde con el modelo {}.", label));
                         self.push_activity_log(
                             LogStatus::Ok,
                             "Jarvis",
                             format!("Respuesta generada por {}", label),
                         );
-                        self.chat_messages.push(ChatMessage::new("Jarvis", reply));
+                        self.chat.messages.push(ChatMessage::new("Jarvis", reply));
                     }
                     Err(err) => {
-                        self.chat_messages.push(ChatMessage::system(format!(
+                        self.chat.messages.push(ChatMessage::system(format!(
                             "Jarvis no pudo generar respuesta: {}",
                             err
                         )));
-                        self.jarvis_status = Some(format!(
+                        self.resources.jarvis_status = Some(format!(
                             "Jarvis falló al generar respuesta ({label}): {}",
                             err
                         ));
@@ -4268,11 +3940,11 @@ impl AppState {
                 }
             }
             Err(err) => {
-                self.chat_messages.push(ChatMessage::system(format!(
+                self.chat.messages.push(ChatMessage::system(format!(
                     "Jarvis no está listo: {}",
                     err
                 )));
-                self.jarvis_status = Some(format!("Jarvis no está listo: {}", err));
+                self.resources.jarvis_status = Some(format!("Jarvis no está listo: {}", err));
                 self.push_activity_log(
                     LogStatus::Error,
                     "Jarvis",
@@ -4361,17 +4033,17 @@ impl AppState {
                 provider_name,
                 format!("Consultando '{}' con el alias '{}'.", model, alias),
             );
-            let message_index = self.chat_messages.len();
+            let message_index = self.chat.messages.len();
             let pending = ChatMessage::pending(
                 alias.clone(),
                 format!("Esperando respuesta de {}…", provider_name),
             );
-            self.chat_messages.push(pending);
+            self.chat.messages.push(pending);
 
-            let call_id = self.next_provider_call_id;
-            self.next_provider_call_id += 1;
+            let call_id = self.chat.next_provider_call_id;
+            self.chat.next_provider_call_id += 1;
 
-            self.pending_provider_calls.push(PendingProviderCall {
+            self.chat.pending_provider_calls.push(PendingProviderCall {
                 id: call_id,
                 provider_kind,
                 provider_name: provider_name.to_string(),
@@ -4380,7 +4052,7 @@ impl AppState {
                 message_index,
             });
 
-            let tx = self.provider_response_tx.clone();
+            let tx = self.chat.provider_response_tx.clone();
             std::thread::spawn(move || {
                 let outcome = caller(&key, &model, &prompt).map_err(|err| err.to_string());
                 let _ = tx.send(ProviderResponse {
@@ -4389,7 +4061,7 @@ impl AppState {
                 });
             });
         } else {
-            self.chat_messages.push(ChatMessage::system(format!(
+            self.chat.messages.push(ChatMessage::system(format!(
                 "Configura la API key de {} antes de usar el alias '{}'.",
                 provider_name, alias
             )));
@@ -4400,9 +4072,9 @@ impl AppState {
 
     fn provider_status_slot(&mut self, provider: RemoteProviderKind) -> &mut Option<String> {
         match provider {
-            RemoteProviderKind::Anthropic => &mut self.anthropic_test_status,
-            RemoteProviderKind::OpenAi => &mut self.openai_test_status,
-            RemoteProviderKind::Groq => &mut self.groq_test_status,
+            RemoteProviderKind::Anthropic => &mut self.resources.anthropic_test_status,
+            RemoteProviderKind::OpenAi => &mut self.resources.openai_test_status,
+            RemoteProviderKind::Groq => &mut self.resources.groq_test_status,
         }
     }
 
@@ -4415,14 +4087,20 @@ impl AppState {
     }
 
     pub fn execute_remote_quick_test(&mut self, key: RemoteModelKey) -> Option<String> {
-        let prompt = self.remote_catalog.quick_test_prompt.trim().to_string();
+        let prompt = self
+            .resources
+            .remote_catalog
+            .quick_test_prompt
+            .trim()
+            .to_string();
         if prompt.is_empty() {
             return Some("Escribe un prompt de prueba antes de lanzar la simulación.".to_string());
         }
 
         let label = key.as_display();
         let formatted = format!("[quick-test:{}]\n{}", key.id, prompt);
-        self.remote_catalog
+        self.resources
+            .remote_catalog
             .update_status(Some(format!("Enviando prueba rápida a {}…", label)));
         self.invoke_provider_kind(key.provider, formatted);
         self.push_debug_event(
@@ -4459,7 +4137,7 @@ impl AppState {
     }
 
     fn invoke_anthropic(&mut self, prompt: String) {
-        let alias = Self::provider_alias_display(&self.claude_alias, "claude");
+        let alias = Self::provider_alias_display(&self.resources.claude_alias, "claude");
         let key = self.config.anthropic.api_key.clone().and_then(|k| {
             let trimmed = k.trim();
             if trimmed.is_empty() {
@@ -4474,13 +4152,13 @@ impl AppState {
             "Anthropic",
             prompt,
             key,
-            self.claude_default_model.clone(),
+            self.resources.claude_default_model.clone(),
             crate::api::claude::send_message,
         );
     }
 
     fn invoke_openai(&mut self, prompt: String) {
-        let alias = Self::provider_alias_display(&self.openai_alias, "openai");
+        let alias = Self::provider_alias_display(&self.resources.openai_alias, "openai");
         let key = self.config.openai.api_key.clone().and_then(|k| {
             let trimmed = k.trim();
             if trimmed.is_empty() {
@@ -4495,13 +4173,13 @@ impl AppState {
             "OpenAI",
             prompt,
             key,
-            self.openai_default_model.clone(),
+            self.resources.openai_default_model.clone(),
             crate::api::openai::send_message,
         );
     }
 
     fn invoke_groq(&mut self, prompt: String) {
-        let alias = Self::provider_alias_display(&self.groq_alias, "groq");
+        let alias = Self::provider_alias_display(&self.resources.groq_alias, "groq");
         let key = self.config.groq.api_key.clone().and_then(|k| {
             let trimmed = k.trim();
             if trimmed.is_empty() {
@@ -4516,23 +4194,23 @@ impl AppState {
             "Groq",
             prompt,
             key,
-            self.groq_default_model.clone(),
+            self.resources.groq_default_model.clone(),
             crate::api::groq::send_message,
         );
     }
 
     pub fn try_route_provider_message(&mut self, input: &str) -> bool {
-        if let Some(prompt) = Self::extract_alias_prompt(&self.claude_alias, input) {
+        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.claude_alias, input) {
             self.invoke_anthropic(prompt);
             return true;
         }
 
-        if let Some(prompt) = Self::extract_alias_prompt(&self.openai_alias, input) {
+        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.openai_alias, input) {
             self.invoke_openai(prompt);
             return true;
         }
 
-        if let Some(prompt) = Self::extract_alias_prompt(&self.groq_alias, input) {
+        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.groq_alias, input) {
             self.invoke_groq(prompt);
             return true;
         }
@@ -4541,7 +4219,7 @@ impl AppState {
     }
 
     pub fn try_invoke_jarvis_alias(&mut self, input: &str) -> bool {
-        if let Some(prompt) = Self::extract_alias_prompt(&self.jarvis_alias, input) {
+        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.jarvis_alias, input) {
             self.respond_with_jarvis(prompt);
             true
         } else {
@@ -4550,7 +4228,7 @@ impl AppState {
     }
 
     pub fn jarvis_mention_tag(&self) -> Option<String> {
-        let alias = self.jarvis_alias.trim();
+        let alias = self.resources.jarvis_alias.trim();
         if alias.is_empty() {
             None
         } else if alias.starts_with('@') {
@@ -4577,7 +4255,7 @@ impl AppState {
         }
 
         for message in outcome.messages {
-            self.chat_messages.push(ChatMessage::system(message));
+            self.chat.messages.push(ChatMessage::system(message));
         }
     }
 
@@ -4593,6 +4271,7 @@ impl AppState {
         }
 
         if let Some(custom) = self
+            .chat
             .custom_commands
             .iter()
             .find(|cmd| cmd.trigger == invocation.name)
@@ -4785,8 +4464,10 @@ impl AppState {
             "cache.auto_cleanup" => Ok(ConditionValue::Boolean(self.enable_auto_cleanup)),
             "providers.total" => Ok(ConditionValue::Number(3.0)),
             "github.connected" => Ok(ConditionValue::Boolean(self.github_username.is_some())),
-            "jarvis.auto_start" => Ok(ConditionValue::Boolean(self.jarvis_auto_start)),
-            "commands.count" => Ok(ConditionValue::Number(self.custom_commands.len() as f64)),
+            "jarvis.auto_start" => Ok(ConditionValue::Boolean(self.resources.jarvis_auto_start)),
+            "commands.count" => Ok(ConditionValue::Number(
+                self.chat.custom_commands.len() as f64
+            )),
             _ => Err(format!("Campo desconocido en la condición: {}", field)),
         }
     }
@@ -4951,37 +4632,43 @@ impl AppState {
                 if wants_remote {
                     lines.push("--- Proveedores remotos ---".to_string());
                     let openai_status = self
+                        .resources
                         .openai_test_status
                         .clone()
                         .unwrap_or_else(|| "sin ejecutar".to_string());
                     lines.push(format!(
                         "OpenAI [{}] modelo por defecto '{}' · {}.",
                         classify(&openai_status),
-                        self.openai_default_model,
+                        self.resources.openai_default_model,
                         openai_status
                     ));
 
                     let anthropic_status = self
+                        .resources
                         .anthropic_test_status
                         .clone()
                         .unwrap_or_else(|| "sin ejecutar".to_string());
                     lines.push(format!(
                         "Claude [{}] modelo por defecto '{}' · {}.",
                         classify(&anthropic_status),
-                        self.claude_default_model,
+                        self.resources.claude_default_model,
                         anthropic_status
                     ));
 
-                    let claude_catalog = self.claude_models_status.clone().unwrap_or_else(|| {
-                        if self.claude_available_models.is_empty() {
-                            "catálogo sin cargar".to_string()
-                        } else {
-                            format!(
-                                "{} modelos disponibles en caché",
-                                self.claude_available_models.len()
-                            )
-                        }
-                    });
+                    let claude_catalog = self
+                        .resources
+                        .claude_models_status
+                        .clone()
+                        .unwrap_or_else(|| {
+                            if self.resources.claude_available_models.is_empty() {
+                                "catálogo sin cargar".to_string()
+                            } else {
+                                format!(
+                                    "{} modelos disponibles en caché",
+                                    self.resources.claude_available_models.len()
+                                )
+                            }
+                        });
                     lines.push(format!(
                         "Claude catálogo [{}] {}.",
                         classify(&claude_catalog),
@@ -4989,13 +4676,14 @@ impl AppState {
                     ));
 
                     let groq_status = self
+                        .resources
                         .groq_test_status
                         .clone()
                         .unwrap_or_else(|| "sin ejecutar".to_string());
                     lines.push(format!(
                         "Groq [{}] modelo por defecto '{}' · {}.",
                         classify(&groq_status),
-                        self.groq_default_model,
+                        self.resources.groq_default_model,
                         groq_status
                     ));
                 }
@@ -5003,10 +4691,11 @@ impl AppState {
                 if wants_local {
                     lines.push("--- Runtime local y Jarvis ---".to_string());
                     let jarvis_status = self
+                        .resources
                         .jarvis_status
                         .clone()
                         .unwrap_or_else(|| "sin actualizaciones registradas".to_string());
-                    let runtime_status = if let Some(runtime) = &self.jarvis_runtime {
+                    let runtime_status = if let Some(runtime) = &self.resources.jarvis_runtime {
                         format!("Inicializado ({})", runtime.model_label())
                     } else {
                         "No inicializado".to_string()
@@ -5019,19 +4708,20 @@ impl AppState {
                     lines.push(format!(
                         "Runtime local: {} · Modelo configurado: {} · Instalación: {} · Autoarranque: {}.",
                         runtime_status,
-                        self.jarvis_model_path,
-                        self.jarvis_install_dir,
-                        if self.jarvis_auto_start {
+                        self.resources.jarvis_model_path,
+                        self.resources.jarvis_install_dir,
+                        if self.resources.jarvis_auto_start {
                             "sí"
                         } else {
                             "no"
                         }
                     ));
 
-                    if self.installed_local_models.is_empty() {
+                    if self.resources.installed_local_models.is_empty() {
                         lines.push("Modelos instalados: ninguno.".to_string());
                     } else {
                         let inventory = self
+                            .resources
                             .installed_local_models
                             .iter()
                             .map(|model| {
@@ -5048,15 +4738,16 @@ impl AppState {
                             .join(" | ");
                         lines.push(format!(
                             "Modelos instalados ({}): {}.",
-                            self.installed_local_models.len(),
+                            self.resources.installed_local_models.len(),
                             inventory
                         ));
                     }
 
-                    if self.pending_local_installs.is_empty() {
+                    if self.chat.pending_local_installs.is_empty() {
                         lines.push("Instalaciones locales pendientes: ninguna.".to_string());
                     } else {
                         let installs = self
+                            .chat
                             .pending_local_installs
                             .iter()
                             .map(|pending| {
@@ -5070,15 +4761,16 @@ impl AppState {
                             .join(" · ");
                         lines.push(format!(
                             "Instalaciones locales pendientes ({}): {}.",
-                            self.pending_local_installs.len(),
+                            self.chat.pending_local_installs.len(),
                             installs
                         ));
                     }
 
-                    if self.pending_provider_calls.is_empty() {
+                    if self.chat.pending_provider_calls.is_empty() {
                         lines.push("Llamadas remotas en vuelo: ninguna.".to_string());
                     } else {
                         let preview = self
+                            .chat
                             .pending_provider_calls
                             .iter()
                             .take(3)
@@ -5092,9 +4784,9 @@ impl AppState {
                             .join(" · ");
                         lines.push(format!(
                             "Llamadas remotas en vuelo ({}): {}{}.",
-                            self.pending_provider_calls.len(),
+                            self.chat.pending_provider_calls.len(),
                             preview,
-                            if self.pending_provider_calls.len() > 3 {
+                            if self.chat.pending_provider_calls.len() > 3 {
                                 " · ..."
                             } else {
                                 ""
@@ -5139,15 +4831,15 @@ impl AppState {
 
                 if wants_commands {
                     lines.push("--- Comandos personalizados ---".to_string());
-                    if self.custom_commands.is_empty() {
+                    if self.chat.custom_commands.is_empty() {
                         lines.push("No hay comandos personalizados registrados.".to_string());
                     } else {
-                        for command in &self.custom_commands {
+                        for command in &self.chat.custom_commands {
                             lines.push(format!("{} → {}", command.trigger, command.action.label()));
                         }
                         lines.push(format!(
                             "Total de comandos personalizados: {}.",
-                            self.custom_commands.len()
+                            self.chat.custom_commands.len()
                         ));
                     }
                 }
@@ -5155,27 +4847,32 @@ impl AppState {
                 if wants_logs {
                     lines.push("--- Registros y alertas ---".to_string());
                     let ok_count = self
+                        .automation
                         .activity_logs
                         .iter()
                         .filter(|entry| entry.status == LogStatus::Ok)
                         .count();
                     let warn_count = self
+                        .automation
                         .activity_logs
                         .iter()
                         .filter(|entry| entry.status == LogStatus::Warning)
                         .count();
                     let err_count = self
+                        .automation
                         .activity_logs
                         .iter()
                         .filter(|entry| entry.status == LogStatus::Error)
                         .count();
                     let running_count = self
+                        .automation
                         .activity_logs
                         .iter()
                         .filter(|entry| entry.status == LogStatus::Running)
                         .count();
 
                     if let Some(last_error) = self
+                        .automation
                         .activity_logs
                         .iter()
                         .rev()
@@ -5212,14 +4909,15 @@ impl AppState {
                 let mut lines = vec![format!(
                     "Estadísticas (ventana: {}): {} mensajes registrados en esta sesión y {} comandos personalizados disponibles.",
                     window,
-                    self.chat_messages.len(),
-                    self.custom_commands.len()
+                    self.chat.messages.len(),
+                    self.chat.custom_commands.len()
                 )];
 
                 if include.iter().any(|s| s == "commands") {
                     lines.push(format!(
                         "Triggers personalizados: {}",
-                        self.custom_commands
+                        self.chat
+                            .custom_commands
                             .iter()
                             .map(|cmd| cmd.trigger.clone())
                             .collect::<Vec<_>>()
@@ -5230,7 +4928,8 @@ impl AppState {
                 if include.iter().any(|s| s == "messages") {
                     lines.push(format!(
                         "Último mensaje de usuario: {}",
-                        self.chat_messages
+                        self.chat
+                            .messages
                             .iter()
                             .rev()
                             .find(|msg| msg.sender == "User")
@@ -5317,18 +5016,19 @@ impl AppState {
                 match provider {
                     "openai" => lines.push(format!(
                         "Modelo OpenAI activo: {}",
-                        self.openai_default_model
+                        self.resources.openai_default_model
                     )),
                     "anthropic" => lines.push(format!(
                         "Modelo Claude activo: {}",
-                        self.claude_default_model
+                        self.resources.claude_default_model
                     )),
-                    "groq" => {
-                        lines.push(format!("Modelo Groq activo: {}", self.groq_default_model))
-                    }
+                    "groq" => lines.push(format!(
+                        "Modelo Groq activo: {}",
+                        self.resources.groq_default_model
+                    )),
                     "jarvis" => lines.push(format!(
                         "Jarvis está configurado con: {}",
-                        self.jarvis_model_path
+                        self.resources.jarvis_model_path
                     )),
                     "huggingface" => {
                         let provider_state = self.provider_state(LocalModelProvider::HuggingFace);
@@ -5347,10 +5047,10 @@ impl AppState {
                     "all" => {
                         lines.push(format!(
                             "OpenAI: {} · Claude: {} · Groq: {} · Jarvis: {}",
-                            self.openai_default_model,
-                            self.claude_default_model,
-                            self.groq_default_model,
-                            self.jarvis_model_path
+                            self.resources.openai_default_model,
+                            self.resources.claude_default_model,
+                            self.resources.groq_default_model,
+                            self.resources.jarvis_model_path
                         ));
                         let provider_state = self.provider_state(LocalModelProvider::HuggingFace);
                         if provider_state.models.is_empty() {
@@ -5435,13 +5135,15 @@ impl AppState {
                     .unwrap_or_default();
                 let mut lines = vec![format!(
                     "Proveedores activos → OpenAI ({}) · Claude ({}) · Groq ({})",
-                    self.openai_default_model, self.claude_default_model, self.groq_default_model
+                    self.resources.openai_default_model,
+                    self.resources.claude_default_model,
+                    self.resources.groq_default_model
                 )];
 
                 if include.iter().any(|s| s == "models") {
                     lines.push(format!(
                         "Jarvis usa {} y hay {} modelos de HuggingFace listos.",
-                        self.jarvis_model_path,
+                        self.resources.jarvis_model_path,
                         self.provider_state(LocalModelProvider::HuggingFace)
                             .models
                             .len()
@@ -5450,13 +5152,16 @@ impl AppState {
                 if include.iter().any(|s| s == "status") {
                     lines.push(format!(
                         "Estado de pruebas → OpenAI: {} · Claude: {} · Groq: {}",
-                        self.openai_test_status
+                        self.resources
+                            .openai_test_status
                             .clone()
                             .unwrap_or_else(|| "sin ejecutar".to_string()),
-                        self.anthropic_test_status
+                        self.resources
+                            .anthropic_test_status
                             .clone()
                             .unwrap_or_else(|| "sin ejecutar".to_string()),
-                        self.groq_test_status
+                        self.resources
+                            .groq_test_status
                             .clone()
                             .unwrap_or_else(|| "sin ejecutar".to_string())
                     ));
@@ -5468,13 +5173,14 @@ impl AppState {
                 let detail = invocation.arg("detail").unwrap_or("summary");
                 let mut lines = vec![format!(
                     "Jarvis en '{}' ({}) → {}",
-                    self.jarvis_model_path,
-                    if self.jarvis_auto_start {
+                    self.resources.jarvis_model_path,
+                    if self.resources.jarvis_auto_start {
                         "autoarranque habilitado"
                     } else {
                         "autoarranque deshabilitado"
                     },
-                    self.jarvis_status
+                    self.resources
+                        .jarvis_status
                         .clone()
                         .unwrap_or_else(|| "Jarvis esperando tareas.".to_string())
                 )];
@@ -5482,7 +5188,7 @@ impl AppState {
                 match detail {
                     "path" => lines.push(format!(
                         "El modelo local se puede actualizar reemplazando el archivo en {}.",
-                        self.jarvis_model_path
+                        self.resources.jarvis_model_path
                     )),
                     "logs" => lines.push("Los registros en tiempo real no están disponibles en modo demo, pero se guardan en /var/log/jarvis.".to_string()),
                     _ => {}
@@ -5512,6 +5218,7 @@ impl AppState {
                     "/jarvis",
                 ]);
                 let custom: Vec<String> = self
+                    .chat
                     .custom_commands
                     .iter()
                     .map(|cmd| cmd.trigger.clone())
@@ -5688,7 +5395,7 @@ mod tests {
         assert!(state.activate_navigation_node("resource:remote:Anthropic"));
         assert_eq!(state.active_main_view, MainView::ResourceBrowser);
         assert_eq!(
-            state.selected_resource,
+            state.resources.selected_resource,
             Some(ResourceSection::RemoteCatalog(
                 RemoteProviderKind::Anthropic
             ))

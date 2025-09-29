@@ -3,7 +3,7 @@ use vscode_shell::components::{
     self, ResourceItem, ResourcePanelModel, ResourcePanelProps, ResourceSectionProps,
 };
 
-use crate::state::{AppState, ChatMessage, AVAILABLE_CUSTOM_ACTIONS, SECTION_RESOURCES_REMOTE};
+use crate::state::{AppState, ChatMessage, SECTION_RESOURCES_REMOTE};
 use crate::ui::layout_bridge::shell_theme;
 
 pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
@@ -14,9 +14,9 @@ pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
     }
     state.layout = layout;
 
-    if state.pending_copy_conversation {
-        copy_conversation_to_clipboard(ctx, &state.chat_messages);
-        state.pending_copy_conversation = false;
+    if state.chat.pending_copy_conversation {
+        copy_conversation_to_clipboard(ctx, &state.chat.messages);
+        state.chat.pending_copy_conversation = false;
     }
 }
 
@@ -28,11 +28,13 @@ impl AppResourcePanel<'_> {
     fn status_sections(&self) -> Vec<ResourceSectionProps> {
         let jarvis_status = self
             .state
+            .resources
             .jarvis_status
             .clone()
             .unwrap_or_else(|| "Jarvis listo para iniciar".to_string());
         let active_model = self
             .state
+            .resources
             .jarvis_active_model
             .as_ref()
             .map(|model| model.display_label())
@@ -48,7 +50,7 @@ impl AppResourcePanel<'_> {
                     title: jarvis_status,
                     subtitle: Some(format!(
                         "Inicio automático: {}",
-                        if self.state.jarvis_auto_start {
+                        if self.state.resources.jarvis_auto_start {
                             "activado"
                         } else {
                             "manual"
@@ -59,7 +61,7 @@ impl AppResourcePanel<'_> {
                 ResourceItem {
                     id: "status:model".into(),
                     title: format!("Modelo configurado: {}", active_model),
-                    subtitle: Some(format!("Alias: {}", self.state.jarvis_alias)),
+                    subtitle: Some(format!("Alias: {}", self.state.resources.jarvis_alias)),
                     selected: false,
                 },
             ],
@@ -79,13 +81,13 @@ impl AppResourcePanel<'_> {
                 title: "Explorar funciones".into(),
                 subtitle: Some(format!(
                     "{} funciones personalizables",
-                    AVAILABLE_CUSTOM_ACTIONS.len()
+                    self.state.command_registry.actions().len()
                 )),
                 selected: false,
             },
         ];
 
-        if !self.state.chat_messages.is_empty() {
+        if !self.state.chat.messages.is_empty() {
             items.push(ResourceItem {
                 id: "action:copy_conversation".into(),
                 title: "Copiar conversación".into(),
@@ -169,8 +171,8 @@ impl ResourcePanelModel for AppResourcePanel<'_> {
     fn on_item_selected(&mut self, item_id: &str) {
         match item_id {
             "action:open_settings" => self.state.show_settings_modal = true,
-            "action:open_functions" => self.state.show_functions_modal = true,
-            "action:copy_conversation" => self.state.pending_copy_conversation = true,
+            "action:open_functions" => self.state.chat.show_functions_modal = true,
+            "action:copy_conversation" => self.state.chat.pending_copy_conversation = true,
             _ => {
                 let _ = self.state.activate_navigation_node(item_id);
             }

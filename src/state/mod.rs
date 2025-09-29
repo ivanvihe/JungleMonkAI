@@ -5,14 +5,17 @@ pub mod resources;
 
 pub use automation::AutomationState;
 pub use chat::ChatState;
-pub use feature::{CommandRegistry, FeatureModule};
+pub use feature::{CommandRegistry, FeatureModule, WorkbenchRegistry};
 pub use resources::ResourceState;
 
 use crate::{
     api::{claude::AnthropicModel, local::JarvisRuntime},
     config::{AppConfig, InstalledModelConfig},
     local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider},
-    ui::theme::{self, FontSource, ThemePreset, ThemeTokens},
+    ui::{
+        theme::{self, FontSource, ThemePreset, ThemeTokens},
+        workbench::WorkbenchView,
+    },
 };
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
@@ -2582,6 +2585,10 @@ pub struct AppState {
     pub resource_disk_limit_gb: f32,
     /// Registro centralizado de comandos declarados por los módulos.
     pub command_registry: CommandRegistry,
+    /// Registro de vistas disponibles en el panel principal.
+    pub workbench_views: HashMap<MainView, Box<dyn WorkbenchView>>,
+    /// Inicializadores dinámicos para registrar vistas externas en el workbench.
+    pub workbench_initializers: Vec<Box<dyn Fn(&mut WorkbenchRegistry)>>,
     /// Indica si se almacena memoria de contexto.
     pub enable_memory_tracking: bool,
     /// Días que se conserva la memoria contextual.
@@ -2679,6 +2686,8 @@ impl Default for AppState {
             resource_memory_limit_gb: config.resource_memory_limit_gb,
             resource_disk_limit_gb: config.resource_disk_limit_gb,
             command_registry: CommandRegistry::default(),
+            workbench_views: HashMap::new(),
+            workbench_initializers: Vec::new(),
             enable_memory_tracking: config.enable_memory_tracking,
             memory_retention_days: config.memory_retention_days,
             profiles,
@@ -2713,6 +2722,7 @@ impl Default for AppState {
         state.refresh_personalization_resources();
         state.rebuild_navigation();
         state.rebuild_command_registry();
+        state.rebuild_workbench_views();
 
         state
     }
@@ -3806,6 +3816,48 @@ impl AppState {
         self.automation.register_commands(&mut registry);
         self.resources.register_commands(&mut registry);
         self.command_registry = registry;
+    }
+
+    pub fn register_workbench_view<V>(&mut self, view: MainView, view_impl: V)
+    where
+        V: WorkbenchView + 'static,
+    {
+        self.workbench_views.insert(view, Box::new(view_impl));
+    }
+
+    pub fn register_workbench_initializer<F>(&mut self, initializer: F)
+    where
+        F: Fn(&mut WorkbenchRegistry) + 'static,
+    {
+        self.workbench_initializers.push(Box::new(initializer));
+        self.rebuild_workbench_views();
+    }
+
+    pub fn workbench_view(&self, view: MainView) -> Option<&dyn WorkbenchView> {
+        self.workbench_views.get(&view).map(|view| view.as_ref())
+    }
+
+    pub fn with_workbench_view_mut<R>(
+        &mut self,
+        view: MainView,
+        f: impl FnOnce(&mut dyn WorkbenchView, &mut AppState) -> R,
+    ) -> Option<R> {
+        let mut view_impl = self.workbench_views.remove(&view)?;
+        let result = f(view_impl.as_mut(), self);
+        self.workbench_views.insert(view, view_impl);
+        Some(result)
+    }
+
+    pub fn rebuild_workbench_views(&mut self) {
+        self.workbench_views.clear();
+        let mut registry = WorkbenchRegistry::new(&mut self.workbench_views);
+        self.chat.register_workbench_views(&mut registry);
+        self.automation.register_workbench_views(&mut registry);
+        self.resources.register_workbench_views(&mut registry);
+        crate::ui::chat::register_preferences_workbench_view(&mut registry);
+        for initializer in &self.workbench_initializers {
+            initializer(&mut registry);
+        }
     }
 
     pub fn rebuild_navigation(&mut self) {

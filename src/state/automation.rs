@@ -1,5 +1,5 @@
 use super::{
-    feature::{CommandRegistry, FeatureModule},
+    feature::{CommandRegistry, FeatureModule, WorkbenchRegistry},
     AutomationWorkflowBoard, CronBoardState, EventAutomationState, ExternalIntegrationsState,
     LogEntry, NavigationNode, NavigationRegistry, NavigationTarget, ScheduledReminder,
 };
@@ -84,5 +84,11 @@ impl FeatureModule for AutomationState {
             super::CustomCommandAction::ShowSystemDiagnostics,
             super::CustomCommandAction::ShowUsageStatistics,
         ]);
+    }
+
+    fn register_workbench_views(&self, registry: &mut WorkbenchRegistry) {
+        crate::ui::chat::register_cron_workbench_view(registry);
+        crate::ui::chat::register_activity_workbench_view(registry);
+        crate::ui::chat::register_debug_workbench_view(registry);
     }
 }

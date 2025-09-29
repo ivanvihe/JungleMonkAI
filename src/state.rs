@@ -2,7 +2,7 @@ use crate::{
     api::{claude::AnthropicModel, local::JarvisRuntime},
     config::{AppConfig, InstalledModelConfig},
     local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider},
-    ui::theme::{self, FontSource, ThemeTokens},
+    ui::theme::{self, FontSource, ThemePreset, ThemeTokens},
 };
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,7 @@ pub enum PreferencePanel {
     SystemCache,
     SystemResources,
     CustomizationCommands,
+    CustomizationAppearance,
     CustomizationMemory,
     CustomizationProfiles,
     CustomizationProjects,
@@ -62,6 +63,12 @@ impl PreferencePanel {
                 description:
                     "Crea y gestiona accesos rápidos disponibles como slash-commands en el chat.",
                 breadcrumb: &["Preferencias", "Personalización", "Comandos"],
+            },
+            PreferencePanel::CustomizationAppearance => PanelMetadata {
+                title: "Preferencias › Personalización › Apariencia",
+                description:
+                    "Selecciona el tema claro u oscuro inspirado en la estética de VSCode.",
+                breadcrumb: &["Preferencias", "Personalización", "Apariencia"],
             },
             PreferencePanel::CustomizationMemory => PanelMetadata {
                 title: "Preferencias › Personalización › Memoria",
@@ -2440,13 +2447,15 @@ impl Default for AppState {
         let project_resources = default_project_resources();
         let global_search_recent = default_global_search_recent();
 
+        let theme_preset = config.theme;
+
         let mut state = Self {
             show_settings_modal: false,
             search_buffer: String::new(),
             current_chat_input: String::new(),
             chat_messages: vec![ChatMessage::default()],
             config: config.clone(),
-            theme: ThemeTokens::default(),
+            theme: ThemeTokens::from_preset(theme_preset),
             font_sources: theme::default_font_sources(),
             active_main_view: MainView::default(),
             active_main_tab: MainTab::default(),
@@ -2838,6 +2847,13 @@ impl CustomCommandAction {
 }
 
 impl AppState {
+    pub fn set_theme_preset(&mut self, preset: ThemePreset) {
+        if self.config.theme != preset {
+            self.config.theme = preset;
+        }
+        self.theme = ThemeTokens::from_preset(preset);
+    }
+
     pub fn set_active_tab(&mut self, tab: MainTab) {
         self.active_main_tab = tab;
         self.active_main_view = tab.into();
@@ -2930,6 +2946,7 @@ impl AppState {
             PreferencePanel::SystemCache,
             PreferencePanel::SystemResources,
             PreferencePanel::CustomizationCommands,
+            PreferencePanel::CustomizationAppearance,
             PreferencePanel::CustomizationMemory,
             PreferencePanel::CustomizationProfiles,
             PreferencePanel::CustomizationProjects,

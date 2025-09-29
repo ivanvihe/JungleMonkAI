@@ -11,6 +11,6 @@ pub fn shell_theme(tokens: &ThemeTokens) -> ShellTheme {
         text_primary: tokens.palette.text_primary,
         text_muted: tokens.palette.text_weak,
         accent: tokens.palette.primary,
-        accent_soft: tokens.palette.hover_background,
+        accent_soft: tokens.states.hover.background,
     }
 }

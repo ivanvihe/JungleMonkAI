@@ -156,6 +156,8 @@ pub struct AppConfig {
     pub openrouter: ModelProviderConfig,
     #[serde(default)]
     pub modelscope: ModelProviderConfig,
+    #[serde(default)]
+    pub theme: crate::ui::theme::ThemePreset,
 }
 
 impl Default for AppConfig {
@@ -201,6 +203,7 @@ impl Default for AppConfig {
             ollama: ModelProviderConfig::default(),
             openrouter: ModelProviderConfig::default(),
             modelscope: ModelProviderConfig::default(),
+            theme: crate::ui::theme::ThemePreset::default(),
         }
     }
 }

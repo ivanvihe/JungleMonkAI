@@ -86,22 +86,23 @@ configuración.
 ## Personalizar tema y fuentes
 
 El módulo [`ui::theme`](../../src/ui/theme.rs) expone la estructura
-`ThemeTokens`, que agrupa paletas de color, escalas de espaciado y radios de
-redondeo. Al arrancar la aplicación puedes clonar el tema predeterminado,
-ajustar sus valores y aplicarlo desde tu implementación de `AppShell`:
+`ThemeTokens`, que agrupa paletas de color, escalas de espaciado, radios de
+redondeo y tipografías. También incorpora niveles de elevación (`ThemeElevation`)
+y estados de interacción (`ThemeInteractionStates`) para diferenciar fondos,
+bordes y sombras de los componentes.
+
+Al arrancar la aplicación puedes partir de un preset integrado e inspirarte en
+los esquemas de VSCode (oscuro y claro), ajustando los tokens necesarios antes
+de aplicarlos desde tu implementación de `AppShell`:
 
 ```rust
-use jungle_monk_ai::ui::theme::{self, ThemeTokens};
+use jungle_monk_ai::ui::theme::{self, ThemePreset, ThemeTokens};
 
 fn init(&mut self, cc: &eframe::CreationContext<'_>) {
-    let mut tokens = ThemeTokens::default();
-    // Tema claro: mayor contraste en paneles y texto oscuro.
-    tokens.palette.dark_mode = false;
-    tokens.palette.root_background = egui::Color32::from_rgb(245, 247, 250);
-    tokens.palette.panel_background = egui::Color32::from_rgb(255, 255, 255);
-    tokens.palette.text_primary = egui::Color32::from_rgb(45, 55, 72);
-    tokens.palette.text_weak = egui::Color32::from_rgb(113, 128, 150);
-    tokens.palette.border = egui::Color32::from_rgb(226, 232, 240);
+    let mut tokens = ThemeTokens::from_preset(ThemePreset::Light);
+    // Ajusta detalles adicionales tras cargar el preset.
+    tokens.typography.title.size = 20.0;
+    tokens.spacing.button_padding = egui::vec2(16.0, 8.0);
 
     // Instala las fuentes que utilizará el tema antes de aplicarlo.
     theme::install_fonts(&cc.egui_ctx, theme::default_font_sources());
@@ -109,14 +110,20 @@ fn init(&mut self, cc: &eframe::CreationContext<'_>) {
 }
 ```
 
-Para variantes oscuras basta con modificar los campos `palette.*` apropiados:
+Para variantes oscuras basta con utilizar el preset correspondiente y, si lo
+deseas, modificar algunos valores puntuales de la paleta o los estados de
+interacción:
 
 ```rust
-let mut dark_tokens = ThemeTokens::default();
+let mut dark_tokens = ThemeTokens::from_preset(ThemePreset::Dark);
 dark_tokens.palette.primary = egui::Color32::from_rgb(102, 126, 234); // azul frío
-dark_tokens.palette.hover_background = egui::Color32::from_rgb(48, 54, 70);
-dark_tokens.spacing.button_padding = egui::vec2(16.0, 8.0);
+dark_tokens.states.hover.background = egui::Color32::from_rgb(48, 54, 70);
 ```
+
+Además, `ThemeTokens` incluye niveles de sombra (`ThemeElevation`) pensados
+para tarjetas y menús flotantes, junto con tipografías explícitas para
+encabezados, cuerpo y texto monoespaciado. Puedes ajustar estos tokens para
+alinearlos con la identidad visual de tu producto.
 
 ### Fuentes personalizadas e iconos
 

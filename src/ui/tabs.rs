@@ -1,8 +1,8 @@
-use eframe::egui::{self, Color32, Margin, RichText, Sense, Stroke};
+use eframe::egui::{self, Margin, RichText, Sense, Stroke};
 
 use crate::state::MainTab;
 
-use super::theme;
+use super::theme::{self, ThemeTokens};
 
 const ICON_CHAT: &str = "\u{f086}"; // comments
 const ICON_CRON: &str = "\u{f017}"; // clock
@@ -48,11 +48,12 @@ pub fn draw_tab_bar<T: Copy + PartialEq>(
     ui: &mut egui::Ui,
     active: T,
     definitions: &[TabDefinition<T>],
+    tokens: &ThemeTokens,
 ) -> Option<T> {
     ui.set_width(ui.available_width());
     let bar_frame = egui::Frame::none()
-        .fill(Color32::from_rgb(24, 26, 32))
-        .stroke(Stroke::new(1.0, theme::color_border()))
+        .fill(tokens.palette.extreme_background)
+        .stroke(Stroke::new(1.0, tokens.palette.border))
         .inner_margin(Margin {
             left: 20.0,
             right: 20.0,
@@ -67,7 +68,7 @@ pub fn draw_tab_bar<T: Copy + PartialEq>(
         ui.spacing_mut().item_spacing.x = 24.0;
         ui.horizontal(|ui| {
             for definition in definitions {
-                if draw_tab_button(ui, active, definition) {
+                if draw_tab_button(ui, active, definition, tokens) {
                     selection = Some(definition.id);
                 }
             }
@@ -81,18 +82,19 @@ fn draw_tab_button<T: Copy + PartialEq>(
     ui: &mut egui::Ui,
     active: T,
     definition: &TabDefinition<T>,
+    tokens: &ThemeTokens,
 ) -> bool {
     let is_active = active == definition.id;
     let text_color = if is_active {
-        theme::color_text_primary()
+        tokens.palette.text_primary
     } else {
-        theme::color_text_weak()
+        tokens.palette.text_weak
     };
 
     let underline_color = if is_active {
-        theme::color_primary()
+        tokens.palette.primary
     } else {
-        theme::color_border()
+        tokens.palette.border
     };
 
     let galley = egui::WidgetText::from(definition.label).into_galley(

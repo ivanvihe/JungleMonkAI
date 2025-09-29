@@ -48,6 +48,7 @@ impl AppSidebar<'_> {
                 "Preferencias · Personalización",
                 &[
                     PreferencePanel::CustomizationCommands,
+                    PreferencePanel::CustomizationAppearance,
                     PreferencePanel::CustomizationMemory,
                     PreferencePanel::CustomizationProfiles,
                     PreferencePanel::CustomizationProjects,
@@ -257,6 +258,7 @@ fn preference_id(panel: PreferencePanel) -> String {
         PreferencePanel::SystemCache => "pref:system_cache",
         PreferencePanel::SystemResources => "pref:system_resources",
         PreferencePanel::CustomizationCommands => "pref:custom_commands",
+        PreferencePanel::CustomizationAppearance => "pref:custom_appearance",
         PreferencePanel::CustomizationMemory => "pref:custom_memory",
         PreferencePanel::CustomizationProfiles => "pref:custom_profiles",
         PreferencePanel::CustomizationProjects => "pref:custom_projects",
@@ -274,6 +276,7 @@ fn parse_preference_id(id: &str) -> Option<PreferencePanel> {
         "pref:system_cache" => PreferencePanel::SystemCache,
         "pref:system_resources" => PreferencePanel::SystemResources,
         "pref:custom_commands" => PreferencePanel::CustomizationCommands,
+        "pref:custom_appearance" => PreferencePanel::CustomizationAppearance,
         "pref:custom_memory" => PreferencePanel::CustomizationMemory,
         "pref:custom_profiles" => PreferencePanel::CustomizationProfiles,
         "pref:custom_projects" => PreferencePanel::CustomizationProjects,

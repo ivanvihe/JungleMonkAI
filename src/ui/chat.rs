@@ -17,7 +17,10 @@ use vscode_shell::components::{
 };
 
 use super::{logs, tabs, theme};
-use crate::ui::{layout_bridge::shell_theme, theme::ThemeTokens};
+use crate::ui::{
+    layout_bridge::shell_theme,
+    theme::{ThemePreset, ThemeTokens},
+};
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -249,7 +252,7 @@ fn parse_tab_id(value: &str) -> Option<MainTab> {
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
-            .fill(Color32::from_rgb(26, 28, 32))
+            .fill(state.theme.palette.panel_background)
             .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
@@ -291,7 +294,7 @@ fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
 fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
     with_centered_main_surface(ui, |ui| {
         egui::Frame::none()
-            .fill(Color32::from_rgb(30, 32, 36))
+            .fill(state.theme.palette.panel_background)
             .stroke(theme::subtle_border(&state.theme))
             .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
@@ -328,9 +331,12 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                     .preference_tabs
                     .entry(state.selected_preference)
                     .or_insert(0);
-                if let Some(selection) =
-                    tabs::draw_tab_bar(ui, *active_tab_entry, tab_definitions.as_slice())
-                {
+                if let Some(selection) = tabs::draw_tab_bar(
+                    ui,
+                    *active_tab_entry,
+                    tab_definitions.as_slice(),
+                    &state.theme,
+                ) {
                     *active_tab_entry = selection;
                 }
                 ui.add_space(12.0);
@@ -516,7 +522,12 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
                     }
                     let active_tab_index = 0usize;
                     let _ =
-                        tabs::draw_tab_bar(ui, active_tab_index, tab_definitions.as_slice());
+                        tabs::draw_tab_bar(
+                            ui,
+                            active_tab_index,
+                            tab_definitions.as_slice(),
+                            &state.theme,
+                        );
                     ui.add_space(12.0);
 
                     if !breadcrumb_text.is_empty() {
@@ -3109,6 +3120,7 @@ fn draw_selected_preference(ui: &mut egui::Ui, state: &mut AppState, tab_index: 
         PreferencePanel::CustomizationCommands => {
             draw_custom_commands_section(ui, state, tab_index)
         }
+        PreferencePanel::CustomizationAppearance => draw_customization_appearance(ui, state),
         PreferencePanel::CustomizationMemory => draw_customization_memory(ui, state),
         PreferencePanel::CustomizationProfiles => draw_customization_profiles(ui, state),
         PreferencePanel::CustomizationProjects => draw_customization_projects(ui, state),
@@ -4304,6 +4316,116 @@ fn draw_custom_commands_activity(ui: &mut egui::Ui, state: &AppState) {
             });
         ui.add_space(6.0);
     }
+}
+
+fn draw_customization_appearance(ui: &mut egui::Ui, state: &mut AppState) {
+    let tokens = state.theme.clone();
+    let info_frame = egui::Frame::none()
+        .fill(tokens.palette.panel_background)
+        .stroke(theme::subtle_border(&tokens))
+        .rounding(tokens.rounding.widget)
+        .inner_margin(egui::Margin {
+            left: 20.0,
+            right: 20.0,
+            top: 16.0,
+            bottom: 16.0,
+        });
+
+    info_frame.show(ui, |ui| {
+        ui.vertical(|ui| {
+            ui.label(
+                RichText::new("Tema de la interfaz")
+                    .color(tokens.palette.text_primary)
+                    .strong()
+                    .size(tokens.typography.title.size),
+            );
+            ui.add_space(tokens.spacing.item_spacing.y);
+            ui.label(
+                RichText::new(
+                    "Alterna entre presets claro y oscuro inspirados en los esquemas de VSCode.",
+                )
+                .color(tokens.palette.text_weak)
+                .size(tokens.typography.body.size),
+            );
+        });
+    });
+
+    ui.add_space(tokens.spacing.item_spacing.y * 2.0);
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = tokens.spacing.item_spacing.x;
+        let options = [
+            (
+                ThemePreset::Dark,
+                "Tema oscuro",
+                "Contraste alto con paneles profundos y resaltes eléctricos.",
+            ),
+            (
+                ThemePreset::Light,
+                "Tema claro",
+                "Fondo luminoso con bordes suaves para entornos bien iluminados.",
+            ),
+        ];
+
+        for (preset, title, description) in options {
+            let selected = state.config.theme == preset;
+            let response = theme_option_card(ui, &tokens, selected, title, description);
+            if response.clicked() {
+                state.set_theme_preset(preset);
+            }
+        }
+    });
+}
+
+fn theme_option_card(
+    ui: &mut egui::Ui,
+    tokens: &ThemeTokens,
+    selected: bool,
+    title: &str,
+    description: &str,
+) -> egui::Response {
+    let desired = egui::vec2(240.0, 132.0);
+    let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
+
+    let (fill, border_color) = if selected {
+        (tokens.states.focus.background, tokens.states.focus.border)
+    } else if response.hovered() {
+        (tokens.states.hover.background, tokens.states.hover.border)
+    } else {
+        (tokens.palette.secondary_background, tokens.palette.border)
+    };
+
+    let painter = ui.painter_at(rect);
+    painter.rect(
+        rect,
+        tokens.rounding.widget,
+        fill,
+        egui::Stroke::new(1.0, border_color),
+    );
+
+    let mut content = ui.child_ui(
+        rect.shrink2(egui::vec2(18.0, 16.0)),
+        egui::Layout::top_down(egui::Align::LEFT),
+    );
+
+    content.label(
+        RichText::new(title)
+            .color(if selected {
+                tokens.states.focus.foreground
+            } else {
+                tokens.palette.text_primary
+            })
+            .size(tokens.typography.body.size)
+            .strong(),
+    );
+    content.add_space(tokens.spacing.item_spacing.y * 0.5);
+    content.label(
+        RichText::new(description)
+            .color(tokens.palette.text_weak)
+            .size(tokens.typography.body_small.size),
+    );
+
+    response
 }
 
 fn draw_customization_memory(ui: &mut egui::Ui, state: &mut AppState) {

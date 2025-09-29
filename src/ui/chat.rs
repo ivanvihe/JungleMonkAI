@@ -2255,13 +2255,9 @@ fn draw_message_header(
                 .font(theme::icon_font(16.0))
                 .color(accent),
         );
-        let sender_label = if message.sender == "User" {
-            "Tú"
-        } else {
-            &message.sender
-        };
+        let sender_label = message.sender_display_label();
         ui.label(
-            RichText::new(sender_label)
+            RichText::new(sender_label.as_ref())
                 .strong()
                 .color(theme::color_text_primary()),
         );
@@ -2297,13 +2293,13 @@ fn draw_message_actions(
     let enabled = !message.is_pending();
 
     if message_action_button(ui, ICON_COPY, "Copiar mensaje al portapapeles", enabled).clicked() {
-        let text = message.text.clone();
+        let text = message.combined_text();
         ui.output_mut(|out| out.copied_text = text);
     }
 
     if message_action_button(ui, ICON_QUOTE, "Citar mensaje en el input", enabled).clicked() {
         let mut quoted = message
-            .text
+            .combined_text()
             .lines()
             .map(|line| format!("> {}", line))
             .collect::<Vec<_>>()
@@ -2313,7 +2309,7 @@ fn draw_message_actions(
     }
 
     if message_action_button(ui, ICON_PIN, "Reutilizar este mensaje", enabled).clicked() {
-        pending_actions.push(PendingChatAction::Reuse(message.text.clone()));
+        pending_actions.push(PendingChatAction::Reuse(message.combined_text()));
     }
 }
 
@@ -2338,10 +2334,11 @@ fn message_action_button(
 
 fn draw_message_body(ui: &mut egui::Ui, message: &ChatMessage, accent: Color32) {
     if message.is_pending() {
+        let pending_text = message.combined_text();
         ui.horizontal(|ui| {
             ui.add(Spinner::new().size(18.0));
             ui.label(
-                RichText::new(&message.text)
+                RichText::new(pending_text)
                     .color(theme::color_text_weak())
                     .italics()
                     .size(14.0),
@@ -2350,9 +2347,10 @@ fn draw_message_body(ui: &mut egui::Ui, message: &ChatMessage, accent: Color32) 
         return;
     }
 
-    let blocks = parse_markdown_blocks(&message.text);
+    let display_text = message.combined_text();
+    let blocks = parse_markdown_blocks(&display_text);
     if blocks.is_empty() {
-        render_formatted_text(ui, &message.text, theme::color_text_primary(), 15.0);
+        render_formatted_text(ui, &display_text, theme::color_text_primary(), 15.0);
     } else {
         render_markdown_blocks(ui, &blocks, accent);
     }
@@ -3232,9 +3230,7 @@ fn submit_chat_message(state: &mut AppState) {
             return;
         }
 
-        if state.resources.jarvis_respond_without_alias {
-            state.respond_with_jarvis(trimmed_residual.to_string());
-        }
+        state.respond_with_jarvis(trimmed_residual.to_string());
     }
 }
 
@@ -5868,24 +5864,6 @@ fn draw_local_settings(ui: &mut egui::Ui, state: &mut AppState) {
             state.resources.jarvis_runtime = None;
         }
     }
-
-    ui.horizontal(|ui| {
-        if ui
-            .checkbox(
-                &mut state.resources.jarvis_respond_without_alias,
-                "Responder automáticamente sin mención",
-            )
-            .changed()
-        {
-            state.persist_config();
-        }
-        ui.add_space(8.0);
-        ui.label(
-            RichText::new("Cuando está activo, Jarvis contestará todos los mensajes.")
-                .color(theme::color_text_weak())
-                .size(12.0),
-        );
-    });
 
     if ui.button("Apply settings").clicked() {
         state.resources.jarvis_status = Some(format!(

@@ -57,7 +57,7 @@ impl ChatState {
         };
 
         let routing_hint = state.routing.status.clone().unwrap_or_else(|| {
-            "Menciona @claude, @openai o @groq para enrutar tus mensajes.".to_string()
+            "Menciona @claude, @openai o @groq para enrutar tus mensajes. Jarvis responderá automáticamente etiquetando sus respuestas con @jarvis.".to_string()
         });
         state.routing.update_status(Some(routing_hint.clone()));
         state

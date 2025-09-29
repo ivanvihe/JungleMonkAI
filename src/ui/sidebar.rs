@@ -216,6 +216,38 @@ fn draw_resources_tree(ui: &mut egui::Ui, state: &mut AppState) {
             }
         });
 
+    egui::CollapsingHeader::new("Productividad y proyectos")
+        .default_open(true)
+        .show(ui, |ui| {
+            let entries = [
+                (
+                    ICON_FOLDER,
+                    "Proyectos locales",
+                    ResourceSection::ConnectedProjects,
+                ),
+                (
+                    ICON_ARROW,
+                    "Repositorios GitHub",
+                    ResourceSection::GithubRepositories,
+                ),
+            ];
+            for (icon, label, section) in entries {
+                let response = nav_entry(
+                    ui,
+                    12.0,
+                    icon,
+                    label,
+                    state.selected_resource == Some(section)
+                        && state.active_main_view == MainView::ResourceBrowser,
+                );
+                if response.clicked() {
+                    state.selected_resource = Some(section);
+                    state.active_main_view = MainView::ResourceBrowser;
+                    state.sync_active_tab_from_view();
+                }
+            }
+        });
+
     let response = nav_entry(
         ui,
         0.0,

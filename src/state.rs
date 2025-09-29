@@ -119,6 +119,8 @@ pub enum ResourceSection {
     LocalCatalog(LocalModelProvider),
     RemoteCatalog(RemoteProviderKind),
     InstalledLocal,
+    ConnectedProjects,
+    GithubRepositories,
 }
 
 impl ResourceSection {
@@ -187,6 +189,18 @@ impl ResourceSection {
                 description:
                     "Gestiona los modelos locales ya descargados, su tamaño y fecha de instalación.",
                 breadcrumb: &["Recursos", "Modelos locales", "Instalados"],
+            },
+            ResourceSection::ConnectedProjects => PanelMetadata {
+                title: "Recursos › Proyectos locales conectados",
+                description:
+                    "Navega proyectos locales indexados como recursos con resúmenes y estado de sincronización.",
+                breadcrumb: &["Recursos", "Productividad", "Proyectos"],
+            },
+            ResourceSection::GithubRepositories => PanelMetadata {
+                title: "Recursos › Repositorios GitHub conectados",
+                description:
+                    "Consulta repositorios enlazados con previews de README y sincronización bidireccional.",
+                breadcrumb: &["Recursos", "Productividad", "GitHub"],
             },
         }
     }
@@ -984,6 +998,351 @@ impl CronBoardState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkflowStatus {
+    Ready,
+    Running,
+    Failed,
+    Draft,
+}
+
+impl WorkflowStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkflowStatus::Ready => "Listo",
+            WorkflowStatus::Running => "En ejecución",
+            WorkflowStatus::Failed => "Con errores",
+            WorkflowStatus::Draft => "Borrador",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkflowStepKind {
+    RemoteModel,
+    LocalScript,
+    SyncAction,
+}
+
+impl WorkflowStepKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkflowStepKind::RemoteModel => "Modelo remoto",
+            WorkflowStepKind::LocalScript => "Script local",
+            WorkflowStepKind::SyncAction => "Sincronización",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkflowTriggerKind {
+    Manual,
+    ChatCommand,
+    Scheduled,
+    EventListener,
+}
+
+impl WorkflowTriggerKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkflowTriggerKind::Manual => "Manual",
+            WorkflowTriggerKind::ChatCommand => "Comando de chat",
+            WorkflowTriggerKind::Scheduled => "Programado",
+            WorkflowTriggerKind::EventListener => "Listener",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WorkflowStep {
+    pub kind: WorkflowStepKind,
+    pub label: String,
+    pub detail: String,
+    pub provider: Option<RemoteProviderKind>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AutomationWorkflow {
+    pub id: u32,
+    pub name: String,
+    pub description: String,
+    pub trigger: WorkflowTriggerKind,
+    pub chat_command: Option<String>,
+    pub linked_schedule: Option<u32>,
+    pub status: WorkflowStatus,
+    pub last_run: Option<String>,
+    pub pinned: bool,
+    pub steps: Vec<WorkflowStep>,
+}
+
+impl AutomationWorkflow {}
+
+#[derive(Clone, Debug)]
+pub struct AutomationWorkflowBoard {
+    pub workflows: Vec<AutomationWorkflow>,
+    pub show_only_pinned: bool,
+}
+
+impl Default for AutomationWorkflowBoard {
+    fn default() -> Self {
+        Self {
+            workflows: Vec::new(),
+            show_only_pinned: false,
+        }
+    }
+}
+
+impl AutomationWorkflowBoard {
+    pub fn with_workflows(workflows: Vec<AutomationWorkflow>) -> Self {
+        let mut state = Self::default();
+        state.workflows = workflows;
+        state
+    }
+
+    pub fn filtered_indices(&self) -> Vec<usize> {
+        self.workflows
+            .iter()
+            .enumerate()
+            .filter(|(_, workflow)| {
+                if self.show_only_pinned && !workflow.pinned {
+                    return false;
+                }
+                true
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReminderStatus {
+    Scheduled,
+    Sent,
+    Snoozed,
+}
+
+impl ReminderStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            ReminderStatus::Scheduled => "Programado",
+            ReminderStatus::Sent => "Enviado",
+            ReminderStatus::Snoozed => "Pospuesto",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ScheduledReminder {
+    pub id: u32,
+    pub title: String,
+    pub cadence: String,
+    pub next_trigger: String,
+    pub audience: String,
+    pub delivery_channel: String,
+    pub status: ReminderStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListenerEventKind {
+    ChatMessage,
+    GithubChange,
+    CommandExecution,
+    Scheduler,
+}
+
+impl ListenerEventKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ListenerEventKind::ChatMessage => "Mensaje entrante",
+            ListenerEventKind::GithubChange => "Webhook GitHub",
+            ListenerEventKind::CommandExecution => "Ejecución de comando",
+            ListenerEventKind::Scheduler => "Finalización de tarea",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct EventListener {
+    pub id: u32,
+    pub name: String,
+    pub description: String,
+    pub event: ListenerEventKind,
+    pub condition: String,
+    pub action: String,
+    pub enabled: bool,
+    pub last_triggered: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EventAutomationState {
+    pub listeners: Vec<EventListener>,
+    pub show_only_enabled: bool,
+}
+
+impl Default for EventAutomationState {
+    fn default() -> Self {
+        Self {
+            listeners: Vec::new(),
+            show_only_enabled: false,
+        }
+    }
+}
+
+impl EventAutomationState {
+    pub fn with_listeners(listeners: Vec<EventListener>) -> Self {
+        let mut state = Self::default();
+        state.listeners = listeners;
+        state
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncHealth {
+    Healthy,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncStatus {
+    pub label: String,
+    pub detail: String,
+    pub health: SyncHealth,
+}
+
+impl SyncStatus {
+    pub fn new(label: impl Into<String>, detail: impl Into<String>, health: SyncHealth) -> Self {
+        Self {
+            label: label.into(),
+            detail: detail.into(),
+            health,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectResourceKind {
+    LocalProject,
+    GithubRepository,
+}
+
+impl ProjectResourceKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ProjectResourceKind::LocalProject => "Proyecto local",
+            ProjectResourceKind::GithubRepository => "Repositorio GitHub",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ProjectResourceCard {
+    pub name: String,
+    pub kind: ProjectResourceKind,
+    pub location: String,
+    pub last_sync: String,
+    pub status: SyncStatus,
+    pub readme_preview: String,
+    pub tags: Vec<String>,
+    pub pending_actions: Vec<String>,
+    pub default_branch: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegrationStatus {
+    Connected,
+    Warning,
+    Error,
+    Syncing,
+}
+
+impl IntegrationStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            IntegrationStatus::Connected => "Conectado",
+            IntegrationStatus::Warning => "Advertencia",
+            IntegrationStatus::Error => "Error",
+            IntegrationStatus::Syncing => "Sincronizando",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternalServiceKind {
+    Gmail,
+    GoogleCalendar,
+    GithubWebhooks,
+    CiCd,
+    Ifttt,
+    TaskManager,
+}
+
+impl ExternalServiceKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ExternalServiceKind::Gmail => "Gmail",
+            ExternalServiceKind::GoogleCalendar => "Google Calendar",
+            ExternalServiceKind::GithubWebhooks => "GitHub Webhooks",
+            ExternalServiceKind::CiCd => "CI/CD",
+            ExternalServiceKind::Ifttt => "IFTTT / Zapier",
+            ExternalServiceKind::TaskManager => "Gestores de tareas",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ExternalIntegrationCard {
+    pub id: u32,
+    pub service: ExternalServiceKind,
+    pub name: String,
+    pub status: IntegrationStatus,
+    pub status_detail: String,
+    pub last_event: Option<String>,
+    pub next_sync: Option<String>,
+    pub quick_actions: Vec<String>,
+    pub metadata: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExternalIntegrationsState {
+    pub connectors: Vec<ExternalIntegrationCard>,
+}
+
+impl Default for ExternalIntegrationsState {
+    fn default() -> Self {
+        Self {
+            connectors: Vec::new(),
+        }
+    }
+}
+
+impl ExternalIntegrationsState {
+    pub fn with_connectors(connectors: Vec<ExternalIntegrationCard>) -> Self {
+        Self { connectors }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct GlobalSearchResult {
+    pub title: String,
+    pub subtitle: String,
+    pub action_hint: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct GlobalSearchGroup {
+    pub title: String,
+    pub results: Vec<GlobalSearchResult>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DebugLogLevel {
     Info,
     Warning,
@@ -1413,6 +1772,381 @@ fn default_scheduled_tasks() -> Vec<ScheduledTask> {
     ]
 }
 
+fn default_automation_workflows() -> Vec<AutomationWorkflow> {
+    vec![
+        AutomationWorkflow {
+            id: 1,
+            name: "QA asistida por modelos".to_string(),
+            description:
+                "Encadena validación de tests, análisis de resultados y redacción de informe diario.".to_string(),
+            trigger: WorkflowTriggerKind::ChatCommand,
+            chat_command: Some("/qa".to_string()),
+            linked_schedule: Some(3),
+            status: WorkflowStatus::Ready,
+            last_run: Some("2024-05-14 18:40".to_string()),
+            pinned: true,
+            steps: vec![
+                WorkflowStep {
+                    kind: WorkflowStepKind::RemoteModel,
+                    label: "Análisis de cobertura con Claude Sonnet".to_string(),
+                    detail: "Genera insights a partir del reporte junit".to_string(),
+                    provider: Some(RemoteProviderKind::Anthropic),
+                },
+                WorkflowStep {
+                    kind: WorkflowStepKind::LocalScript,
+                    label: "./scripts/run_tests.sh".to_string(),
+                    detail: "Ejecuta suites unitarias y de integración".to_string(),
+                    provider: None,
+                },
+                WorkflowStep {
+                    kind: WorkflowStepKind::SyncAction,
+                    label: "Publicar resumen en Slack".to_string(),
+                    detail: "Envía resultados al canal #qa con etiqueta diaria".to_string(),
+                    provider: None,
+                },
+            ],
+        },
+        AutomationWorkflow {
+            id: 2,
+            name: "Resumen ejecutivo diario".to_string(),
+            description:
+                "Genera un briefing para dirección con métricas y próximos hitos.".to_string(),
+            trigger: WorkflowTriggerKind::Scheduled,
+            chat_command: Some("/briefing".to_string()),
+            linked_schedule: Some(2),
+            status: WorkflowStatus::Running,
+            last_run: Some("2024-05-15 09:30".to_string()),
+            pinned: true,
+            steps: vec![
+                WorkflowStep {
+                    kind: WorkflowStepKind::RemoteModel,
+                    label: "OpenAI GPT-4o".to_string(),
+                    detail: "Sintetiza métricas y comentarios del día".to_string(),
+                    provider: Some(RemoteProviderKind::OpenAi),
+                },
+                WorkflowStep {
+                    kind: WorkflowStepKind::LocalScript,
+                    label: "./scripts/render_briefing.py".to_string(),
+                    detail: "Convierte el resumen en Markdown listo para enviar".to_string(),
+                    provider: None,
+                },
+            ],
+        },
+        AutomationWorkflow {
+            id: 3,
+            name: "Sincronización RAG".to_string(),
+            description:
+                "Actualiza embeddings y repositorios de conocimiento para el agente contextual.".to_string(),
+            trigger: WorkflowTriggerKind::EventListener,
+            chat_command: None,
+            linked_schedule: Some(4),
+            status: WorkflowStatus::Failed,
+            last_run: Some("2024-05-07 02:20".to_string()),
+            pinned: false,
+            steps: vec![
+                WorkflowStep {
+                    kind: WorkflowStepKind::LocalScript,
+                    label: "jarvis index --refresh".to_string(),
+                    detail: "Regenera embeddings en segundo plano".to_string(),
+                    provider: None,
+                },
+                WorkflowStep {
+                    kind: WorkflowStepKind::SyncAction,
+                    label: "Actualizar dataset en S3".to_string(),
+                    detail: "Sube el snapshot para el pipeline de producción".to_string(),
+                    provider: None,
+                },
+            ],
+        },
+        AutomationWorkflow {
+            id: 4,
+            name: "Despliegue de emergencia".to_string(),
+            description:
+                "Pipeline manual para aplicar hotfixes coordinando CI/CD y notificaciones al equipo.".to_string(),
+            trigger: WorkflowTriggerKind::Manual,
+            chat_command: None,
+            linked_schedule: None,
+            status: WorkflowStatus::Draft,
+            last_run: None,
+            pinned: false,
+            steps: vec![
+                WorkflowStep {
+                    kind: WorkflowStepKind::LocalScript,
+                    label: "./scripts/build_hotfix.sh".to_string(),
+                    detail: "Genera artefactos firmados listos para producción".to_string(),
+                    provider: None,
+                },
+                WorkflowStep {
+                    kind: WorkflowStepKind::SyncAction,
+                    label: "Actualizar release en GitHub".to_string(),
+                    detail: "Publica binarios y notifica al canal de incidencias".to_string(),
+                    provider: None,
+                },
+            ],
+        },
+    ]
+}
+
+fn default_event_listeners() -> Vec<EventListener> {
+    vec![
+        EventListener {
+            id: 1,
+            name: "Crear issue desde TODO".to_string(),
+            description:
+                "Escucha mensajes con TODO y crea issues priorizados en GitHub automáticamente.".to_string(),
+            event: ListenerEventKind::ChatMessage,
+            condition: "message.contains('TODO:')".to_string(),
+            action: "github.create_issue(label='automation')".to_string(),
+            enabled: true,
+            last_triggered: Some("2024-05-14 15:12".to_string()),
+        },
+        EventListener {
+            id: 2,
+            name: "Alertar fallos CI".to_string(),
+            description:
+                "Cuando llega un webhook de CI fallido se notifica al chat y se abre ticket en Linear.".to_string(),
+            event: ListenerEventKind::GithubChange,
+            condition: "payload.workflow_status == 'failure'".to_string(),
+            action: "notify.chat + linear.create_issue".to_string(),
+            enabled: true,
+            last_triggered: Some("2024-05-13 21:48".to_string()),
+        },
+        EventListener {
+            id: 3,
+            name: "Cerrar recordatorios cumplidos".to_string(),
+            description:
+                "Al terminar un cron job de sincronización marca el recordatorio como enviado.".to_string(),
+            event: ListenerEventKind::Scheduler,
+            condition: "task.name == 'Recordatorio de standup'".to_string(),
+            action: "reminders.mark_sent".to_string(),
+            enabled: false,
+            last_triggered: None,
+        },
+        EventListener {
+            id: 4,
+            name: "Auditar comandos sensibles".to_string(),
+            description:
+                "Tras ejecutar /deploy se registra un check en CI y se notifica a seguridad.".to_string(),
+            event: ListenerEventKind::CommandExecution,
+            condition: "command.name == '/deploy'".to_string(),
+            action: "ci.trigger_check + notify.security".to_string(),
+            enabled: true,
+            last_triggered: Some("2024-05-12 11:02".to_string()),
+        },
+    ]
+}
+
+fn default_scheduled_reminders() -> Vec<ScheduledReminder> {
+    vec![
+        ScheduledReminder {
+            id: 1,
+            title: "Standup remoto".to_string(),
+            cadence: "Diario 09:00".to_string(),
+            next_trigger: "2024-05-15 09:00".to_string(),
+            audience: "Equipo core".to_string(),
+            delivery_channel: "Chat interno".to_string(),
+            status: ReminderStatus::Scheduled,
+        },
+        ScheduledReminder {
+            id: 2,
+            title: "Recordatorio retrospectiva".to_string(),
+            cadence: "Viernes 16:30".to_string(),
+            next_trigger: "2024-05-17 16:30".to_string(),
+            audience: "Ingeniería".to_string(),
+            delivery_channel: "Correo".to_string(),
+            status: ReminderStatus::Snoozed,
+        },
+        ScheduledReminder {
+            id: 3,
+            title: "Cierre de sprint".to_string(),
+            cadence: "Cada 2 semanas".to_string(),
+            next_trigger: "2024-05-24 12:00".to_string(),
+            audience: "PMs".to_string(),
+            delivery_channel: "Notificación en app".to_string(),
+            status: ReminderStatus::Sent,
+        },
+    ]
+}
+
+fn default_external_integrations() -> Vec<ExternalIntegrationCard> {
+    vec![
+        ExternalIntegrationCard {
+            id: 1,
+            service: ExternalServiceKind::Gmail,
+            name: "Gmail · bandeja prioritaria".to_string(),
+            status: IntegrationStatus::Connected,
+            status_detail: "OAuth renovado hace 2 días".to_string(),
+            last_event: Some("2024-05-15 08:10 Sincronizó 3 threads".to_string()),
+            next_sync: Some("En 5 min".to_string()),
+            quick_actions: vec!["Ver bandeja".to_string(), "Resumir hilo".to_string()],
+            metadata: vec![
+                "Auto-resumen diario activado".to_string(),
+                "Filtros: founders@, priority@".to_string(),
+            ],
+        },
+        ExternalIntegrationCard {
+            id: 2,
+            service: ExternalServiceKind::GoogleCalendar,
+            name: "Google Calendar · agenda del equipo".to_string(),
+            status: IntegrationStatus::Syncing,
+            status_detail: "Sincronizando próximos 30 eventos".to_string(),
+            last_event: Some("2024-05-15 07:45 Actualizó workshop UX".to_string()),
+            next_sync: Some("En curso".to_string()),
+            quick_actions: vec![
+                "Crear evento".to_string(),
+                "Enviar resumen diario".to_string(),
+            ],
+            metadata: vec![
+                "Acceso delegado por ops@company".to_string(),
+                "Recordatorios push en chat".to_string(),
+            ],
+        },
+        ExternalIntegrationCard {
+            id: 3,
+            service: ExternalServiceKind::GithubWebhooks,
+            name: "GitHub · jungle/monk-ai".to_string(),
+            status: IntegrationStatus::Warning,
+            status_detail: "Webhook de CI tardando >5s".to_string(),
+            last_event: Some("2024-05-15 06:32 Build #482".to_string()),
+            next_sync: Some("Escuchando".to_string()),
+            quick_actions: vec![
+                "Ver últimas builds".to_string(),
+                "Reenviar webhook".to_string(),
+            ],
+            metadata: vec![
+                "Merge rápido habilitado".to_string(),
+                "Asignación automática a reviewers".to_string(),
+            ],
+        },
+        ExternalIntegrationCard {
+            id: 4,
+            service: ExternalServiceKind::Ifttt,
+            name: "IFTTT · workflows compartidos".to_string(),
+            status: IntegrationStatus::Connected,
+            status_detail: "5 applets sincronizados".to_string(),
+            last_event: Some("2024-05-14 20:05 Zapier › Actualizó hoja de status".to_string()),
+            next_sync: Some("Cada 15 min".to_string()),
+            quick_actions: vec![
+                "Publicar como trigger".to_string(),
+                "Compartir enlace".to_string(),
+            ],
+            metadata: vec![
+                "Expone workflows locales como acciones".to_string(),
+                "Conectado a Notion y Asana".to_string(),
+            ],
+        },
+        ExternalIntegrationCard {
+            id: 5,
+            service: ExternalServiceKind::TaskManager,
+            name: "Linear · Jira · Trello".to_string(),
+            status: IntegrationStatus::Connected,
+            status_detail: "Sincronización bidireccional activa".to_string(),
+            last_event: Some("2024-05-15 09:05 Actualizó ticket LNR-431".to_string()),
+            next_sync: Some("Cada 3 min".to_string()),
+            quick_actions: vec!["Ver tareas".to_string(), "Sincronizar ahora".to_string()],
+            metadata: vec![
+                "Linear ↔️ estado en tiempo real".to_string(),
+                "Comentarios espejados con Jira".to_string(),
+                "Tableros Trello etiquetados".to_string(),
+            ],
+        },
+        ExternalIntegrationCard {
+            id: 6,
+            service: ExternalServiceKind::CiCd,
+            name: "CircleCI · pipeline principal".to_string(),
+            status: IntegrationStatus::Error,
+            status_detail: "Build #512 falló por pruebas end-to-end".to_string(),
+            last_event: Some("2024-05-15 08:42 Deploy detenido".to_string()),
+            next_sync: Some("Esperando acción".to_string()),
+            quick_actions: vec![
+                "Reintentar build".to_string(),
+                "Abrir en CircleCI".to_string(),
+            ],
+            metadata: vec![
+                "Workflows expuestos vía webhooks".to_string(),
+                "Variables protegidas cargadas".to_string(),
+            ],
+        },
+    ]
+}
+
+fn default_project_resources() -> Vec<ProjectResourceCard> {
+    vec![
+        ProjectResourceCard {
+            name: "Workspace · Automation".to_string(),
+            kind: ProjectResourceKind::LocalProject,
+            location: "/workspace/projects/automation".to_string(),
+            last_sync: "Hace 12 min".to_string(),
+            status: SyncStatus::new(
+                "Actualizado",
+                "Sin cambios pendientes",
+                SyncHealth::Healthy,
+            ),
+            readme_preview: "# Automation\nScripts para pipelines QA, builds nocturnos y despliegues sandbox.".to_string(),
+            tags: vec!["python".to_string(), "qa".to_string(), "deploy".to_string()],
+            pending_actions: vec!["Ejecutar pipeline nocturno".to_string()],
+            default_branch: "main".to_string(),
+        },
+        ProjectResourceCard {
+            name: "Workspace · RAG Notebook".to_string(),
+            kind: ProjectResourceKind::LocalProject,
+            location: "/workspace/projects/rag".to_string(),
+            last_sync: "Hace 45 min".to_string(),
+            status: SyncStatus::new(
+                "Cambios locales",
+                "2 commits por subir",
+                SyncHealth::Warning,
+            ),
+            readme_preview:
+                "# RAG Notebook\nExperimentos con embeddings y evaluación de respuestas contextuales.".to_string(),
+            tags: vec!["rust".to_string(), "llm".to_string()],
+            pending_actions: vec!["Enviar PR a repositorio remoto".to_string()],
+            default_branch: "develop".to_string(),
+        },
+        ProjectResourceCard {
+            name: "github.com/jungle/agent-orchestrator".to_string(),
+            kind: ProjectResourceKind::GithubRepository,
+            location: "https://github.com/jungle/agent-orchestrator".to_string(),
+            last_sync: "Hace 3 h".to_string(),
+            status: SyncStatus::new(
+                "Divergencia leve",
+                "1 PR pendiente de merge",
+                SyncHealth::Warning,
+            ),
+            readme_preview:
+                "# Agent Orchestrator\nMicroservicio que coordina workflows y listeners para JungleMonkAI.".to_string(),
+            tags: vec!["github".to_string(), "rust".to_string(), "orchestration".to_string()],
+            pending_actions: vec!["Revisar PR #128".to_string(), "Actualizar documentación".to_string()],
+            default_branch: "main".to_string(),
+        },
+        ProjectResourceCard {
+            name: "github.com/jungle/ops-playbooks".to_string(),
+            kind: ProjectResourceKind::GithubRepository,
+            location: "https://github.com/jungle/ops-playbooks".to_string(),
+            last_sync: "Hace 1 día".to_string(),
+            status: SyncStatus::new(
+                "Error autenticación",
+                "Token caducará en 24 h",
+                SyncHealth::Error,
+            ),
+            readme_preview:
+                "# Ops Playbooks\nColección de guías de respuesta e incidentes automatizados.".to_string(),
+            tags: vec!["incident-response".to_string(), "docs".to_string()],
+            pending_actions: vec!["Renovar token GitHub".to_string()],
+            default_branch: "main".to_string(),
+        },
+    ]
+}
+
+fn default_global_search_recent() -> Vec<String> {
+    vec![
+        "model:claude opus".to_string(),
+        "workflow qa".to_string(),
+        "preferencias memoria".to_string(),
+        "README orchestrator".to_string(),
+    ]
+}
+
 fn default_debug_console_entries() -> Vec<DebugLogEntry> {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     vec![
@@ -1568,8 +2302,20 @@ pub struct AppState {
     pub activity_logs: Vec<LogEntry>,
     /// Tablero con tareas programadas y filtros activos.
     pub cron_board: CronBoardState,
+    /// Workflows automatizados listos para lanzarse desde el chat.
+    pub automation_workflows: AutomationWorkflowBoard,
+    /// Recordatorios y avisos programados.
+    pub scheduled_reminders: Vec<ScheduledReminder>,
+    /// Listeners configurables para automatización basada en eventos.
+    pub event_automation: EventAutomationState,
+    /// Integraciones externas conectadas y su estado.
+    pub external_integrations: ExternalIntegrationsState,
+    /// Recursos de proyectos y repositorios conectados.
+    pub project_resources: Vec<ProjectResourceCard>,
     /// Consola de depuración del sistema.
     pub debug_console: DebugConsoleState,
+    /// Consultas recientes en el buscador global.
+    pub global_search_recent: Vec<String>,
     /// Canal para recibir respuestas de proveedores remotos.
     provider_response_rx: Receiver<ProviderResponse>,
     /// Canal para enviar respuestas desde hilos de proveedores.
@@ -1679,6 +2425,14 @@ impl Default for AppState {
             PersonalizationResourcesState::from_sources(&profiles, &projects, &Vec::new());
         let remote_catalog = RemoteCatalogState::default();
         let chat_routing = ChatRoutingState::default();
+        let automation_workflows =
+            AutomationWorkflowBoard::with_workflows(default_automation_workflows());
+        let scheduled_reminders = default_scheduled_reminders();
+        let event_automation = EventAutomationState::with_listeners(default_event_listeners());
+        let external_integrations =
+            ExternalIntegrationsState::with_connectors(default_external_integrations());
+        let project_resources = default_project_resources();
+        let global_search_recent = default_global_search_recent();
 
         let mut state = Self {
             show_settings_modal: false,
@@ -1777,7 +2531,13 @@ impl Default for AppState {
             right_panel_width: 280.0,
             activity_logs: default_logs(),
             cron_board: CronBoardState::with_tasks(default_scheduled_tasks()),
+            automation_workflows,
+            scheduled_reminders,
+            event_automation,
+            external_integrations,
+            project_resources,
             debug_console: DebugConsoleState::with_entries(default_debug_console_entries()),
+            global_search_recent,
             provider_response_rx,
             provider_response_tx,
             local_install_rx,
@@ -2079,6 +2839,235 @@ impl AppState {
         if let Some(tab) = MainTab::from_view(self.active_main_view) {
             self.active_main_tab = tab;
         }
+    }
+
+    pub fn global_search_groups(&self) -> Vec<GlobalSearchGroup> {
+        let query = self.search_buffer.trim().to_lowercase();
+        let mut groups = Vec::new();
+
+        if query.is_empty() && !self.global_search_recent.is_empty() {
+            let results = self
+                .global_search_recent
+                .iter()
+                .map(|entry| GlobalSearchResult {
+                    title: entry.clone(),
+                    subtitle: "Búsqueda reciente".to_string(),
+                    action_hint: "Pulsa Enter para repetir".to_string(),
+                })
+                .collect();
+            groups.push(GlobalSearchGroup {
+                title: "Recientes".to_string(),
+                results,
+            });
+        }
+
+        let mut model_results = Vec::new();
+        for (provider, cards) in &self.remote_catalog.provider_cards {
+            for card in cards {
+                let haystack = format!(
+                    "{} {} {} {}",
+                    card.title,
+                    card.description,
+                    card.tags.join(" "),
+                    card.capabilities.join(" ")
+                )
+                .to_lowercase();
+                if query.is_empty() || haystack.contains(&query) {
+                    model_results.push(GlobalSearchResult {
+                        title: format!("{}", card.title),
+                        subtitle: format!(
+                            "{} · Contexto {} tokens",
+                            provider.display_name(),
+                            card.context_tokens
+                        ),
+                        action_hint: format!("Abrir catálogo {}", provider.display_name()),
+                    });
+                }
+            }
+        }
+        if !model_results.is_empty() {
+            model_results.truncate(5);
+            groups.push(GlobalSearchGroup {
+                title: "Modelos".to_string(),
+                results: model_results,
+            });
+        }
+
+        let mut conversation_results = Vec::new();
+        for message in self.chat_messages.iter().rev().take(12) {
+            let haystack = format!("{} {}", message.sender, message.text).to_lowercase();
+            if query.is_empty() || haystack.contains(&query) {
+                let mut preview = message.text.clone();
+                if preview.len() > 96 {
+                    preview.truncate(93);
+                    preview.push_str("...");
+                }
+                conversation_results.push(GlobalSearchResult {
+                    title: preview,
+                    subtitle: format!("{} · {}", message.sender, message.timestamp),
+                    action_hint: "Ir al historial de chat".to_string(),
+                });
+            }
+        }
+        if !conversation_results.is_empty() {
+            conversation_results.truncate(6);
+            groups.push(GlobalSearchGroup {
+                title: "Conversaciones".to_string(),
+                results: conversation_results,
+            });
+        }
+
+        let preference_panels = [
+            PreferencePanel::SystemGithub,
+            PreferencePanel::SystemCache,
+            PreferencePanel::SystemResources,
+            PreferencePanel::CustomizationCommands,
+            PreferencePanel::CustomizationMemory,
+            PreferencePanel::CustomizationProfiles,
+            PreferencePanel::CustomizationProjects,
+            PreferencePanel::ProvidersAnthropic,
+            PreferencePanel::ProvidersOpenAi,
+            PreferencePanel::ProvidersGroq,
+            PreferencePanel::LocalJarvis,
+        ];
+
+        let mut preference_results = Vec::new();
+        for panel in preference_panels {
+            let metadata = panel.metadata();
+            let haystack = format!("{} {}", metadata.title, metadata.description).to_lowercase();
+            if query.is_empty() || haystack.contains(&query) {
+                preference_results.push(GlobalSearchResult {
+                    title: metadata.title.to_string(),
+                    subtitle: metadata.description.to_string(),
+                    action_hint: "Abrir preferencias".to_string(),
+                });
+            }
+        }
+        if !preference_results.is_empty() {
+            preference_results.truncate(6);
+            groups.push(GlobalSearchGroup {
+                title: "Preferencias".to_string(),
+                results: preference_results,
+            });
+        }
+
+        let mut document_results = Vec::new();
+        for card in &self.project_resources {
+            let haystack = format!(
+                "{} {} {}",
+                card.name,
+                card.readme_preview,
+                card.tags.join(" ")
+            )
+            .to_lowercase();
+            if query.is_empty() || haystack.contains(&query) {
+                document_results.push(GlobalSearchResult {
+                    title: card.name.clone(),
+                    subtitle: format!("{} · {}", card.kind.label(), card.status.label()),
+                    action_hint: "Abrir recurso".to_string(),
+                });
+            }
+        }
+        if !document_results.is_empty() {
+            document_results.truncate(6);
+            groups.push(GlobalSearchGroup {
+                title: "Documentos y recursos".to_string(),
+                results: document_results,
+            });
+        }
+
+        let mut workflow_results = Vec::new();
+        for workflow in &self.automation_workflows.workflows {
+            let haystack = format!("{} {}", workflow.name, workflow.description).to_lowercase();
+            if query.is_empty() || haystack.contains(&query) {
+                let command_hint = workflow
+                    .chat_command
+                    .as_ref()
+                    .map(|cmd| format!("Ejecutar {}", cmd))
+                    .unwrap_or_else(|| "Iniciar workflow".to_string());
+                let last_run = workflow
+                    .last_run
+                    .as_ref()
+                    .map(|value| value.as_str())
+                    .unwrap_or("sin registros");
+                workflow_results.push(GlobalSearchResult {
+                    title: workflow.name.clone(),
+                    subtitle: format!(
+                        "{} · Última ejecución {}",
+                        workflow.trigger.label(),
+                        last_run
+                    ),
+                    action_hint: command_hint,
+                });
+            }
+        }
+        if !workflow_results.is_empty() {
+            workflow_results.truncate(6);
+            groups.push(GlobalSearchGroup {
+                title: "Workflows".to_string(),
+                results: workflow_results,
+            });
+        }
+
+        groups
+    }
+
+    pub fn trigger_workflow(&mut self, workflow_id: u32) -> Option<String> {
+        if let Some(workflow) = self
+            .automation_workflows
+            .workflows
+            .iter_mut()
+            .find(|wf| wf.id == workflow_id)
+        {
+            workflow.status = WorkflowStatus::Running;
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            workflow.last_run = Some(timestamp.clone());
+            let message = format!("Workflow '{}' lanzado.", workflow.name);
+            self.push_activity_log(LogStatus::Running, "Automation", &message);
+            self.push_debug_event(
+                DebugLogLevel::Info,
+                "automation::workflow",
+                format!("{} ({})", message, timestamp),
+            );
+            Some(message)
+        } else {
+            None
+        }
+    }
+
+    pub fn toggle_listener_enabled(&mut self, listener_id: u32) -> Option<bool> {
+        let mut result = None;
+        let mut message = None;
+
+        if let Some(listener) = self
+            .event_automation
+            .listeners
+            .iter_mut()
+            .find(|entry| entry.id == listener_id)
+        {
+            listener.enabled = !listener.enabled;
+            let status_label = if listener.enabled {
+                "habilitado"
+            } else {
+                "deshabilitado"
+            };
+            message = Some(format!("Listener '{}' {}", listener.name, status_label));
+            result = Some(listener.enabled);
+        }
+
+        if let Some(msg) = message {
+            self.push_activity_log(LogStatus::Ok, "Automation", &msg);
+        }
+
+        result
+    }
+
+    pub fn project_resources_by_kind(&self, kind: ProjectResourceKind) -> Vec<ProjectResourceCard> {
+        self.project_resources
+            .iter()
+            .filter(|card| card.kind == kind)
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn push_activity_log(

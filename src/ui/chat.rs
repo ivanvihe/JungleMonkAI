@@ -1,9 +1,11 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
-    format_bytes, AppState, ChatMessage, DebugLogLevel, InstalledLocalModel, KnowledgeResourceCard,
-    LogStatus, MainView, PreferencePanel, RemoteModelCard, RemoteModelKey, RemoteProviderKind,
-    ResourceSection, ScheduledTaskStatus, AVAILABLE_CUSTOM_ACTIONS,
+    format_bytes, AppState, AutomationWorkflow, ChatMessage, DebugLogLevel, InstalledLocalModel,
+    IntegrationStatus, KnowledgeResourceCard, LogStatus, MainView, PreferencePanel,
+    ProjectResourceCard, ProjectResourceKind, ReminderStatus, RemoteModelCard, RemoteModelKey,
+    RemoteProviderKind, ResourceSection, ScheduledTaskStatus, SyncHealth, WorkflowStatus,
+    WorkflowStepKind, AVAILABLE_CUSTOM_ACTIONS,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
@@ -334,6 +336,10 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
                 ui.add_space(12.0);
                 draw_cron_summary(ui, state);
                 ui.add_space(10.0);
+                draw_workflow_panel(ui, state);
+                ui.add_space(10.0);
+                draw_reminder_panel(ui, state);
+                ui.add_space(10.0);
                 draw_cron_filters(ui, state);
                 ui.add_space(10.0);
                 draw_cron_table(ui, state);
@@ -342,6 +348,11 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
                     ui.add_space(14.0);
                     draw_cron_task_detail(ui, state, task);
                 }
+
+                ui.add_space(14.0);
+                draw_listener_panel(ui, state);
+                ui.add_space(14.0);
+                draw_integration_panel(ui, state);
             });
     });
 }
@@ -451,6 +462,566 @@ fn summary_chip(ui: &mut egui::Ui, icon: &str, label: &str, value: usize, color:
                 });
             });
         });
+}
+
+fn draw_workflow_panel(ui: &mut egui::Ui, state: &mut AppState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    RichText::new(ICON_LIGHTNING)
+                        .font(theme::icon_font(16.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+                ui.heading(
+                    RichText::new("Workflows automatizados")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+                ui.add_space(ui.available_width());
+                ui.checkbox(
+                    &mut state.automation_workflows.show_only_pinned,
+                    "Solo favoritos",
+                )
+                .on_hover_text("Filtra workflows fijados para acceso rápido");
+            });
+            ui.label(
+                RichText::new(
+                    "Encadena modelos remotos con scripts locales y orquesta pipelines desde el chat.",
+                )
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(12.0),
+            );
+
+            ui.add_space(8.0);
+            let indices = state.automation_workflows.filtered_indices();
+            if indices.is_empty() {
+                ui.colored_label(
+                    theme::COLOR_TEXT_WEAK,
+                    "No hay workflows guardados con los filtros actuales.",
+                );
+                return;
+            }
+
+            for index in indices {
+                let workflow_snapshot = state.automation_workflows.workflows[index].clone();
+                draw_workflow_card(ui, state, index, &workflow_snapshot);
+                ui.add_space(8.0);
+            }
+        });
+}
+
+fn draw_workflow_card(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    index: usize,
+    workflow: &AutomationWorkflow,
+) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(28, 30, 36))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.heading(
+                        RichText::new(&workflow.name)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(15.0)
+                            .strong(),
+                    );
+                    if workflow.pinned {
+                        ui.label(
+                            RichText::new(ICON_STAR)
+                                .font(theme::icon_font(14.0))
+                                .color(Color32::from_rgb(255, 196, 0)),
+                        );
+                    }
+                    ui.add_space(ui.available_width());
+                    ui.label(
+                        RichText::new(workflow.status.label())
+                            .color(workflow_status_color(workflow.status))
+                            .monospace()
+                            .size(11.0),
+                    );
+                });
+
+                ui.label(
+                    RichText::new(&workflow.description)
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(12.0),
+                );
+
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("Disparador: {}", workflow.trigger.label()))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                    if let Some(command) = &workflow.chat_command {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(format!("Comando: {}", command))
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .monospace()
+                                .size(11.0),
+                        );
+                    }
+                    if let Some(cron_id) = workflow.linked_schedule {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(format!("Vinculado a tarea #{cron_id}"))
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                    }
+                });
+
+                ui.add_space(8.0);
+                for step in &workflow.steps {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.label(
+                            RichText::new(workflow_step_icon(step.kind))
+                                .font(theme::icon_font(14.0))
+                                .color(theme::COLOR_PRIMARY),
+                        );
+                        ui.label(
+                            RichText::new(format!("{} · {}", step.kind.label(), step.label))
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .size(12.0),
+                        );
+                        if let Some(provider) = step.provider {
+                            ui.label(
+                                RichText::new(format!("@{}", provider.short_code()))
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0)
+                                    .monospace(),
+                            );
+                        }
+                    });
+                    ui.label(
+                        RichText::new(&step.detail)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                    ui.add_space(4.0);
+                }
+
+                if let Some(last_run) = &workflow.last_run {
+                    ui.label(
+                        RichText::new(format!("Última ejecución: {last_run}"))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                } else {
+                    ui.label(
+                        RichText::new("Nunca ejecutado")
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                }
+
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let run_button = theme::primary_button(
+                        RichText::new("Lanzar pipeline")
+                            .color(Color32::WHITE)
+                            .strong(),
+                    )
+                    .min_size(egui::vec2(150.0, 30.0));
+                    if ui.add(run_button).clicked() {
+                        if let Some(message) = state.trigger_workflow(workflow.id) {
+                            ui.colored_label(theme::COLOR_TEXT_WEAK, message);
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    let select_button = theme::secondary_button(
+                        RichText::new("Registrar en chat")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    )
+                    .min_size(egui::vec2(150.0, 30.0));
+                    if ui.add(select_button).clicked() {
+                        if let Some(message) =
+                            state.automation_workflows.workflows.get(index).map(|wf| {
+                                format!("Workflow '{}' listo para orquestación.", wf.name)
+                            })
+                        {
+                            state.push_activity_log(LogStatus::Ok, "Automation", &message);
+                            state.push_debug_event(
+                                DebugLogLevel::Info,
+                                "automation::note",
+                                message,
+                            );
+                        }
+                    }
+                });
+            });
+        });
+}
+
+fn workflow_step_icon(kind: WorkflowStepKind) -> &'static str {
+    match kind {
+        WorkflowStepKind::RemoteModel => ICON_LIGHTNING,
+        WorkflowStepKind::LocalScript => ICON_CODE,
+        WorkflowStepKind::SyncAction => ICON_REPEAT,
+    }
+}
+
+fn workflow_status_color(status: WorkflowStatus) -> Color32 {
+    match status {
+        WorkflowStatus::Ready => theme::COLOR_PRIMARY,
+        WorkflowStatus::Running => Color32::from_rgb(64, 172, 255),
+        WorkflowStatus::Failed => theme::COLOR_DANGER,
+        WorkflowStatus::Draft => Color32::from_rgb(160, 160, 160),
+    }
+}
+
+fn draw_reminder_panel(ui: &mut egui::Ui, state: &AppState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    RichText::new(ICON_CLOCK)
+                        .font(theme::icon_font(16.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+                ui.heading(
+                    RichText::new("Recordatorios programados")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+            });
+            ui.label(
+                RichText::new(
+                    "Visualiza próximos avisos y confirma su canal de entrega en tiempo real.",
+                )
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(12.0),
+            );
+
+            ui.add_space(8.0);
+            if state.scheduled_reminders.is_empty() {
+                ui.colored_label(
+                    theme::COLOR_TEXT_WEAK,
+                    "No existen recordatorios activos por ahora.",
+                );
+                return;
+            }
+
+            for reminder in &state.scheduled_reminders {
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(28, 30, 36))
+                    .stroke(theme::subtle_border())
+                    .rounding(egui::Rounding::same(10.0))
+                    .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let color = reminder_status_color(reminder.status);
+                            ui.label(RichText::new("●").color(color).size(14.0).monospace());
+                            ui.label(
+                                RichText::new(format!("#{} {}", reminder.id, reminder.title))
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .strong()
+                                    .size(13.0),
+                            );
+                            ui.add_space(ui.available_width());
+                            ui.label(
+                                RichText::new(reminder.status.label())
+                                    .color(color)
+                                    .size(11.0)
+                                    .monospace(),
+                            );
+                        });
+                        ui.label(
+                            RichText::new(format!(
+                                "Cadencia: {} · Próximo envío {}",
+                                reminder.cadence, reminder.next_trigger
+                            ))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                        );
+                        ui.label(
+                            RichText::new(format!(
+                                "Canal: {} · Audiencia: {}",
+                                reminder.delivery_channel, reminder.audience
+                            ))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                        );
+                    });
+                ui.add_space(6.0);
+            }
+        });
+}
+
+fn reminder_status_color(status: ReminderStatus) -> Color32 {
+    match status {
+        ReminderStatus::Scheduled => theme::COLOR_PRIMARY,
+        ReminderStatus::Sent => theme::COLOR_SUCCESS,
+        ReminderStatus::Snoozed => Color32::from_rgb(255, 196, 0),
+    }
+}
+
+fn draw_listener_panel(ui: &mut egui::Ui, state: &mut AppState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    RichText::new(ICON_INFO)
+                        .font(theme::icon_font(16.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+                ui.heading(
+                    RichText::new("Listeners y disparadores")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+                ui.add_space(ui.available_width());
+                ui.checkbox(
+                    &mut state.event_automation.show_only_enabled,
+                    "Solo activos",
+                )
+                .on_hover_text("Oculta listeners deshabilitados");
+            });
+            ui.label(
+                RichText::new(
+                    "Configura automatizaciones basadas en eventos de chat, repositorios o jobs.",
+                )
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(12.0),
+            );
+
+            ui.add_space(8.0);
+            let indices: Vec<usize> = state
+                .event_automation
+                .listeners
+                .iter()
+                .enumerate()
+                .filter(|(_, listener)| {
+                    if state.event_automation.show_only_enabled && !listener.enabled {
+                        return false;
+                    }
+                    true
+                })
+                .map(|(idx, _)| idx)
+                .collect();
+
+            if indices.is_empty() {
+                ui.colored_label(
+                    theme::COLOR_TEXT_WEAK,
+                    "No hay listeners configurados para estos filtros.",
+                );
+                return;
+            }
+
+            for index in indices {
+                let listener_snapshot = state.event_automation.listeners[index].clone();
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(28, 30, 36))
+                    .stroke(theme::subtle_border())
+                    .rounding(egui::Rounding::same(10.0))
+                    .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(&listener_snapshot.name)
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .strong()
+                                    .size(13.0),
+                            );
+                            ui.add_space(ui.available_width());
+                            ui.label(
+                                RichText::new(listener_snapshot.event.label())
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                        });
+                        ui.label(
+                            RichText::new(&listener_snapshot.description)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("Condición: {}", listener_snapshot.condition))
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0)
+                                .monospace(),
+                        );
+                        ui.label(
+                            RichText::new(format!("Acción: {}", listener_snapshot.action))
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .size(11.0)
+                                .monospace(),
+                        );
+                        if let Some(last) = &listener_snapshot.last_triggered {
+                            ui.label(
+                                RichText::new(format!("Último disparo: {last}"))
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                        }
+
+                        ui.add_space(6.0);
+                        let mut enabled_label = "Deshabilitar";
+                        if !listener_snapshot.enabled {
+                            enabled_label = "Habilitar";
+                        }
+                        let toggle_button = theme::secondary_button(
+                            RichText::new(enabled_label)
+                                .color(theme::COLOR_TEXT_PRIMARY)
+                                .strong(),
+                        )
+                        .min_size(egui::vec2(130.0, 28.0));
+                        if ui.add(toggle_button).clicked() {
+                            state.toggle_listener_enabled(listener_snapshot.id);
+                        }
+                    });
+                ui.add_space(6.0);
+            }
+        });
+}
+
+fn draw_integration_panel(ui: &mut egui::Ui, state: &AppState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(14.0))
+        .inner_margin(egui::Margin::symmetric(16.0, 14.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    RichText::new(ICON_LINK)
+                        .font(theme::icon_font(16.0))
+                        .color(theme::COLOR_PRIMARY),
+                );
+                ui.heading(
+                    RichText::new("Integraciones externas")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+            });
+            ui.label(
+                RichText::new(
+                    "Gmail, Calendar, CI/CD e IFTTT se orquestan como triggers y acciones del agente.",
+                )
+                .color(theme::COLOR_TEXT_WEAK)
+                .size(12.0),
+            );
+
+            ui.add_space(8.0);
+            if state.external_integrations.connectors.is_empty() {
+                ui.colored_label(
+                    theme::COLOR_TEXT_WEAK,
+                    "Sin conectores registrados todavía.",
+                );
+                return;
+            }
+
+            for connector in &state.external_integrations.connectors {
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(28, 30, 36))
+                    .stroke(theme::subtle_border())
+                    .rounding(egui::Rounding::same(10.0))
+                    .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(connector.service.label())
+                                    .color(theme::COLOR_TEXT_PRIMARY)
+                                    .strong()
+                                    .size(12.0),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!("#{} {}", connector.id, connector.name))
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                            ui.add_space(ui.available_width());
+                            ui.label(
+                                RichText::new(connector.status.label())
+                                    .color(integration_status_color(connector.status))
+                                    .size(11.0)
+                                    .monospace(),
+                            );
+                        });
+                        ui.label(
+                            RichText::new(&connector.status_detail)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                        if let Some(last) = &connector.last_event {
+                            ui.label(
+                                RichText::new(format!("Último evento: {last}"))
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                        }
+                        if let Some(next) = &connector.next_sync {
+                            ui.label(
+                                RichText::new(format!("Próxima sincronización: {next}"))
+                                    .color(theme::COLOR_TEXT_WEAK)
+                                    .size(11.0),
+                            );
+                        }
+                        if !connector.metadata.is_empty() {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                for entry in &connector.metadata {
+                                    selectable_chip(ui, entry, false);
+                                }
+                            });
+                        }
+                        if !connector.quick_actions.is_empty() {
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                for action in &connector.quick_actions {
+                                    let button = theme::secondary_button(
+                                        RichText::new(action)
+                                            .color(theme::COLOR_TEXT_PRIMARY)
+                                            .strong(),
+                                    )
+                                    .min_size(egui::vec2(130.0, 26.0));
+                                    ui.add(button);
+                                    ui.add_space(6.0);
+                                }
+                            });
+                        }
+                    });
+                ui.add_space(6.0);
+            }
+        });
+}
+
+fn integration_status_color(status: IntegrationStatus) -> Color32 {
+    match status {
+        IntegrationStatus::Connected => theme::COLOR_SUCCESS,
+        IntegrationStatus::Warning => Color32::from_rgb(255, 196, 0),
+        IntegrationStatus::Error => theme::COLOR_DANGER,
+        IntegrationStatus::Syncing => Color32::from_rgb(64, 172, 255),
+    }
 }
 
 fn draw_cron_filters(ui: &mut egui::Ui, state: &mut AppState) {
@@ -2256,6 +2827,214 @@ fn draw_selected_resource(ui: &mut egui::Ui, state: &mut AppState, section: Reso
         ResourceSection::LocalCatalog(provider) => draw_local_provider(ui, state, provider),
         ResourceSection::RemoteCatalog(kind) => draw_remote_provider_catalog(ui, state, kind),
         ResourceSection::InstalledLocal => draw_local_library_overview(ui, state),
+        ResourceSection::ConnectedProjects => {
+            draw_project_resources(ui, state, ProjectResourceKind::LocalProject)
+        }
+        ResourceSection::GithubRepositories => {
+            draw_project_resources(ui, state, ProjectResourceKind::GithubRepository)
+        }
+    }
+}
+
+fn draw_project_resources(ui: &mut egui::Ui, state: &mut AppState, kind: ProjectResourceKind) {
+    let (title, subtitle) = match kind {
+        ProjectResourceKind::LocalProject => (
+            "Proyectos locales sincronizados",
+            "Explora carpetas conectadas al agente con estado de sincronización y README en vivo.",
+        ),
+        ProjectResourceKind::GithubRepository => (
+            "Repositorios GitHub enlazados",
+            "Consulta repositorios con sincronización bidireccional y acciones rápidas desde JungleMonkAI.",
+        ),
+    };
+
+    ui.heading(
+        RichText::new(title)
+            .color(theme::COLOR_TEXT_PRIMARY)
+            .strong()
+            .size(18.0),
+    );
+    ui.label(
+        RichText::new(subtitle)
+            .color(theme::COLOR_TEXT_WEAK)
+            .size(12.0),
+    );
+
+    ui.add_space(10.0);
+
+    let cards = state.project_resources_by_kind(kind);
+    if cards.is_empty() {
+        ui.colored_label(
+            theme::COLOR_TEXT_WEAK,
+            "No hay recursos sincronizados en esta categoría todavía.",
+        );
+        return;
+    }
+
+    for card in cards {
+        draw_project_resource_card(ui, state, &card);
+        ui.add_space(12.0);
+    }
+}
+
+fn draw_project_resource_card(ui: &mut egui::Ui, state: &mut AppState, card: &ProjectResourceCard) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(34, 36, 42))
+        .stroke(theme::subtle_border())
+        .rounding(egui::Rounding::same(16.0))
+        .inner_margin(egui::Margin {
+            left: 18.0,
+            right: 18.0,
+            top: 14.0,
+            bottom: 14.0,
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.heading(
+                        RichText::new(&card.name)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(16.0)
+                            .strong(),
+                    );
+                    ui.add_space(ui.available_width());
+                    let status_color = sync_health_color(card.status.health);
+                    ui.label(
+                        RichText::new(card.status.label())
+                            .color(status_color)
+                            .monospace()
+                            .size(12.0),
+                    );
+                });
+
+                ui.label(
+                    RichText::new(card.status.detail())
+                        .color(theme::COLOR_TEXT_WEAK)
+                        .size(12.0),
+                );
+
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("Ubicación: {}", card.location))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                    ui.add_space(18.0);
+                    ui.label(
+                        RichText::new(format!("Última sincronización: {}", card.last_sync))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                    ui.add_space(18.0);
+                    ui.label(
+                        RichText::new(format!("Rama principal: {}", card.default_branch))
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(11.0),
+                    );
+                });
+
+                if !card.tags.is_empty() {
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        ui.label(
+                            RichText::new("Tags")
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                        for tag in &card.tags {
+                            selectable_chip(ui, tag, false);
+                        }
+                    });
+                }
+
+                ui.add_space(10.0);
+                ui.label(
+                    RichText::new("README destacado")
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .size(12.0)
+                        .strong(),
+                );
+                ui.add_space(4.0);
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(28, 30, 36))
+                    .stroke(theme::subtle_border())
+                    .rounding(egui::Rounding::same(12.0))
+                    .inner_margin(egui::Margin::same(12.0))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new(&card.readme_preview)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .monospace()
+                                .size(12.0),
+                        );
+                    });
+
+                if !card.pending_actions.is_empty() {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("Acciones sugeridas")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .size(12.0)
+                            .strong(),
+                    );
+                    for action in &card.pending_actions {
+                        ui.label(
+                            RichText::new(format!("• {}", action))
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(11.0),
+                        );
+                    }
+                }
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    let open_button = theme::secondary_button(
+                        RichText::new("Abrir README")
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    )
+                    .min_size(egui::vec2(140.0, 30.0));
+                    if ui.add(open_button).clicked() {
+                        state.push_activity_log(
+                            LogStatus::Ok,
+                            "Recursos",
+                            format!("Abrió README de {}", card.name),
+                        );
+                        ui.output_mut(|out| out.copied_text = card.readme_preview.clone());
+                    }
+
+                    ui.add_space(8.0);
+                    let sync_button = theme::primary_button(
+                        RichText::new("Sincronizar ahora")
+                            .color(Color32::WHITE)
+                            .strong(),
+                    )
+                    .min_size(egui::vec2(150.0, 30.0));
+                    if ui.add(sync_button).clicked() {
+                        state.push_activity_log(
+                            LogStatus::Running,
+                            "Recursos",
+                            format!("Sincronización solicitada para {}", card.name),
+                        );
+                        state.push_debug_event(
+                            DebugLogLevel::Info,
+                            "resources::sync",
+                            format!("Marcado '{}' para sincronización manual", card.name),
+                        );
+                    }
+                });
+            });
+        });
+}
+
+fn sync_health_color(health: SyncHealth) -> Color32 {
+    match health {
+        SyncHealth::Healthy => theme::COLOR_SUCCESS,
+        SyncHealth::Warning => Color32::from_rgb(255, 196, 0),
+        SyncHealth::Error => theme::COLOR_DANGER,
     }
 }
 

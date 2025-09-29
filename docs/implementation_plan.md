@@ -43,6 +43,12 @@
 - **IFTTT y servicios de automatización**: Permitir que workflows locales se expongan como triggers/actions compatibles con IFTTT, Zapier u otros, abriendo la automatización a ecosistemas externos.
 - **Sincronización bidireccional de tareas**: Integrar con gestores como Linear/Jira/Trello mediante APIs, sincronizando estados y comentarios desde el panel de productividad.
 
+### Estado de avance de las fases 6 y 7
+- **Workflows automatizados y recursos conectados**: El estado `AppState` ahora persiste pipelines preconfigurados, recordatorios periódicos y catálogos de proyectos/GitHub que se renderizan como tarjetas navegables dentro del panel de productividad, habilitando lanzamientos rápidos desde el chat y seguimiento de sincronizaciones.【F:src/state.rs†L1005-L1540】【F:src/ui/chat.rs†L540-L800】
+- **Buscador universal**: Se añadió un palette superpuesto con hint `Cmd/Ctrl+K` que agrupa resultados de modelos, conversaciones y recursos, accesible desde el header global.【F:src/ui/header.rs†L90-L155】
+- **Gestor visual de cron y listeners**: La vista de productividad muestra calendarios de recordatorios, jobs recurrentes y toggles para listeners basados en eventos, incluyendo acciones rápidas para crear issues o disparar pipelines.【F:src/ui/chat.rs†L800-L1095】【F:src/state.rs†L1540-L1880】
+- **Integraciones externas preparadas**: La capa de estado define conectores para Gmail, Calendar, GitHub webhooks y servicios tipo IFTTT, exponiendo estructuras compartidas para sincronización bidireccional con herramientas de tareas.【F:src/state.rs†L1880-L2070】【F:src/ui/chat.rs†L2835-L3038】
+
 ## Fase 8 · Integración profunda con el sistema operativo
 - **Ejecución segura de comandos**: Crear un servicio sandbox que permita lanzar comandos en Linux con plantillas aprobadas, mostrando logs en tiempo real dentro del chat y solicitando confirmación para operaciones sensibles.
 - **Exploración de archivos interna**: Añadir un explorador de archivos con permisos gestionados que permita leer y previsualizar archivos del proyecto, incluyendo diffs en vivo cuando cambian durante sesiones de chat.

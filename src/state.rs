@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
+use vscode_shell::AppShell;
 
 /// Define metadatos reutilizables para paneles y recursos navegables.
 #[derive(Clone, Copy, Debug)]
@@ -5068,5 +5069,15 @@ impl ConditionValue {
                 }
             }
         }
+    }
+}
+
+impl AppShell for AppState {
+    fn init(&mut self, cc: &eframe::CreationContext<'_>) {
+        crate::ui::theme::apply(&cc.egui_ctx);
+    }
+
+    fn update(&mut self, ctx: &eframe::egui::Context) {
+        crate::ui::draw_ui(ctx, self);
     }
 }

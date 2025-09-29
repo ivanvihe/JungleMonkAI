@@ -3,10 +3,15 @@ name = "multimodal-agent-rs"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["templates/vscode_shell"]
+resolver = "2"
+
 [dependencies]
 # UI
 eframe = "0.27.2"
 egui_extras = { version = "0.27.2", features = ["image"] }
+vscode_shell = { path = "templates/vscode_shell" }
 
 # Async
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

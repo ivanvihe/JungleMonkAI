@@ -1,313 +1,363 @@
+use eframe::egui;
+use vscode_shell::components::{self, NavigationModel, SidebarItem, SidebarProps, SidebarSection};
+
 use crate::local_providers::LocalModelProvider;
 use crate::state::{
     AppState, MainTab, MainView, PreferencePanel, RemoteProviderKind, ResourceSection,
 };
-use eframe::egui;
-
-use super::theme;
-
-const LEFT_PANEL_WIDTH: f32 = 280.0;
-const ICON_PREFS: &str = "\u{f013}"; // cog
-const ICON_FOLDER: &str = "\u{f07c}"; // folder-open
-const ICON_ARROW: &str = "\u{f105}"; // angle-right
-const ICON_LIGHTBULB: &str = "\u{f0eb}"; // lightbulb
-const ICON_CHAT: &str = "\u{f086}"; // comments
+use crate::ui::layout_bridge::shell_theme;
 
 pub fn draw_sidebar(ctx: &egui::Context, state: &mut AppState) {
-    state.left_panel_width = LEFT_PANEL_WIDTH;
+    let mut layout = state.layout.clone();
+    {
+        let mut model = AppSidebar { state };
+        components::draw_sidebar(ctx, &mut layout, &mut model);
+    }
+    state.layout = layout;
+}
 
-    egui::SidePanel::left("navigation_panel")
-        .resizable(false)
-        .exact_width(LEFT_PANEL_WIDTH)
-        .frame(
-            egui::Frame::none()
-                .fill(theme::color_panel())
-                .stroke(theme::subtle_border(&state.theme))
-                .inner_margin(egui::Margin {
-                    left: 18.0,
-                    right: 18.0,
-                    top: 18.0,
-                    bottom: 18.0,
+struct AppSidebar<'a> {
+    state: &'a mut AppState,
+}
+
+impl AppSidebar<'_> {
+    fn primary_section(&self) -> SidebarSection {
+        SidebarSection {
+            id: "primary".into(),
+            title: "Principal".into(),
+            items: vec![
+                self.main_item("main:chat", "💬 Chat multimodal", MainView::ChatMultimodal),
+                self.main_item("main:cron", "⏱️ Cron", MainView::CronScheduler),
+                self.main_item("main:activity", "📈 Actividad", MainView::ActivityFeed),
+                self.main_item("main:debug", "🪲 Debug", MainView::DebugConsole),
+            ],
+        }
+    }
+
+    fn preference_sections(&self) -> Vec<SidebarSection> {
+        vec![
+            self.preference_group(
+                "Preferencias · Sistema",
+                &[
+                    PreferencePanel::SystemGithub,
+                    PreferencePanel::SystemCache,
+                    PreferencePanel::SystemResources,
+                ],
+            ),
+            self.preference_group(
+                "Preferencias · Personalización",
+                &[
+                    PreferencePanel::CustomizationCommands,
+                    PreferencePanel::CustomizationMemory,
+                    PreferencePanel::CustomizationProfiles,
+                    PreferencePanel::CustomizationProjects,
+                ],
+            ),
+            self.preference_group(
+                "Preferencias · Proveedores",
+                &[
+                    PreferencePanel::ProvidersAnthropic,
+                    PreferencePanel::ProvidersOpenAi,
+                    PreferencePanel::ProvidersGroq,
+                ],
+            ),
+            self.preference_group(
+                "Preferencias · Modelos locales",
+                &[PreferencePanel::LocalJarvis],
+            ),
+        ]
+    }
+
+    fn resources_sections(&self) -> Vec<SidebarSection> {
+        vec![
+            SidebarSection {
+                id: "resources-remote".into(),
+                title: "Recursos · Catálogos remotos".into(),
+                items: [
+                    RemoteProviderKind::Anthropic,
+                    RemoteProviderKind::OpenAi,
+                    RemoteProviderKind::Groq,
+                ]
+                .into_iter()
+                .map(|provider| {
+                    let section = ResourceSection::RemoteCatalog(provider);
+                    let metadata = section.metadata();
+                    SidebarItem {
+                        id: format!("{}", resource_id(&section)),
+                        label: metadata
+                            .breadcrumb
+                            .last()
+                            .copied()
+                            .unwrap_or(metadata.title)
+                            .to_string(),
+                        description: Some(metadata.description.to_string()),
+                        icon: Some("☁️".into()),
+                        badge: None,
+                        selected: self
+                            .state
+                            .selected_resource
+                            .map(|current| current == section)
+                            .unwrap_or(false)
+                            && self.state.active_main_view == MainView::ResourceBrowser,
+                    }
                 })
-                .rounding(egui::Rounding::same(14.0)),
-        )
-        .show(ctx, |ui| {
-            ui.set_width(ui.available_width());
+                .collect(),
+            },
+            SidebarSection {
+                id: "resources-local".into(),
+                title: "Recursos · Galerías locales".into(),
+                items: [
+                    LocalModelProvider::HuggingFace,
+                    LocalModelProvider::GithubModels,
+                    LocalModelProvider::Replicate,
+                    LocalModelProvider::Ollama,
+                    LocalModelProvider::OpenRouter,
+                    LocalModelProvider::Modelscope,
+                ]
+                .into_iter()
+                .map(|provider| {
+                    let section = ResourceSection::LocalCatalog(provider);
+                    let metadata = section.metadata();
+                    SidebarItem {
+                        id: resource_id(&section),
+                        label: metadata
+                            .breadcrumb
+                            .last()
+                            .copied()
+                            .unwrap_or(metadata.title)
+                            .to_string(),
+                        description: Some(metadata.description.to_string()),
+                        icon: Some("💾".into()),
+                        badge: None,
+                        selected: self
+                            .state
+                            .selected_resource
+                            .map(|current| current == section)
+                            .unwrap_or(false)
+                            && self.state.active_main_view == MainView::ResourceBrowser,
+                    }
+                })
+                .collect(),
+            },
+            SidebarSection {
+                id: "resources-installed".into(),
+                title: "Recursos · Espacios conectados".into(),
+                items: vec![
+                    resource_item(
+                        ResourceSection::InstalledLocal,
+                        self.state.selected_resource,
+                        "🧩",
+                    ),
+                    resource_item(
+                        ResourceSection::ConnectedProjects,
+                        self.state.selected_resource,
+                        "🗂️",
+                    ),
+                    resource_item(
+                        ResourceSection::GithubRepositories,
+                        self.state.selected_resource,
+                        "📁",
+                    ),
+                ],
+            },
+        ]
+    }
 
-            ui.vertical(|ui| {
-                draw_primary_navigation(ui, state);
+    fn main_item(&self, id: &str, label: &str, view: MainView) -> SidebarItem {
+        SidebarItem {
+            id: id.into(),
+            label: label.into(),
+            description: None,
+            icon: None,
+            badge: None,
+            selected: self.state.active_main_view == view,
+        }
+    }
 
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(12.0);
-
-                egui::ScrollArea::vertical()
-                    .id_source("sidebar_navigation_tree")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        draw_preferences_tree(ui, state);
-                        ui.add_space(16.0);
-                        draw_resources_tree(ui, state);
-                    });
-            });
-        });
-}
-
-fn draw_primary_navigation(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.label(
-        egui::RichText::new("Principal")
-            .color(theme::color_text_weak())
-            .size(12.0),
-    );
-    ui.add_space(6.0);
-
-    let is_active = matches!(
-        state.active_main_view,
-        MainView::ChatMultimodal
-            | MainView::CronScheduler
-            | MainView::ActivityFeed
-            | MainView::DebugConsole
-    );
-
-    let response = nav_entry(ui, 0.0, ICON_CHAT, "Chat multimodal", is_active)
-        .on_hover_text("Conversación, cron y registros del agente");
-
-    if response.clicked() {
-        state.set_active_tab(MainTab::Chat);
+    fn preference_group(&self, title: &str, panels: &[PreferencePanel]) -> SidebarSection {
+        SidebarSection {
+            id: format!("prefs-{}", title.replace(' ', "-").to_lowercase()),
+            title: title.into(),
+            items: panels
+                .iter()
+                .map(|panel| {
+                    let metadata = panel.metadata();
+                    SidebarItem {
+                        id: preference_id(*panel),
+                        label: metadata
+                            .breadcrumb
+                            .last()
+                            .copied()
+                            .unwrap_or(metadata.title)
+                            .to_string(),
+                        description: Some(metadata.description.to_string()),
+                        icon: Some("⚙️".into()),
+                        badge: None,
+                        selected: self.state.active_main_view == MainView::Preferences
+                            && self.state.selected_preference == *panel,
+                    }
+                })
+                .collect(),
+        }
     }
 }
 
-fn draw_preferences_tree(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.label(
-        egui::RichText::new(format!("{} Preferencias", ICON_PREFS))
-            .color(theme::color_text_primary())
-            .strong()
-            .size(13.0),
-    );
-    ui.add_space(4.0);
+impl NavigationModel for AppSidebar<'_> {
+    fn theme(&self) -> vscode_shell::layout::ShellTheme {
+        shell_theme(&self.state.theme)
+    }
 
-    draw_preference_group(
-        ui,
-        state,
-        "Sistema",
-        &[
-            PreferencePanel::SystemGithub,
-            PreferencePanel::SystemCache,
-            PreferencePanel::SystemResources,
-        ],
-    );
-    draw_preference_group(
-        ui,
-        state,
-        "Personalización",
-        &[
-            PreferencePanel::CustomizationCommands,
-            PreferencePanel::CustomizationMemory,
-            PreferencePanel::CustomizationProfiles,
-            PreferencePanel::CustomizationProjects,
-        ],
-    );
-    draw_preference_group(
-        ui,
-        state,
-        "Proveedores",
-        &[
-            PreferencePanel::ProvidersAnthropic,
-            PreferencePanel::ProvidersOpenAi,
-            PreferencePanel::ProvidersGroq,
-        ],
-    );
-    draw_preference_group(
-        ui,
-        state,
-        "Modelos locales",
-        &[PreferencePanel::LocalJarvis],
-    );
-}
+    fn props(&self) -> SidebarProps {
+        let mut sections = Vec::new();
+        sections.push(self.primary_section());
+        sections.extend(self.preference_sections());
+        sections.extend(self.resources_sections());
 
-fn draw_preference_group(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    title: &str,
-    panels: &[PreferencePanel],
-) {
-    egui::CollapsingHeader::new(title)
-        .default_open(true)
-        .show(ui, |ui| {
-            for panel in panels {
-                let metadata = panel.metadata();
-                let label = metadata
-                    .breadcrumb
-                    .last()
-                    .copied()
-                    .unwrap_or(metadata.title);
-                let response = nav_entry(
-                    ui,
-                    12.0,
-                    ICON_ARROW,
-                    label,
-                    state.active_main_view == MainView::Preferences
-                        && state.selected_preference == *panel,
-                );
-                if response.clicked() {
-                    state.selected_preference = *panel;
-                    state.selected_resource = None;
-                    state.active_main_view = MainView::Preferences;
-                    state.sync_active_tab_from_view();
-                }
+        SidebarProps {
+            title: Some("Navegación".into()),
+            sections,
+            collapse_button_tooltip: Some("Ocultar navegación".into()),
+        }
+    }
+
+    fn on_item_selected(&mut self, item_id: &str) {
+        if let Some(view) = match item_id {
+            "main:chat" => Some(MainView::ChatMultimodal),
+            "main:cron" => Some(MainView::CronScheduler),
+            "main:activity" => Some(MainView::ActivityFeed),
+            "main:debug" => Some(MainView::DebugConsole),
+            _ => None,
+        } {
+            self.state.active_main_view = view;
+            if let Some(tab) = MainTab::from_view(view) {
+                self.state.set_active_tab(tab);
             }
-        });
-}
+            return;
+        }
 
-fn draw_resources_tree(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.label(
-        egui::RichText::new(format!("{} Recursos", ICON_FOLDER))
-            .color(theme::color_text_primary())
-            .strong()
-            .size(13.0),
-    );
-    ui.add_space(4.0);
+        if let Some(panel) = parse_preference_id(item_id) {
+            self.state.selected_preference = panel;
+            self.state.selected_resource = None;
+            self.state.active_main_view = MainView::Preferences;
+            self.state.sync_active_tab_from_view();
+            return;
+        }
 
-    egui::CollapsingHeader::new("Catálogos remotos")
-        .default_open(true)
-        .show(ui, |ui| {
-            for provider in [
-                RemoteProviderKind::Anthropic,
-                RemoteProviderKind::OpenAi,
-                RemoteProviderKind::Groq,
-            ] {
-                let label = provider.display_name();
-                let response = nav_entry(
-                    ui,
-                    12.0,
-                    ICON_ARROW,
-                    label,
-                    matches!(
-                        state.selected_resource,
-                        Some(ResourceSection::RemoteCatalog(active)) if active == provider
-                    ) && state.active_main_view == MainView::ResourceBrowser,
-                );
-                if response.clicked() {
-                    state.selected_resource = Some(ResourceSection::RemoteCatalog(provider));
-                    state.active_main_view = MainView::ResourceBrowser;
-                    state.sync_active_tab_from_view();
-                }
-            }
-        });
-
-    egui::CollapsingHeader::new("Galerías locales")
-        .default_open(false)
-        .show(ui, |ui| {
-            for provider in [
-                LocalModelProvider::HuggingFace,
-                LocalModelProvider::GithubModels,
-                LocalModelProvider::Replicate,
-                LocalModelProvider::Ollama,
-                LocalModelProvider::OpenRouter,
-                LocalModelProvider::Modelscope,
-            ] {
-                let label = provider.display_name();
-                let response = nav_entry(
-                    ui,
-                    12.0,
-                    ICON_FOLDER,
-                    label,
-                    matches!(
-                        state.selected_resource,
-                        Some(ResourceSection::LocalCatalog(active)) if active == provider
-                    ) && state.active_main_view == MainView::ResourceBrowser,
-                );
-                if response.clicked() {
-                    state.selected_resource = Some(ResourceSection::LocalCatalog(provider));
-                    state.active_main_view = MainView::ResourceBrowser;
-                    state.sync_active_tab_from_view();
-                }
-            }
-        });
-
-    egui::CollapsingHeader::new("Productividad y proyectos")
-        .default_open(true)
-        .show(ui, |ui| {
-            let entries = [
-                (
-                    ICON_FOLDER,
-                    "Proyectos locales",
-                    ResourceSection::ConnectedProjects,
-                ),
-                (
-                    ICON_ARROW,
-                    "Repositorios GitHub",
-                    ResourceSection::GithubRepositories,
-                ),
-            ];
-            for (icon, label, section) in entries {
-                let response = nav_entry(
-                    ui,
-                    12.0,
-                    icon,
-                    label,
-                    state.selected_resource == Some(section)
-                        && state.active_main_view == MainView::ResourceBrowser,
-                );
-                if response.clicked() {
-                    state.selected_resource = Some(section);
-                    state.active_main_view = MainView::ResourceBrowser;
-                    state.sync_active_tab_from_view();
-                }
-            }
-        });
-
-    let response = nav_entry(
-        ui,
-        0.0,
-        ICON_LIGHTBULB,
-        "Modelos instalados",
-        matches!(
-            state.selected_resource,
-            Some(ResourceSection::InstalledLocal)
-        ) && state.active_main_view == MainView::ResourceBrowser,
-    );
-    if response.clicked() {
-        state.selected_resource = Some(ResourceSection::InstalledLocal);
-        state.active_main_view = MainView::ResourceBrowser;
-        state.sync_active_tab_from_view();
+        if let Some(section) = parse_resource_id(item_id) {
+            self.state.selected_resource = Some(section);
+            self.state.active_main_view = MainView::ResourceBrowser;
+            self.state.sync_active_tab_from_view();
+        }
     }
 }
 
-fn nav_entry(
-    ui: &mut egui::Ui,
-    indent: f32,
+fn preference_id(panel: PreferencePanel) -> String {
+    match panel {
+        PreferencePanel::SystemGithub => "pref:system_github",
+        PreferencePanel::SystemCache => "pref:system_cache",
+        PreferencePanel::SystemResources => "pref:system_resources",
+        PreferencePanel::CustomizationCommands => "pref:custom_commands",
+        PreferencePanel::CustomizationMemory => "pref:custom_memory",
+        PreferencePanel::CustomizationProfiles => "pref:custom_profiles",
+        PreferencePanel::CustomizationProjects => "pref:custom_projects",
+        PreferencePanel::ProvidersAnthropic => "pref:providers_anthropic",
+        PreferencePanel::ProvidersOpenAi => "pref:providers_openai",
+        PreferencePanel::ProvidersGroq => "pref:providers_groq",
+        PreferencePanel::LocalJarvis => "pref:local_jarvis",
+    }
+    .into()
+}
+
+fn parse_preference_id(id: &str) -> Option<PreferencePanel> {
+    Some(match id {
+        "pref:system_github" => PreferencePanel::SystemGithub,
+        "pref:system_cache" => PreferencePanel::SystemCache,
+        "pref:system_resources" => PreferencePanel::SystemResources,
+        "pref:custom_commands" => PreferencePanel::CustomizationCommands,
+        "pref:custom_memory" => PreferencePanel::CustomizationMemory,
+        "pref:custom_profiles" => PreferencePanel::CustomizationProfiles,
+        "pref:custom_projects" => PreferencePanel::CustomizationProjects,
+        "pref:providers_anthropic" => PreferencePanel::ProvidersAnthropic,
+        "pref:providers_openai" => PreferencePanel::ProvidersOpenAi,
+        "pref:providers_groq" => PreferencePanel::ProvidersGroq,
+        "pref:local_jarvis" => PreferencePanel::LocalJarvis,
+        _ => return None,
+    })
+}
+
+pub(crate) fn resource_id(section: &ResourceSection) -> String {
+    match section {
+        ResourceSection::LocalCatalog(provider) => format!("resource:local:{:?}", provider),
+        ResourceSection::RemoteCatalog(provider) => format!("resource:remote:{:?}", provider),
+        ResourceSection::InstalledLocal => "resource:installed".into(),
+        ResourceSection::ConnectedProjects => "resource:projects".into(),
+        ResourceSection::GithubRepositories => "resource:github".into(),
+    }
+}
+
+fn resource_item(
+    section: ResourceSection,
+    current: Option<ResourceSection>,
     icon: &str,
-    label: &str,
-    selected: bool,
-) -> egui::Response {
-    let desired = egui::vec2(ui.available_width(), 30.0);
-    let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
+) -> SidebarItem {
+    let metadata = section.metadata();
+    SidebarItem {
+        id: resource_id(&section),
+        label: metadata
+            .breadcrumb
+            .last()
+            .copied()
+            .unwrap_or(metadata.title)
+            .to_string(),
+        description: Some(metadata.description.to_string()),
+        icon: Some(icon.into()),
+        badge: None,
+        selected: current.map(|active| active == section).unwrap_or(false)
+            && matches!(
+                current,
+                Some(ResourceSection::InstalledLocal)
+                    | Some(ResourceSection::ConnectedProjects)
+                    | Some(ResourceSection::GithubRepositories)
+            ),
+    }
+}
 
-    let highlight = if selected {
-        theme::color_primary().gamma_multiply(0.15)
-    } else {
-        egui::Color32::from_rgba_unmultiplied(0, 0, 0, 0)
-    };
-    ui.painter().rect_filled(rect, 6.0, highlight);
+pub(crate) fn parse_resource_id(id: &str) -> Option<ResourceSection> {
+    if let Some(rest) = id.strip_prefix("resource:local:") {
+        return match rest {
+            "HuggingFace" => Some(ResourceSection::LocalCatalog(
+                LocalModelProvider::HuggingFace,
+            )),
+            "GithubModels" => Some(ResourceSection::LocalCatalog(
+                LocalModelProvider::GithubModels,
+            )),
+            "Replicate" => Some(ResourceSection::LocalCatalog(LocalModelProvider::Replicate)),
+            "Ollama" => Some(ResourceSection::LocalCatalog(LocalModelProvider::Ollama)),
+            "OpenRouter" => Some(ResourceSection::LocalCatalog(
+                LocalModelProvider::OpenRouter,
+            )),
+            "Modelscope" => Some(ResourceSection::LocalCatalog(
+                LocalModelProvider::Modelscope,
+            )),
+            _ => None,
+        };
+    }
 
-    let mut contents = ui.child_ui(rect, egui::Layout::left_to_right(egui::Align::Center));
-    contents.add_space(6.0 + indent);
-    contents.label(
-        egui::RichText::new(icon)
-            .font(theme::icon_font(13.0))
-            .color(theme::color_text_weak()),
-    );
-    contents.add_space(8.0);
-    contents.label(
-        egui::RichText::new(label)
-            .color(if selected {
-                theme::color_text_primary()
-            } else {
-                theme::color_text_weak()
-            })
-            .size(13.0),
-    );
+    if let Some(rest) = id.strip_prefix("resource:remote:") {
+        return match rest {
+            "Anthropic" => Some(ResourceSection::RemoteCatalog(
+                RemoteProviderKind::Anthropic,
+            )),
+            "OpenAi" => Some(ResourceSection::RemoteCatalog(RemoteProviderKind::OpenAi)),
+            "Groq" => Some(ResourceSection::RemoteCatalog(RemoteProviderKind::Groq)),
+            _ => None,
+        };
+    }
 
-    response
+    match id {
+        "resource:installed" => Some(ResourceSection::InstalledLocal),
+        "resource:projects" => Some(ResourceSection::ConnectedProjects),
+        "resource:github" => Some(ResourceSection::GithubRepositories),
+        _ => None,
+    }
 }

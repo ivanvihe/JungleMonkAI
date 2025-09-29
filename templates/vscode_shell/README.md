@@ -1,8 +1,9 @@
 # Plantilla VSCode Shell
 
-Esta plantilla encapsula el arranque de una aplicación basada en `eframe` y
+Esta plantilla encapsula el arranque de una aplicación basada en `eframe`,
 expone un `run` reutilizable que ejecuta cualquier estado que implemente el
-rasgo [`AppShell`](src/lib.rs).
+rasgo [`AppShell`](src/lib.rs) y proporciona un conjunto de componentes
+opinionados que reproducen un shell tipo VSCode.
 
 ## Uso básico
 
@@ -23,52 +24,64 @@ fn main() {
 }
 ```
 
-## Inyectar vistas personalizadas mediante _closures_
+## Componentes reutilizables
 
-Puedes combinar un estado propio con _closures_ que reciban `&Context` y un
-estado mutable para construir vistas especializadas. Por ejemplo:
+El módulo [`components`](src/components/mod.rs) define estructuras de _props_
+y rasgos ligeros para renderizar encabezados, barras laterales, paneles de
+recursos y la zona principal de contenido. Cada componente recibe una instancia
+que implemente el rasgo correspondiente (`HeaderModel`, `NavigationModel`,
+`ResourcePanelModel` o `MainContentModel`) y obtiene de él los datos a dibujar y
+los _callbacks_ que debe invocar.
+
+Por ejemplo, para dibujar el encabezado basta con exponer un modelo que devuelva
+un [`HeaderProps`] con título, acciones y configuración de búsqueda:
 
 ```rust
-use eframe::egui::Context;
-use vscode_shell::AppShell;
+use vscode_shell::components::{draw_header, HeaderAction, HeaderModel, HeaderProps};
+use vscode_shell::layout::{LayoutConfig, ShellTheme};
 
-struct CustomViewShell<State, View>
-where
-    View: FnMut(&Context, &mut State) + 'static,
-    State: 'static,
-{
-    state: State,
-    view: View,
+struct HeaderState {
+    layout: LayoutConfig,
 }
 
-impl<State, View> CustomViewShell<State, View>
-where
-    View: FnMut(&Context, &mut State) + 'static,
-    State: 'static,
-{
-    fn new(state: State, view: View) -> Self {
-        Self { state, view }
+impl HeaderModel for HeaderState {
+    fn theme(&self) -> ShellTheme {
+        ShellTheme::default()
     }
+
+    fn props(&self) -> HeaderProps {
+        HeaderProps {
+            title: "Demo".into(),
+            subtitle: Some("Shell mínimo".into()),
+            search_placeholder: Some("Buscar".into()),
+            actions: vec![HeaderAction::new("settings", "Ajustes")],
+            logo_acronym: Some("DM".into()),
+        }
+    }
+
+    fn search_value(&self) -> String { String::new() }
+    fn set_search_value(&mut self, _value: String) {}
+    fn search_palette(&self) -> Vec<_> { Vec::new() }
+    fn on_search_result(&mut self, _result_id: &str) {}
+    fn on_action(&mut self, _action_id: &str) {}
 }
 
-impl<State, View> AppShell for CustomViewShell<State, View>
-where
-    View: FnMut(&Context, &mut State) + 'static,
-    State: 'static,
-{
-    fn init(&mut self, _cc: &eframe::CreationContext<'_>) {
-        // Configura el estado o el tema inicial si es necesario.
-    }
-
-    fn update(&mut self, ctx: &Context) {
-        (self.view)(ctx, &mut self.state);
-    }
+fn ui(ctx: &egui::Context, header: &mut HeaderState) {
+    draw_header(ctx, &header.layout, header);
 }
 ```
 
-Con este patrón puedes inyectar cualquier vista declarativa sin modificar la
-plantilla: basta con encapsular el estado y la _closure_ dentro de un tipo que
-implemente `AppShell` y pasarlo a `run`.
+Los módulos de ejemplo del crate (`vscode_shell::examples`) incluyen un shell
+completo que muestra cómo combinar los cuatro paneles.
+
+## LayoutConfig y sidebars colapsables
+
+[`LayoutConfig`](src/layout.rs) centraliza la visibilidad y el ancho de cada
+panel. Los componentes laterales emiten señales mediante `emit_navigation_signal`
+y `emit_resource_signal` para notificar cuando el usuario colapsa o expande un
+sidebar. Puedes consultar dichas señales con `take_navigation_signal()` y
+`take_resource_signal()` para sincronizar tu propio estado o persistir la
+configuración.
 
 ## Personalizar tema y fuentes
 

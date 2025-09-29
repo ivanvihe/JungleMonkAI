@@ -1,9 +1,10 @@
 use super::{
     feature::{CommandRegistry, FeatureModule, WorkbenchRegistry},
     AutomationWorkflowBoard, CronBoardState, EventAutomationState, ExternalIntegrationsState,
-    LogEntry, NavigationNode, NavigationRegistry, NavigationTarget, ScheduledReminder,
+    LogEntry, LogStatus, NavigationNode, NavigationRegistry, NavigationTarget, ScheduledReminder,
 };
 use crate::config::AppConfig;
+use chrono::Local;
 
 pub struct AutomationState {
     pub cron_board: CronBoardState,
@@ -16,7 +17,7 @@ pub struct AutomationState {
 
 impl AutomationState {
     pub fn from_config(_config: &AppConfig) -> Self {
-        Self {
+        let mut state = Self {
             cron_board: CronBoardState::with_tasks(super::default_scheduled_tasks()),
             workflows: AutomationWorkflowBoard::with_workflows(
                 super::default_automation_workflows(),
@@ -25,7 +26,21 @@ impl AutomationState {
             event_automation: EventAutomationState::default(),
             external_integrations: ExternalIntegrationsState::default(),
             activity_logs: super::default_logs(),
-        }
+        };
+
+        let summary = LogEntry {
+            status: LogStatus::Ok,
+            source: "Automation".to_string(),
+            message: format!(
+                "{} listeners activos · {} conectores externos",
+                state.event_automation.listeners.len(),
+                state.external_integrations.connectors.len()
+            ),
+            timestamp: Local::now().format("%H:%M:%S").to_string(),
+        };
+        state.push_activity(summary);
+
+        state
     }
 
     pub fn push_activity(&mut self, entry: LogEntry) {

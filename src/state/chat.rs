@@ -33,7 +33,7 @@ impl ChatState {
         let (provider_response_tx, provider_response_rx) = mpsc::channel();
         let (local_install_tx, local_install_rx) = mpsc::channel();
 
-        Self {
+        let mut state = Self {
             input: String::new(),
             messages: vec![ChatMessage::default()],
             custom_commands: if config.custom_commands.is_empty() {
@@ -54,11 +54,29 @@ impl ChatState {
             pending_local_installs: Vec::new(),
             pending_provider_calls: Vec::new(),
             next_provider_call_id: 0,
-        }
+        };
+
+        let initial_provider = state
+            .routing
+            .message_override
+            .unwrap_or(state.routing.active_thread_provider);
+        state.messages.push(ChatMessage::system(format!(
+            "Canal predeterminado configurado en {}.",
+            initial_provider.display_name()
+        )));
+
+        state
     }
 
     pub fn available_actions(&self) -> impl Iterator<Item = CustomCommandAction> + '_ {
         DEFAULT_CUSTOM_ACTIONS.iter().copied()
+    }
+
+    pub fn current_route_display(&self) -> &'static str {
+        self.routing
+            .message_override
+            .unwrap_or(self.routing.active_thread_provider)
+            .display_name()
     }
 }
 

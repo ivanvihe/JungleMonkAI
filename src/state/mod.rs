@@ -1559,18 +1559,16 @@ pub struct EventAutomationState {
 
 impl Default for EventAutomationState {
     fn default() -> Self {
-        Self {
-            listeners: Vec::new(),
-            show_only_enabled: false,
-        }
+        Self::with_listeners(default_event_listeners())
     }
 }
 
 impl EventAutomationState {
     pub fn with_listeners(listeners: Vec<EventListener>) -> Self {
-        let mut state = Self::default();
-        state.listeners = listeners;
-        state
+        Self {
+            listeners,
+            show_only_enabled: false,
+        }
     }
 }
 
@@ -1696,9 +1694,7 @@ pub struct ExternalIntegrationsState {
 
 impl Default for ExternalIntegrationsState {
     fn default() -> Self {
-        Self {
-            connectors: Vec::new(),
-        }
+        Self::with_connectors(default_external_integrations())
     }
 }
 
@@ -2702,6 +2698,10 @@ impl Default for AppState {
             global_search_recent,
         };
 
+        state.register_workbench_initializer(|registry| {
+            crate::ui::chat::register_preferences_workbench_view(registry);
+        });
+
         if state.resources.jarvis_auto_start {
             match state.ensure_jarvis_runtime() {
                 Ok(runtime) => {
@@ -2721,6 +2721,21 @@ impl Default for AppState {
 
         state.refresh_personalization_resources();
         state.rebuild_navigation();
+        let routing_label = state.chat.current_route_display().to_string();
+        state
+            .navigation_registry_mut()
+            .register_node(navigation::NavigationNode {
+                id: "main:routing-status".into(),
+                label: format!("Ruta activa · {}", routing_label),
+                description: Some(
+                    "Enruta nuevos mensajes al proveedor seleccionado automáticamente.".into(),
+                ),
+                icon: Some("🚦".into()),
+                badge: None,
+                target: navigation::NavigationTarget::main(MainView::ChatMultimodal),
+                order: 4,
+                section_id: navigation::SECTION_PRIMARY.to_string(),
+            });
         state.rebuild_command_registry();
         state.rebuild_workbench_views();
 
@@ -3818,6 +3833,7 @@ impl AppState {
         self.command_registry = registry;
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn register_workbench_view<V>(&mut self, view: MainView, view_impl: V)
     where
         V: WorkbenchView + 'static,
@@ -3854,7 +3870,6 @@ impl AppState {
         self.chat.register_workbench_views(&mut registry);
         self.automation.register_workbench_views(&mut registry);
         self.resources.register_workbench_views(&mut registry);
-        crate::ui::chat::register_preferences_workbench_view(&mut registry);
         for initializer in &self.workbench_initializers {
             initializer(&mut registry);
         }

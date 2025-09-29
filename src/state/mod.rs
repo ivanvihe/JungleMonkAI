@@ -1194,9 +1194,6 @@ impl ModelRouteSuggestion {
 
 #[derive(Clone, Debug)]
 pub struct ChatRoutingState {
-    pub active_thread_provider: RemoteProviderKind,
-    pub message_override: Option<RemoteProviderKind>,
-    pub route_every_message: bool,
     pub suggestions: Vec<ModelRouteSuggestion>,
     pub status: Option<String>,
 }
@@ -1204,43 +1201,35 @@ pub struct ChatRoutingState {
 impl Default for ChatRoutingState {
     fn default() -> Self {
         Self {
-            active_thread_provider: RemoteProviderKind::Anthropic,
-            message_override: None,
-            route_every_message: true,
             suggestions: vec![
                 ModelRouteSuggestion::new(
                     "Código y diffs",
-                    "Envía a Groq para validar cambios y obtener tiempos de respuesta mínimos.",
+                    "Menciona @groq para validar cambios con latencia mínima.",
                     RemoteProviderKind::Groq,
                     vec!["code", "latencia"],
                 ),
                 ModelRouteSuggestion::new(
                     "Resumen ejecutivo",
-                    "OpenAI ofrece mejor compresión semántica en resúmenes largos.",
+                    "Invoca @openai para compresión semántica en resúmenes largos.",
                     RemoteProviderKind::OpenAi,
                     vec!["resumen", "informes"],
                 ),
                 ModelRouteSuggestion::new(
                     "Análisis profundo",
-                    "Claude Opus prioriza razonamiento para auditorías o decisiones críticas.",
+                    "@claude ofrece razonamiento extendido para auditorías o decisiones críticas.",
                     RemoteProviderKind::Anthropic,
                     vec!["razonamiento", "auditoría"],
                 ),
             ],
-            status: None,
+            status: Some(
+                "Menciona @alias de un proveedor remoto para enrutar partes de tu mensaje."
+                    .to_string(),
+            ),
         }
     }
 }
 
 impl ChatRoutingState {
-    pub fn set_override(&mut self, provider: RemoteProviderKind) {
-        self.message_override = Some(provider);
-    }
-
-    pub fn take_override(&mut self) -> Option<RemoteProviderKind> {
-        self.message_override.take()
-    }
-
     pub fn update_status(&mut self, status: Option<String>) {
         self.status = status;
     }
@@ -2597,7 +2586,7 @@ pub struct AppState {
     pub projects: Vec<String>,
     /// Proyecto actualmente seleccionado.
     pub selected_project: Option<usize>,
-    /// Preferencias de enrutamiento por hilo en el chat (obsoleto, se mantiene para compatibilidad).
+    /// Estado de enrutamiento por alias en el chat.
     pub chat_routing: ChatRoutingState,
     /// Registro centralizado de secciones y nodos de navegación.
     pub navigation: NavigationRegistry,
@@ -2721,14 +2710,14 @@ impl Default for AppState {
 
         state.refresh_personalization_resources();
         state.rebuild_navigation();
-        let routing_label = state.chat.current_route_display().to_string();
+        let routing_label = state.chat.current_route_display();
         state
             .navigation_registry_mut()
             .register_node(navigation::NavigationNode {
                 id: "main:routing-status".into(),
-                label: format!("Ruta activa · {}", routing_label),
+                label: format!("Rutas por alias · {}", routing_label),
                 description: Some(
-                    "Enruta nuevos mensajes al proveedor seleccionado automáticamente.".into(),
+                    "Divide tus mensajes entre proveedores remotos usando menciones @alias.".into(),
                 ),
                 icon: Some("🚦".into()),
                 badge: None,
@@ -2761,6 +2750,7 @@ pub struct ChatMessage {
     pub text: String,
     pub timestamp: String,
     pub status: ChatMessageStatus,
+    pub origin: Option<RemoteProviderKind>,
 }
 
 impl ChatMessage {
@@ -2770,6 +2760,7 @@ impl ChatMessage {
             text: text.into(),
             timestamp: Local::now().format("%H:%M:%S").to_string(),
             status: ChatMessageStatus::Normal,
+            origin: None,
         }
     }
 
@@ -2781,12 +2772,17 @@ impl ChatMessage {
         Self::new("User", text)
     }
 
-    pub fn pending(sender: impl Into<String>, text: impl Into<String>) -> Self {
+    pub fn pending(
+        sender: impl Into<String>,
+        text: impl Into<String>,
+        origin: Option<RemoteProviderKind>,
+    ) -> Self {
         ChatMessage {
             sender: sender.into(),
             text: text.into(),
             timestamp: Local::now().format("%H:%M:%S").to_string(),
             status: ChatMessageStatus::Pending,
+            origin,
         }
     }
 
@@ -2811,6 +2807,7 @@ pub(crate) struct PendingProviderCall {
     alias: String,
     model: String,
     message_index: usize,
+    origin: RemoteProviderKind,
 }
 
 #[derive(Debug)]
@@ -3593,6 +3590,7 @@ impl AppState {
                             message.status = ChatMessageStatus::Normal;
                             message.timestamp = Local::now().format("%H:%M:%S").to_string();
                             message.sender = pending.alias.clone();
+                            message.origin = Some(pending.origin);
                         }
 
                         let char_count = text.chars().count();
@@ -4030,6 +4028,170 @@ impl AppState {
         }
     }
 
+    fn parse_provider_mentions(&self, input: &str) -> (Vec<(RemoteProviderKind, String)>, String) {
+        #[derive(Clone, Copy)]
+        struct RawMention {
+            kind: RemoteProviderKind,
+            start: usize,
+            alias_end: usize,
+        }
+
+        let alias_entries: Vec<(RemoteProviderKind, String)> = vec![
+            (
+                RemoteProviderKind::Anthropic,
+                Self::provider_alias_display(&self.resources.claude_alias, "claude"),
+            ),
+            (
+                RemoteProviderKind::OpenAi,
+                Self::provider_alias_display(&self.resources.openai_alias, "openai"),
+            ),
+            (
+                RemoteProviderKind::Groq,
+                Self::provider_alias_display(&self.resources.groq_alias, "groq"),
+            ),
+        ]
+        .into_iter()
+        .map(|(kind, alias)| {
+            let sanitized = alias.trim().trim_start_matches('@').to_lowercase();
+            (kind, sanitized)
+        })
+        .filter(|(_, alias)| !alias.is_empty())
+        .collect();
+
+        if alias_entries.is_empty() {
+            return (Vec::new(), input.trim().to_string());
+        }
+
+        let mut raw_mentions = Vec::new();
+        let mut index = 0usize;
+        let bytes = input.as_bytes();
+        while index < bytes.len() {
+            let rest = &input[index..];
+            let mut chars = rest.chars();
+            let Some(ch) = chars.next() else {
+                break;
+            };
+
+            if ch != '@' {
+                index += ch.len_utf8();
+                continue;
+            }
+
+            let alias_slice = &rest[ch.len_utf8()..];
+            let mut alias = String::new();
+            let mut consumed = 0usize;
+            for (offset, next) in alias_slice.char_indices() {
+                if next.is_alphanumeric() || matches!(next, '_' | '-') {
+                    alias.push(next);
+                    consumed = offset + next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+
+            if alias.is_empty() {
+                index += ch.len_utf8();
+                continue;
+            }
+
+            let alias_lower = alias.to_lowercase();
+            if let Some((kind, _)) = alias_entries
+                .iter()
+                .find(|(_, candidate)| *candidate == alias_lower)
+            {
+                let alias_end = index + ch.len_utf8() + consumed;
+                raw_mentions.push(RawMention {
+                    kind: *kind,
+                    start: index,
+                    alias_end,
+                });
+                index = alias_end;
+            } else {
+                index += ch.len_utf8();
+            }
+        }
+
+        if raw_mentions.is_empty() {
+            return (Vec::new(), input.trim().to_string());
+        }
+
+        let mut mentions = Vec::new();
+        let mut consumed_ranges: Vec<(usize, usize)> = Vec::new();
+
+        for (idx, raw) in raw_mentions.iter().enumerate() {
+            let mut prompt_start = raw.alias_end;
+            if prompt_start >= input.len() {
+                continue;
+            }
+
+            while let Some(ch) = input[prompt_start..].chars().next() {
+                if ch.is_whitespace() || matches!(ch, ':' | ',' | '-') {
+                    prompt_start += ch.len_utf8();
+                } else {
+                    break;
+                }
+
+                if prompt_start >= input.len() {
+                    break;
+                }
+            }
+
+            if prompt_start >= input.len() {
+                continue;
+            }
+
+            let next_start = raw_mentions
+                .get(idx + 1)
+                .map(|next| next.start)
+                .unwrap_or_else(|| input.len());
+
+            if prompt_start >= next_start {
+                continue;
+            }
+
+            let prompt_slice = input[prompt_start..next_start].trim();
+            if prompt_slice.is_empty() {
+                continue;
+            }
+
+            mentions.push((raw.kind, prompt_slice.to_string()));
+            consumed_ranges.push((raw.start, next_start));
+        }
+
+        if consumed_ranges.is_empty() {
+            return (Vec::new(), input.trim().to_string());
+        }
+
+        consumed_ranges.sort_by_key(|(start, _)| *start);
+        let mut residual = String::new();
+        let mut cursor = 0usize;
+        for (start, end) in consumed_ranges {
+            if start > cursor {
+                residual.push_str(&input[cursor..start]);
+            }
+            cursor = end;
+        }
+
+        if cursor < input.len() {
+            residual.push_str(&input[cursor..]);
+        }
+
+        (mentions, residual.trim().to_string())
+    }
+
+    fn format_provider_list(names: &[String]) -> String {
+        match names.len() {
+            0 => String::new(),
+            1 => names[0].clone(),
+            2 => format!("{} y {}", names[0], names[1]),
+            _ => {
+                let mut result = names[..names.len() - 1].join(", ");
+                result.push_str(&format!(" y {}", names.last().unwrap()));
+                result
+            }
+        }
+    }
+
     fn extract_alias_prompt(alias: &str, input: &str) -> Option<String> {
         let alias_trimmed = alias.trim();
         if alias_trimmed.is_empty() {
@@ -4104,6 +4266,7 @@ impl AppState {
             let pending = ChatMessage::pending(
                 alias.clone(),
                 format!("Esperando respuesta de {}…", provider_name),
+                Some(provider_kind),
             );
             self.chat.messages.push(pending);
 
@@ -4117,6 +4280,7 @@ impl AppState {
                 alias: alias.clone(),
                 model: model.clone(),
                 message_index,
+                origin: provider_kind,
             });
 
             let tx = self.chat.provider_response_tx.clone();
@@ -4176,31 +4340,6 @@ impl AppState {
             format!("Quick test lanzado para {}", key.id),
         );
         Some(format!("Prueba rápida enviada a {}.", label))
-    }
-
-    pub fn try_route_selected_provider(&mut self, input: &str) -> bool {
-        if input.trim().is_empty() {
-            return false;
-        }
-
-        let target = if let Some(provider) = self.chat_routing.take_override() {
-            Some(provider)
-        } else if self.chat_routing.route_every_message {
-            Some(self.chat_routing.active_thread_provider)
-        } else {
-            None
-        };
-
-        if let Some(provider) = target {
-            self.invoke_provider_kind(provider, input.to_string());
-            self.chat_routing.update_status(Some(format!(
-                "Mensaje enviado a {}",
-                provider.display_name()
-            )));
-            true
-        } else {
-            false
-        }
     }
 
     fn invoke_anthropic(&mut self, prompt: String) {
@@ -4266,23 +4405,29 @@ impl AppState {
         );
     }
 
-    pub fn try_route_provider_message(&mut self, input: &str) -> bool {
-        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.claude_alias, input) {
-            self.invoke_anthropic(prompt);
-            return true;
+    pub fn try_route_provider_message(&mut self, input: &str) -> String {
+        let (mentions, residual) = self.parse_provider_mentions(input);
+        if mentions.is_empty() {
+            return residual;
         }
 
-        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.openai_alias, input) {
-            self.invoke_openai(prompt);
-            return true;
+        let mut invoked = Vec::new();
+        for (provider, prompt) in mentions {
+            if prompt.is_empty() {
+                continue;
+            }
+
+            self.invoke_provider_kind(provider, prompt);
+            invoked.push(provider.display_name().to_string());
         }
 
-        if let Some(prompt) = Self::extract_alias_prompt(&self.resources.groq_alias, input) {
-            self.invoke_groq(prompt);
-            return true;
+        if !invoked.is_empty() {
+            let summary = Self::format_provider_list(&invoked);
+            self.chat_routing
+                .update_status(Some(format!("Mensaje enviado a {}.", summary)));
         }
 
-        false
+        residual
     }
 
     pub fn try_invoke_jarvis_alias(&mut self, input: &str) -> bool {

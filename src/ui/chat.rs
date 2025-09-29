@@ -132,7 +132,7 @@ pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
                     egui::Frame::none()
                         .fill(theme::COLOR_PANEL)
                         .stroke(theme::subtle_border())
-                        .rounding(egui::Rounding::same(18.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin {
                             left: 18.0,
                             right: 12.0,
@@ -161,7 +161,7 @@ fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {
         egui::Frame::none()
             .fill(Color32::from_rgb(26, 28, 32))
             .stroke(theme::subtle_border())
-            .rounding(egui::Rounding::same(18.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 18.0,
                 right: 18.0,
@@ -203,7 +203,7 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
             .stroke(theme::subtle_border())
-            .rounding(egui::Rounding::same(18.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
                 right: 20.0,
@@ -218,27 +218,11 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                     metadata.breadcrumb.join(" › ")
                 };
 
-                if !breadcrumb_text.is_empty() {
-                    ui.label(
-                        RichText::new(breadcrumb_text)
-                            .color(theme::COLOR_TEXT_WEAK)
-                            .size(12.0),
-                    );
-                }
-
                 let heading = metadata
                     .breadcrumb
                     .last()
                     .copied()
                     .unwrap_or(metadata.title);
-
-                ui.heading(
-                    RichText::new(heading)
-                        .color(theme::COLOR_TEXT_PRIMARY)
-                        .strong(),
-                );
-                ui.label(RichText::new(metadata.description).color(theme::COLOR_TEXT_WEAK));
-                ui.add_space(12.0);
 
                 let mut tab_definitions = preference_tab_definitions(state.selected_preference);
                 if tab_definitions.is_empty() {
@@ -246,7 +230,7 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                         id: 0,
                         label: heading,
                         icon: None,
-                        tooltip: "",
+                        tooltip: metadata.description,
                     });
                 }
 
@@ -259,6 +243,22 @@ fn draw_preferences_view(ui: &mut egui::Ui, state: &mut AppState) {
                 {
                     *active_tab_entry = selection;
                 }
+                ui.add_space(12.0);
+
+                if !breadcrumb_text.is_empty() {
+                    ui.label(
+                        RichText::new(breadcrumb_text)
+                            .color(theme::COLOR_TEXT_WEAK)
+                            .size(12.0),
+                    );
+                }
+
+                ui.heading(
+                    RichText::new(heading)
+                        .color(theme::COLOR_TEXT_PRIMARY)
+                        .strong(),
+                );
+                ui.label(RichText::new(metadata.description).color(theme::COLOR_TEXT_WEAK));
                 ui.add_space(12.0);
 
                 let active_tab_index = *active_tab_entry;
@@ -393,7 +393,7 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
             .stroke(theme::subtle_border())
-            .rounding(egui::Rounding::same(18.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
                 right: 20.0,
@@ -409,30 +409,11 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
                         metadata.breadcrumb.join(" › ")
                     };
 
-                    if !breadcrumb_text.is_empty() {
-                        ui.label(
-                            RichText::new(breadcrumb_text)
-                                .color(theme::COLOR_TEXT_WEAK)
-                                .size(12.0),
-                        );
-                    }
-
                     let heading = metadata
                         .breadcrumb
                         .last()
                         .copied()
                         .unwrap_or(metadata.title);
-
-                    ui.heading(
-                        RichText::new(heading)
-                            .color(theme::COLOR_TEXT_PRIMARY)
-                            .strong(),
-                    );
-                    ui.label(
-                        RichText::new(metadata.description)
-                            .color(theme::COLOR_TEXT_WEAK),
-                    );
-                    ui.add_space(12.0);
 
                     let mut tab_definitions = resource_tab_definitions(section);
                     if tab_definitions.is_empty() {
@@ -446,6 +427,25 @@ fn draw_resource_view(ui: &mut egui::Ui, state: &mut AppState) {
                     let active_tab_index = 0usize;
                     let _ =
                         tabs::draw_tab_bar(ui, active_tab_index, tab_definitions.as_slice());
+                    ui.add_space(12.0);
+
+                    if !breadcrumb_text.is_empty() {
+                        ui.label(
+                            RichText::new(breadcrumb_text)
+                                .color(theme::COLOR_TEXT_WEAK)
+                                .size(12.0),
+                        );
+                    }
+
+                    ui.heading(
+                        RichText::new(heading)
+                            .color(theme::COLOR_TEXT_PRIMARY)
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new(metadata.description)
+                            .color(theme::COLOR_TEXT_WEAK),
+                    );
                     ui.add_space(12.0);
 
                     egui::ScrollArea::vertical()
@@ -474,7 +474,7 @@ fn draw_cron_view(ui: &mut egui::Ui, state: &mut AppState) {
         egui::Frame::none()
             .fill(Color32::from_rgb(30, 32, 36))
             .stroke(theme::subtle_border())
-            .rounding(egui::Rounding::same(18.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
                 right: 20.0,
@@ -537,7 +537,7 @@ fn draw_debug_console_view(ui: &mut egui::Ui, state: &mut AppState) {
         egui::Frame::none()
             .fill(Color32::from_rgb(26, 28, 32))
             .stroke(theme::subtle_border())
-            .rounding(egui::Rounding::same(18.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin {
                 left: 20.0,
                 right: 20.0,

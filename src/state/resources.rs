@@ -22,7 +22,6 @@ pub struct ResourceState {
     pub jarvis_active_model: Option<LocalModelIdentifier>,
     pub jarvis_runtime: Option<JarvisRuntime>,
     pub jarvis_alias: String,
-    pub jarvis_respond_without_alias: bool,
     pub claude_default_model: String,
     pub claude_alias: String,
     pub anthropic_test_status: Option<String>,
@@ -111,7 +110,6 @@ impl ResourceState {
             } else {
                 config.jarvis.chat_alias.clone()
             },
-            jarvis_respond_without_alias: config.jarvis.respond_without_alias,
             claude_default_model: if config.anthropic.default_model.is_empty() {
                 "claude-3-opus-20240229".to_string()
             } else {

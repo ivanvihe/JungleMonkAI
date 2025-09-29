@@ -19,6 +19,7 @@ use crate::{
 };
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -2751,6 +2752,7 @@ pub struct ChatMessage {
     pub timestamp: String,
     pub status: ChatMessageStatus,
     pub origin: Option<RemoteProviderKind>,
+    pub mention: Option<String>,
 }
 
 impl ChatMessage {
@@ -2761,6 +2763,7 @@ impl ChatMessage {
             timestamp: Local::now().format("%H:%M:%S").to_string(),
             status: ChatMessageStatus::Normal,
             origin: None,
+            mention: None,
         }
     }
 
@@ -2783,11 +2786,55 @@ impl ChatMessage {
             timestamp: Local::now().format("%H:%M:%S").to_string(),
             status: ChatMessageStatus::Pending,
             origin,
+            mention: None,
         }
     }
 
     pub fn is_pending(&self) -> bool {
         self.status == ChatMessageStatus::Pending
+    }
+
+    pub fn with_mention(mut self, mention: impl Into<String>) -> Self {
+        self.mention = Some(mention.into());
+        self
+    }
+
+    pub fn sender_display_label(&self) -> Cow<'_, str> {
+        if self.sender == "User" {
+            return Cow::Borrowed("Tú");
+        }
+
+        if let Some(mention) = self.mention.as_ref() {
+            let combined = self.combined_text();
+            if combined.trim_start().starts_with(mention) {
+                Cow::Borrowed(&self.sender)
+            } else {
+                Cow::Owned(mention.clone())
+            }
+        } else {
+            Cow::Borrowed(&self.sender)
+        }
+    }
+
+    pub fn combined_text(&self) -> String {
+        match self.mention.as_ref() {
+            Some(mention) => {
+                let trimmed = self.text.trim_start();
+                if trimmed.is_empty() {
+                    mention.clone()
+                } else if trimmed.starts_with(mention) {
+                    self.text.clone()
+                } else {
+                    let separator = if trimmed.starts_with("```") {
+                        "\n"
+                    } else {
+                        " "
+                    };
+                    format!("{}{}{}", mention, separator, trimmed)
+                }
+            }
+            None => self.text.clone(),
+        }
     }
 }
 
@@ -3784,7 +3831,6 @@ impl AppState {
             self.config.jarvis.chat_alias = "jarvis".to_string();
         }
         self.resources.jarvis_alias = self.config.jarvis.chat_alias.clone();
-        self.config.jarvis.respond_without_alias = self.resources.jarvis_respond_without_alias;
         self.config.anthropic.default_model = self.resources.claude_default_model.clone();
         self.config.anthropic.alias = self.resources.claude_alias.clone();
         self.config.openai.default_model = self.resources.openai_default_model.clone();
@@ -3985,7 +4031,11 @@ impl AppState {
                             "Jarvis",
                             format!("Respuesta generada por {}", label),
                         );
-                        self.chat.messages.push(ChatMessage::new("Jarvis", reply));
+                        let mut message = ChatMessage::new("Jarvis", reply);
+                        if let Some(tag) = self.jarvis_mention_tag() {
+                            message = message.with_mention(tag);
+                        }
+                        self.chat.messages.push(message);
                     }
                     Err(err) => {
                         self.chat.messages.push(ChatMessage::system(format!(

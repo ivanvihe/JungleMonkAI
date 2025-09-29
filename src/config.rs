@@ -93,8 +93,6 @@ pub struct JarvisConfig {
     pub active_model: Option<String>,
     #[serde(default = "JarvisConfig::default_alias")]
     pub chat_alias: String,
-    #[serde(default)]
-    pub respond_without_alias: bool,
 }
 
 impl Default for JarvisConfig {
@@ -106,7 +104,6 @@ impl Default for JarvisConfig {
             installed_models: Vec::new(),
             active_model: None,
             chat_alias: Self::default_alias(),
-            respond_without_alias: false,
         }
     }
 }

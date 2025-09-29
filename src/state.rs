@@ -12,6 +12,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use vscode_shell::{layout::LayoutConfig, AppShell};
 
+pub use navigation::{
+    NavigationNode, NavigationRegistry, NavigationTarget, SECTION_PREFERENCES_CUSTOMIZATION,
+    SECTION_PREFERENCES_LOCAL, SECTION_PREFERENCES_PROVIDERS, SECTION_PREFERENCES_SYSTEM,
+    SECTION_PRIMARY, SECTION_RESOURCES_INSTALLED, SECTION_RESOURCES_LOCAL,
+    SECTION_RESOURCES_REMOTE,
+};
+
 /// Define metadatos reutilizables para paneles y recursos navegables.
 #[derive(Clone, Copy, Debug)]
 pub struct PanelMetadata {
@@ -268,6 +275,225 @@ impl MainTab {
     }
 }
 
+mod navigation {
+    use super::{MainTab, MainView, PreferencePanel, ResourceSection};
+    use std::collections::BTreeMap;
+
+    pub const SECTION_PRIMARY: &str = "primary";
+    pub const SECTION_PREFERENCES_SYSTEM: &str = "preferences-system";
+    pub const SECTION_PREFERENCES_CUSTOMIZATION: &str = "preferences-customization";
+    pub const SECTION_PREFERENCES_PROVIDERS: &str = "preferences-providers";
+    pub const SECTION_PREFERENCES_LOCAL: &str = "preferences-local";
+    pub const SECTION_RESOURCES_REMOTE: &str = "resources-remote";
+    pub const SECTION_RESOURCES_LOCAL: &str = "resources-local";
+    pub const SECTION_RESOURCES_INSTALLED: &str = "resources-installed";
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum NavigationTarget {
+        Main {
+            view: MainView,
+            tab: Option<MainTab>,
+        },
+        Preference(PreferencePanel),
+        Resource(ResourceSection),
+    }
+
+    impl NavigationTarget {
+        pub fn main(view: MainView) -> Self {
+            Self::Main { view, tab: None }
+        }
+
+        pub fn preference(panel: PreferencePanel) -> Self {
+            Self::Preference(panel)
+        }
+
+        pub fn resource(section: ResourceSection) -> Self {
+            Self::Resource(section)
+        }
+
+        pub fn id(self) -> String {
+            match self {
+                NavigationTarget::Main { view, .. } => match view {
+                    MainView::ChatMultimodal => "main:chat".into(),
+                    MainView::CronScheduler => "main:cron".into(),
+                    MainView::ActivityFeed => "main:activity".into(),
+                    MainView::DebugConsole => "main:debug".into(),
+                    MainView::Preferences => "main:preferences".into(),
+                    MainView::ResourceBrowser => "main:resources".into(),
+                },
+                NavigationTarget::Preference(panel) => match panel {
+                    PreferencePanel::SystemGithub => "pref:system_github".into(),
+                    PreferencePanel::SystemCache => "pref:system_cache".into(),
+                    PreferencePanel::SystemResources => "pref:system_resources".into(),
+                    PreferencePanel::CustomizationCommands => "pref:custom_commands".into(),
+                    PreferencePanel::CustomizationAppearance => "pref:custom_appearance".into(),
+                    PreferencePanel::CustomizationMemory => "pref:custom_memory".into(),
+                    PreferencePanel::CustomizationProfiles => "pref:custom_profiles".into(),
+                    PreferencePanel::CustomizationProjects => "pref:custom_projects".into(),
+                    PreferencePanel::ProvidersAnthropic => "pref:providers_anthropic".into(),
+                    PreferencePanel::ProvidersOpenAi => "pref:providers_openai".into(),
+                    PreferencePanel::ProvidersGroq => "pref:providers_groq".into(),
+                    PreferencePanel::LocalJarvis => "pref:local_jarvis".into(),
+                },
+                NavigationTarget::Resource(section) => match section {
+                    ResourceSection::LocalCatalog(provider) => {
+                        format!("resource:local:{:?}", provider)
+                    }
+                    ResourceSection::RemoteCatalog(provider) => {
+                        format!("resource:remote:{:?}", provider)
+                    }
+                    ResourceSection::InstalledLocal => "resource:installed".into(),
+                    ResourceSection::ConnectedProjects => "resource:projects".into(),
+                    ResourceSection::GithubRepositories => "resource:github".into(),
+                },
+            }
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct NavigationNode {
+        pub id: String,
+        pub label: String,
+        pub description: Option<String>,
+        pub icon: Option<String>,
+        pub badge: Option<String>,
+        pub target: NavigationTarget,
+        pub order: u32,
+        pub section_id: String,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct NavigationSection {
+        pub id: String,
+        pub title: String,
+        pub tooltip: Option<String>,
+        pub order: u32,
+        pub visible_in_sidebar: bool,
+    }
+
+    #[derive(Clone, Debug, Default)]
+    pub struct NavigationRegistry {
+        sections: BTreeMap<String, NavigationSectionEntry>,
+        nodes: BTreeMap<String, NavigationNode>,
+    }
+
+    #[derive(Clone, Debug)]
+    struct NavigationSectionEntry {
+        section: NavigationSection,
+        node_ids: Vec<String>,
+    }
+
+    impl NavigationRegistry {
+        pub fn register_section(&mut self, section: NavigationSection) {
+            self.sections
+                .entry(section.id.clone())
+                .and_modify(|entry| entry.section = section.clone())
+                .or_insert_with(|| NavigationSectionEntry {
+                    section,
+                    node_ids: Vec::new(),
+                });
+        }
+
+        pub fn register_node(&mut self, node: NavigationNode) {
+            let section_id = node.section_id.clone();
+            let node_id = node.id.clone();
+            self.nodes.insert(node_id.clone(), node);
+
+            let entry =
+                self.sections
+                    .entry(section_id.clone())
+                    .or_insert_with(|| NavigationSectionEntry {
+                        section: NavigationSection {
+                            id: section_id.clone(),
+                            title: section_id.clone(),
+                            tooltip: None,
+                            order: u32::MAX,
+                            visible_in_sidebar: true,
+                        },
+                        node_ids: Vec::new(),
+                    });
+
+            if !entry.node_ids.iter().any(|id| id == &node_id) {
+                entry.node_ids.push(node_id);
+            }
+            entry.node_ids.sort_by(|a, b| {
+                let (a_order, a_label) = self
+                    .nodes
+                    .get(a)
+                    .map(|node| (node.order, node.label.as_str()))
+                    .unwrap_or((u32::MAX, ""));
+                let (b_order, b_label) = self
+                    .nodes
+                    .get(b)
+                    .map(|node| (node.order, node.label.as_str()))
+                    .unwrap_or((u32::MAX, ""));
+                a_order
+                    .cmp(&b_order)
+                    .then_with(|| a_label.cmp(b_label))
+                    .then_with(|| a.cmp(b))
+            });
+        }
+
+        pub fn node(&self, id: &str) -> Option<&NavigationNode> {
+            self.nodes.get(id)
+        }
+
+        pub fn sidebar_sections(&self) -> Vec<(NavigationSection, Vec<NavigationNode>)> {
+            let mut entries: Vec<&NavigationSectionEntry> = self.sections.values().collect();
+            entries.sort_by(|a, b| {
+                a.section
+                    .order
+                    .cmp(&b.section.order)
+                    .then_with(|| a.section.title.cmp(&b.section.title))
+                    .then_with(|| a.section.id.cmp(&b.section.id))
+            });
+
+            let mut sections = Vec::new();
+            for entry in entries {
+                if !entry.section.visible_in_sidebar {
+                    continue;
+                }
+                let mut nodes: Vec<NavigationNode> = entry
+                    .node_ids
+                    .iter()
+                    .filter_map(|id| self.nodes.get(id).cloned())
+                    .collect();
+                nodes.sort_by(|a, b| {
+                    a.order
+                        .cmp(&b.order)
+                        .then_with(|| a.label.cmp(&b.label))
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                if !nodes.is_empty() {
+                    sections.push((entry.section.clone(), nodes));
+                }
+            }
+
+            sections
+        }
+
+        pub fn nodes_for_section(&self, section_id: &str) -> Vec<NavigationNode> {
+            self.sections
+                .get(section_id)
+                .map(|entry| {
+                    let mut nodes: Vec<NavigationNode> = entry
+                        .node_ids
+                        .iter()
+                        .filter_map(|id| self.nodes.get(id).cloned())
+                        .collect();
+                    nodes.sort_by(|a, b| {
+                        a.order
+                            .cmp(&b.order)
+                            .then_with(|| a.label.cmp(&b.label))
+                            .then_with(|| a.id.cmp(&b.id))
+                    });
+                    nodes
+                })
+                .unwrap_or_default()
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RemoteProviderKind {
     Anthropic,
@@ -291,6 +517,267 @@ impl RemoteProviderKind {
             RemoteProviderKind::Groq => "groq",
         }
     }
+}
+
+fn build_navigation_registry(config: &AppConfig) -> NavigationRegistry {
+    use navigation::{
+        NavigationNode, NavigationRegistry, NavigationSection, NavigationTarget,
+        SECTION_PREFERENCES_CUSTOMIZATION, SECTION_PREFERENCES_LOCAL,
+        SECTION_PREFERENCES_PROVIDERS, SECTION_PREFERENCES_SYSTEM, SECTION_PRIMARY,
+        SECTION_RESOURCES_INSTALLED, SECTION_RESOURCES_LOCAL, SECTION_RESOURCES_REMOTE,
+    };
+
+    let mut registry = NavigationRegistry::default();
+    let resources_installed_order = if config.selected_profile.unwrap_or(0) > 0 {
+        19
+    } else {
+        22
+    };
+
+    registry.register_section(NavigationSection {
+        id: SECTION_PRIMARY.to_string(),
+        title: "Principal".into(),
+        tooltip: Some("Accesos directos a las vistas principales".into()),
+        order: 0,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_PREFERENCES_SYSTEM.to_string(),
+        title: "Preferencias · Sistema".into(),
+        tooltip: Some("Configura integraciones y recursos del sistema".into()),
+        order: 10,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_PREFERENCES_CUSTOMIZATION.to_string(),
+        title: "Preferencias · Personalización".into(),
+        tooltip: Some("Ajusta la experiencia de JungleMonkAI".into()),
+        order: 11,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_PREFERENCES_PROVIDERS.to_string(),
+        title: "Preferencias · Proveedores".into(),
+        tooltip: Some("Gestiona credenciales y catálogos remotos".into()),
+        order: 12,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_PREFERENCES_LOCAL.to_string(),
+        title: "Preferencias · Modelos locales".into(),
+        tooltip: Some("Controla el runtime y las instalaciones locales".into()),
+        order: 13,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_RESOURCES_REMOTE.to_string(),
+        title: "Recursos · Catálogos remotos".into(),
+        tooltip: Some("Explora modelos disponibles en la nube".into()),
+        order: 20,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_RESOURCES_LOCAL.to_string(),
+        title: "Recursos · Galerías locales".into(),
+        tooltip: Some("Instala modelos optimizados para ejecución local".into()),
+        order: 21,
+        visible_in_sidebar: true,
+    });
+
+    registry.register_section(NavigationSection {
+        id: SECTION_RESOURCES_INSTALLED.to_string(),
+        title: "Recursos · Espacios conectados".into(),
+        tooltip: Some("Gestiona los recursos ya integrados".into()),
+        order: resources_installed_order,
+        visible_in_sidebar: true,
+    });
+
+    let main_nodes = [
+        (
+            NavigationTarget::main(MainView::ChatMultimodal),
+            "Chat multimodal",
+            "💬",
+            "Conversa con JungleMonkAI en modo multimodal.",
+            0,
+        ),
+        (
+            NavigationTarget::main(MainView::CronScheduler),
+            "Cron",
+            "⏱️",
+            "Programa y supervisa tareas automáticas.",
+            1,
+        ),
+        (
+            NavigationTarget::main(MainView::ActivityFeed),
+            "Actividad",
+            "📈",
+            "Consulta los eventos recientes del agente.",
+            2,
+        ),
+        (
+            NavigationTarget::main(MainView::DebugConsole),
+            "Debug",
+            "🪲",
+            "Accede a diagnósticos y registros de depuración.",
+            3,
+        ),
+    ];
+
+    for (target, label, icon, description, order) in main_nodes {
+        registry.register_node(NavigationNode {
+            id: target.id(),
+            label: label.into(),
+            description: Some(description.into()),
+            icon: Some(icon.into()),
+            badge: None,
+            target,
+            order,
+            section_id: SECTION_PRIMARY.to_string(),
+        });
+    }
+
+    let preference_groups: [(&str, &[PreferencePanel]); 4] = [
+        (
+            SECTION_PREFERENCES_SYSTEM,
+            &[
+                PreferencePanel::SystemGithub,
+                PreferencePanel::SystemCache,
+                PreferencePanel::SystemResources,
+            ],
+        ),
+        (
+            SECTION_PREFERENCES_CUSTOMIZATION,
+            &[
+                PreferencePanel::CustomizationCommands,
+                PreferencePanel::CustomizationAppearance,
+                PreferencePanel::CustomizationMemory,
+                PreferencePanel::CustomizationProfiles,
+                PreferencePanel::CustomizationProjects,
+            ],
+        ),
+        (
+            SECTION_PREFERENCES_PROVIDERS,
+            &[
+                PreferencePanel::ProvidersAnthropic,
+                PreferencePanel::ProvidersOpenAi,
+                PreferencePanel::ProvidersGroq,
+            ],
+        ),
+        (SECTION_PREFERENCES_LOCAL, &[PreferencePanel::LocalJarvis]),
+    ];
+
+    for (section_id, panels) in preference_groups {
+        for (index, panel) in panels.iter().enumerate() {
+            let metadata = panel.metadata();
+            let label = metadata
+                .breadcrumb
+                .last()
+                .copied()
+                .unwrap_or(metadata.title);
+            let target = NavigationTarget::preference(*panel);
+            registry.register_node(NavigationNode {
+                id: target.id(),
+                label: label.to_string(),
+                description: Some(metadata.description.to_string()),
+                icon: Some("⚙️".into()),
+                badge: None,
+                target,
+                order: index as u32,
+                section_id: section_id.to_string(),
+            });
+        }
+    }
+
+    let remote_providers = [
+        RemoteProviderKind::Anthropic,
+        RemoteProviderKind::OpenAi,
+        RemoteProviderKind::Groq,
+    ];
+
+    for (index, provider) in remote_providers.into_iter().enumerate() {
+        let section = ResourceSection::RemoteCatalog(provider);
+        let metadata = section.metadata();
+        let label = metadata
+            .breadcrumb
+            .last()
+            .copied()
+            .unwrap_or(metadata.title);
+        let target = NavigationTarget::resource(section);
+        registry.register_node(NavigationNode {
+            id: target.id(),
+            label: label.to_string(),
+            description: Some(metadata.description.to_string()),
+            icon: Some("☁️".into()),
+            badge: None,
+            target,
+            order: index as u32,
+            section_id: SECTION_RESOURCES_REMOTE.to_string(),
+        });
+    }
+
+    let local_providers = [
+        LocalModelProvider::HuggingFace,
+        LocalModelProvider::GithubModels,
+        LocalModelProvider::Replicate,
+        LocalModelProvider::Ollama,
+        LocalModelProvider::OpenRouter,
+        LocalModelProvider::Modelscope,
+    ];
+
+    for (index, provider) in local_providers.into_iter().enumerate() {
+        let section = ResourceSection::LocalCatalog(provider);
+        let metadata = section.metadata();
+        let label = metadata
+            .breadcrumb
+            .last()
+            .copied()
+            .unwrap_or(metadata.title);
+        let target = NavigationTarget::resource(section);
+        registry.register_node(NavigationNode {
+            id: target.id(),
+            label: label.to_string(),
+            description: Some(metadata.description.to_string()),
+            icon: Some("💾".into()),
+            badge: None,
+            target,
+            order: index as u32,
+            section_id: SECTION_RESOURCES_LOCAL.to_string(),
+        });
+    }
+
+    let connected_resources = [
+        (ResourceSection::InstalledLocal, "🧩", 0u32),
+        (ResourceSection::ConnectedProjects, "🗂️", 1u32),
+        (ResourceSection::GithubRepositories, "📁", 2u32),
+    ];
+
+    for (section, icon, order) in connected_resources {
+        let metadata = section.metadata();
+        let label = metadata
+            .breadcrumb
+            .last()
+            .copied()
+            .unwrap_or(metadata.title);
+        let target = NavigationTarget::resource(section);
+        registry.register_node(NavigationNode {
+            id: target.id(),
+            label: label.to_string(),
+            description: Some(metadata.description.to_string()),
+            icon: Some(icon.into()),
+            badge: None,
+            target,
+            order,
+            section_id: SECTION_RESOURCES_INSTALLED.to_string(),
+        });
+    }
+
+    registry
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -2307,6 +2794,8 @@ pub struct AppState {
     pub personalization_feedback: Option<String>,
     /// Preferencias de enrutamiento por hilo en el chat.
     pub chat_routing: ChatRoutingState,
+    /// Registro centralizado de secciones y nodos de navegación.
+    pub navigation: NavigationRegistry,
     /// Configuración de layout para los paneles del shell.
     pub layout: LayoutConfig,
     /// Solicitud diferida para copiar la conversación actual.
@@ -2462,7 +2951,7 @@ impl Default for AppState {
             selected_preference: PreferencePanel::default(),
             preference_tabs: HashMap::new(),
             selected_resource: None,
-            github_token: config.github_token.unwrap_or_default(),
+            github_token: config.github_token.clone().unwrap_or_default(),
             github_username: None,
             github_repositories: Vec::new(),
             selected_github_repo: None,
@@ -2544,6 +3033,7 @@ impl Default for AppState {
             personalization_resources,
             personalization_feedback: None,
             chat_routing,
+            navigation: build_navigation_registry(&config),
             layout: LayoutConfig::default(),
             pending_copy_conversation: false,
             activity_logs: default_logs(),
@@ -2847,6 +3337,60 @@ impl CustomCommandAction {
 }
 
 impl AppState {
+    pub fn navigation_registry(&self) -> &NavigationRegistry {
+        &self.navigation
+    }
+
+    pub fn navigation_registry_mut(&mut self) -> &mut NavigationRegistry {
+        &mut self.navigation
+    }
+
+    pub fn activate_navigation_target(&mut self, target: NavigationTarget) {
+        match target {
+            NavigationTarget::Main { view, tab } => {
+                if let Some(tab) = tab.or_else(|| MainTab::from_view(view)) {
+                    self.set_active_tab(tab);
+                } else {
+                    self.active_main_view = view;
+                    self.sync_active_tab_from_view();
+                }
+            }
+            NavigationTarget::Preference(panel) => {
+                self.selected_preference = panel;
+                self.selected_resource = None;
+                self.active_main_view = MainView::Preferences;
+                self.sync_active_tab_from_view();
+            }
+            NavigationTarget::Resource(section) => {
+                self.selected_resource = Some(section);
+                self.active_main_view = MainView::ResourceBrowser;
+                self.sync_active_tab_from_view();
+            }
+        }
+    }
+
+    pub fn activate_navigation_node(&mut self, node_id: &str) -> bool {
+        if let Some(node) = self.navigation.node(node_id) {
+            self.activate_navigation_target(node.target);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_navigation_target_active(&self, target: NavigationTarget) -> bool {
+        match target {
+            NavigationTarget::Main { view, .. } => self.active_main_view == view,
+            NavigationTarget::Preference(panel) => {
+                self.active_main_view == MainView::Preferences && self.selected_preference == panel
+            }
+            NavigationTarget::Resource(section) => {
+                self.active_main_view == MainView::ResourceBrowser
+                    && self.selected_resource == Some(section)
+            }
+        }
+    }
+
     pub fn set_theme_preset(&mut self, preset: ThemePreset) {
         if self.config.theme != preset {
             self.config.theme = preset;
@@ -5101,5 +5645,76 @@ impl AppShell for AppState {
 
     fn update(&mut self, ctx: &eframe::egui::Context) {
         crate::ui::draw_ui(ctx, self);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_navigation_sections_are_stable() {
+        let registry = build_navigation_registry(&AppConfig::default());
+        let sections: Vec<String> = registry
+            .sidebar_sections()
+            .into_iter()
+            .map(|(section, _)| section.id)
+            .collect();
+        assert_eq!(
+            sections,
+            vec![
+                SECTION_PRIMARY.to_string(),
+                SECTION_PREFERENCES_SYSTEM.to_string(),
+                SECTION_PREFERENCES_CUSTOMIZATION.to_string(),
+                SECTION_PREFERENCES_PROVIDERS.to_string(),
+                SECTION_PREFERENCES_LOCAL.to_string(),
+                SECTION_RESOURCES_REMOTE.to_string(),
+                SECTION_RESOURCES_LOCAL.to_string(),
+                SECTION_RESOURCES_INSTALLED.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn activating_navigation_updates_state() {
+        let mut state = AppState::default();
+        assert!(state.activate_navigation_node("pref:custom_commands"));
+        assert_eq!(state.active_main_view, MainView::Preferences);
+        assert_eq!(
+            state.selected_preference,
+            PreferencePanel::CustomizationCommands
+        );
+
+        assert!(state.activate_navigation_node("resource:remote:Anthropic"));
+        assert_eq!(state.active_main_view, MainView::ResourceBrowser);
+        assert_eq!(
+            state.selected_resource,
+            Some(ResourceSection::RemoteCatalog(
+                RemoteProviderKind::Anthropic
+            ))
+        );
+    }
+
+    #[test]
+    fn modules_can_extend_navigation_registry() {
+        let mut state = AppState::default();
+        state
+            .navigation_registry_mut()
+            .register_node(NavigationNode {
+                id: "main:custom-hook".into(),
+                label: "Hook".into(),
+                description: Some("Nodo registrado dinámicamente".into()),
+                icon: Some("🧪".into()),
+                badge: None,
+                target: NavigationTarget::Main {
+                    view: MainView::DebugConsole,
+                    tab: Some(MainTab::DebugConsole),
+                },
+                order: 99,
+                section_id: SECTION_PRIMARY.to_string(),
+            });
+
+        assert!(state.activate_navigation_node("main:custom-hook"));
+        assert_eq!(state.active_main_view, MainView::DebugConsole);
     }
 }

@@ -3,9 +3,7 @@ use vscode_shell::components::{
     self, ResourceItem, ResourcePanelModel, ResourcePanelProps, ResourceSectionProps,
 };
 
-use crate::state::{
-    AppState, ChatMessage, MainView, RemoteProviderKind, ResourceSection, AVAILABLE_CUSTOM_ACTIONS,
-};
+use crate::state::{AppState, ChatMessage, AVAILABLE_CUSTOM_ACTIONS, SECTION_RESOURCES_REMOTE};
 use crate::ui::layout_bridge::shell_theme;
 
 pub fn draw_resource_sidebar(ctx: &egui::Context, state: &mut AppState) {
@@ -106,28 +104,16 @@ impl AppResourcePanel<'_> {
 
     fn resource_navigation(&self) -> ResourceSectionProps {
         let mut items = Vec::new();
-        for provider in [
-            RemoteProviderKind::Anthropic,
-            RemoteProviderKind::OpenAi,
-            RemoteProviderKind::Groq,
-        ] {
-            let section = ResourceSection::RemoteCatalog(provider);
-            let metadata = section.metadata();
+        for node in self
+            .state
+            .navigation_registry()
+            .nodes_for_section(SECTION_RESOURCES_REMOTE)
+        {
             items.push(ResourceItem {
-                id: super::sidebar::resource_id(&section),
-                title: metadata
-                    .breadcrumb
-                    .last()
-                    .copied()
-                    .unwrap_or(metadata.title)
-                    .to_string(),
-                subtitle: Some(metadata.description.to_string()),
-                selected: self
-                    .state
-                    .selected_resource
-                    .map(|current| current == section)
-                    .unwrap_or(false)
-                    && self.state.active_main_view == MainView::ResourceBrowser,
+                id: node.id,
+                title: node.label,
+                subtitle: node.description,
+                selected: self.state.is_navigation_target_active(node.target),
             });
         }
         ResourceSectionProps {
@@ -186,11 +172,7 @@ impl ResourcePanelModel for AppResourcePanel<'_> {
             "action:open_functions" => self.state.show_functions_modal = true,
             "action:copy_conversation" => self.state.pending_copy_conversation = true,
             _ => {
-                if let Some(section) = super::sidebar::parse_resource_id(item_id) {
-                    self.state.selected_resource = Some(section);
-                    self.state.active_main_view = MainView::ResourceBrowser;
-                    self.state.sync_active_tab_from_view();
-                }
+                let _ = self.state.activate_navigation_node(item_id);
             }
         }
     }

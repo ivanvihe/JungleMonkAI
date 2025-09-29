@@ -1,7 +1,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use super::{
-    feature::{CommandRegistry, FeatureModule},
+    feature::{CommandRegistry, FeatureModule, WorkbenchRegistry},
     navigation::NavigationNode,
     ChatMessage, ChatRoutingState, CustomCommand, CustomCommandAction, LocalInstallMessage,
     MainView, NavigationRegistry, NavigationTarget, PendingLocalInstall, PendingProviderCall,
@@ -79,6 +79,10 @@ impl FeatureModule for ChatState {
 
     fn register_commands(&self, registry: &mut CommandRegistry) {
         registry.extend(self.available_actions());
+    }
+
+    fn register_workbench_views(&self, registry: &mut WorkbenchRegistry) {
+        crate::ui::chat::register_chat_workbench_view(registry);
     }
 }
 

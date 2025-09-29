@@ -1,25 +1,24 @@
 use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
-    format_bytes, AppState, AutomationWorkflow, ChatMessage, DebugLogLevel, InstalledLocalModel,
-    IntegrationStatus, KnowledgeResourceCard, LogStatus, MainTab, MainView, PreferencePanel,
-    ProjectResourceCard, ProjectResourceKind, ReminderStatus, RemoteModelCard, RemoteModelKey,
-    RemoteProviderKind, ResourceSection, ScheduledTaskStatus, SyncHealth, WorkflowStatus,
-    WorkflowStepKind,
+    feature::WorkbenchRegistry, format_bytes, AppState, AutomationWorkflow, ChatMessage,
+    DebugLogLevel, InstalledLocalModel, IntegrationStatus, KnowledgeResourceCard, LogStatus,
+    MainTab, MainView, PreferencePanel, ProjectResourceCard, ProjectResourceKind, ReminderStatus,
+    RemoteModelCard, RemoteModelKey, RemoteProviderKind, ResourceSection, ScheduledTaskStatus,
+    SyncHealth, WorkflowStatus, WorkflowStepKind,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
 use egui_extras::{Column, TableBuilder};
 use std::path::Path;
-use vscode_shell::components::{
-    self, MainContentAction, MainContentModel, MainContentProps, MainContentTab,
-};
+use vscode_shell::components::{self, MainContentModel, MainContentProps, MainContentTab};
 
 use super::{logs, tabs, theme};
 use crate::ui::{
     layout_bridge::shell_theme,
     theme::{ThemePreset, ThemeTokens},
+    workbench::{default_layout_actions, WorkbenchMetadata, WorkbenchView},
 };
 
 const ICON_USER: &str = "\u{f007}"; // user
@@ -110,44 +109,6 @@ struct AppMainContent<'a> {
     state: &'a mut AppState,
 }
 
-impl AppMainContent<'_> {
-    fn active_title(&self) -> Option<String> {
-        Some(
-            match self.state.active_main_view {
-                MainView::ChatMultimodal => "Chat multimodal",
-                MainView::CronScheduler => "Cron Scheduler",
-                MainView::ActivityFeed => "Activity feed",
-                MainView::DebugConsole => "Debug console",
-                MainView::Preferences => "Preferencias",
-                MainView::ResourceBrowser => "Explorador de recursos",
-            }
-            .to_string(),
-        )
-    }
-
-    fn active_subtitle(&self) -> Option<String> {
-        match self.state.active_main_view {
-            MainView::ChatMultimodal => Some("Coordina agentes, herramientas y documentos".into()),
-            MainView::CronScheduler => Some("Gestiona tareas automatizadas y cron jobs".into()),
-            MainView::ActivityFeed => Some("Audita eventos recientes del sistema".into()),
-            MainView::DebugConsole => Some("Monitorea registros y diagnósticos".into()),
-            MainView::Preferences => Some("Configura integraciones y flujos de trabajo".into()),
-            MainView::ResourceBrowser => Some("Explora catálogos locales y remotos".into()),
-        }
-    }
-
-    fn tabs(&self) -> Vec<MainContentTab> {
-        tabs::CHAT_SECTION_TABS
-            .iter()
-            .map(|definition| MainContentTab {
-                id: tab_id(definition.id),
-                label: definition.label.to_string(),
-                icon: definition.icon.map(|icon| icon.to_string()),
-            })
-            .collect()
-    }
-}
-
 impl MainContentModel for AppMainContent<'_> {
     fn theme(&self) -> vscode_shell::layout::ShellTheme {
         shell_theme(&self.state.theme)
@@ -155,43 +116,20 @@ impl MainContentModel for AppMainContent<'_> {
 
     fn props(&self) -> MainContentProps {
         let mut props = MainContentProps {
-            title: self.active_title(),
-            subtitle: self.active_subtitle(),
-            actions: vec![
-                MainContentAction {
-                    id: "toggle-navigation".into(),
-                    label: if self.state.layout.navigation_collapsed() {
-                        "Mostrar navegación".into()
-                    } else {
-                        "Ocultar navegación".into()
-                    },
-                    icon: Some("📂".into()),
-                    enabled: true,
-                },
-                MainContentAction {
-                    id: "toggle-resources".into(),
-                    label: if self.state.layout.resource_collapsed() {
-                        "Mostrar recursos".into()
-                    } else {
-                        "Ocultar recursos".into()
-                    },
-                    icon: Some("📚".into()),
-                    enabled: true,
-                },
-            ],
+            title: None,
+            subtitle: None,
+            actions: default_layout_actions(self.state),
             tabs: Vec::new(),
             active_tab: None,
         };
 
-        if matches!(
-            self.state.active_main_view,
-            MainView::ChatMultimodal
-                | MainView::CronScheduler
-                | MainView::ActivityFeed
-                | MainView::DebugConsole
-        ) {
-            props.tabs = self.tabs();
-            props.active_tab = Some(tab_id(self.state.active_main_tab));
+        if let Some(view) = self.state.workbench_view(self.state.active_main_view) {
+            let metadata = view.metadata(self.state);
+            props.title = metadata.title;
+            props.subtitle = metadata.subtitle;
+            props.actions = view.actions(self.state);
+            props.tabs = view.tabs(self.state);
+            props.active_tab = view.active_tab(self.state);
         }
 
         props
@@ -207,26 +145,242 @@ impl MainContentModel for AppMainContent<'_> {
                 let next = !self.state.layout.resource_collapsed();
                 self.state.layout.emit_resource_signal(next);
             }
-            _ => {}
+            _ => {
+                let active_view = self.state.active_main_view;
+                self.state
+                    .with_workbench_view_mut(active_view, |view, state| {
+                        view.on_action(state, action_id);
+                    });
+            }
         }
     }
 
     fn on_tab_selected(&mut self, tab_id: &str) {
-        if let Some(tab) = parse_tab_id(tab_id) {
-            self.state.set_active_tab(tab);
+        let active_view = self.state.active_main_view;
+        let handled = self
+            .state
+            .with_workbench_view_mut(active_view, |view, state| {
+                view.on_tab_selected(state, tab_id)
+            })
+            .unwrap_or(false);
+
+        if !handled {
+            if let Some(tab) = parse_tab_id(tab_id) {
+                self.state.set_active_tab(tab);
+            }
         }
     }
 
     fn show_content(&mut self, ui: &mut egui::Ui) {
-        match self.state.active_main_view {
-            MainView::ChatMultimodal => draw_chat_view(ui, self.state),
-            MainView::CronScheduler => draw_cron_view(ui, self.state),
-            MainView::ActivityFeed => draw_activity_view(ui, self.state),
-            MainView::DebugConsole => draw_debug_console_view(ui, self.state),
-            MainView::Preferences => draw_preferences_view(ui, self.state),
-            MainView::ResourceBrowser => draw_resource_view(ui, self.state),
+        let active_view = self.state.active_main_view;
+        if self
+            .state
+            .with_workbench_view_mut(active_view, |view, state| {
+                view.render(ui, state);
+            })
+            .is_none()
+        {
+            ui.centered_and_justified(|ui| {
+                ui.label(
+                    RichText::new("No hay una vista registrada para esta sección.")
+                        .color(theme::color_text_weak()),
+                );
+            });
         }
     }
+}
+
+fn main_section_tabs() -> Vec<MainContentTab> {
+    tabs::CHAT_SECTION_TABS
+        .iter()
+        .map(|definition| MainContentTab {
+            id: tab_id(definition.id),
+            label: definition.label.to_string(),
+            icon: definition.icon.map(|icon| icon.to_string()),
+        })
+        .collect()
+}
+
+struct ChatWorkbenchView;
+
+impl WorkbenchView for ChatWorkbenchView {
+    fn metadata(&self, _state: &AppState) -> WorkbenchMetadata {
+        WorkbenchMetadata::new(
+            Some("Chat multimodal".into()),
+            Some("Coordina agentes, herramientas y documentos".into()),
+        )
+    }
+
+    fn tabs(&self, _state: &AppState) -> Vec<MainContentTab> {
+        main_section_tabs()
+    }
+
+    fn active_tab(&self, state: &AppState) -> Option<String> {
+        Some(tab_id(state.active_main_tab))
+    }
+
+    fn on_tab_selected(&self, state: &mut AppState, tab_id: &str) -> bool {
+        if let Some(tab) = parse_tab_id(tab_id) {
+            state.set_active_tab(tab);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn render(&self, ui: &mut egui::Ui, state: &mut AppState) {
+        draw_chat_view(ui, state);
+    }
+}
+
+struct CronWorkbenchView;
+
+impl WorkbenchView for CronWorkbenchView {
+    fn metadata(&self, _state: &AppState) -> WorkbenchMetadata {
+        WorkbenchMetadata::new(
+            Some("Cron Scheduler".into()),
+            Some("Gestiona tareas automatizadas y cron jobs".into()),
+        )
+    }
+
+    fn tabs(&self, _state: &AppState) -> Vec<MainContentTab> {
+        main_section_tabs()
+    }
+
+    fn active_tab(&self, state: &AppState) -> Option<String> {
+        Some(tab_id(state.active_main_tab))
+    }
+
+    fn on_tab_selected(&self, state: &mut AppState, tab_id: &str) -> bool {
+        if let Some(tab) = parse_tab_id(tab_id) {
+            state.set_active_tab(tab);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn render(&self, ui: &mut egui::Ui, state: &mut AppState) {
+        draw_cron_view(ui, state);
+    }
+}
+
+struct ActivityWorkbenchView;
+
+impl WorkbenchView for ActivityWorkbenchView {
+    fn metadata(&self, _state: &AppState) -> WorkbenchMetadata {
+        WorkbenchMetadata::new(
+            Some("Activity feed".into()),
+            Some("Audita eventos recientes del sistema".into()),
+        )
+    }
+
+    fn tabs(&self, _state: &AppState) -> Vec<MainContentTab> {
+        main_section_tabs()
+    }
+
+    fn active_tab(&self, state: &AppState) -> Option<String> {
+        Some(tab_id(state.active_main_tab))
+    }
+
+    fn on_tab_selected(&self, state: &mut AppState, tab_id: &str) -> bool {
+        if let Some(tab) = parse_tab_id(tab_id) {
+            state.set_active_tab(tab);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn render(&self, ui: &mut egui::Ui, state: &mut AppState) {
+        draw_activity_view(ui, state);
+    }
+}
+
+struct DebugWorkbenchView;
+
+impl WorkbenchView for DebugWorkbenchView {
+    fn metadata(&self, _state: &AppState) -> WorkbenchMetadata {
+        WorkbenchMetadata::new(
+            Some("Debug console".into()),
+            Some("Monitorea registros y diagnósticos".into()),
+        )
+    }
+
+    fn tabs(&self, _state: &AppState) -> Vec<MainContentTab> {
+        main_section_tabs()
+    }
+
+    fn active_tab(&self, state: &AppState) -> Option<String> {
+        Some(tab_id(state.active_main_tab))
+    }
+
+    fn on_tab_selected(&self, state: &mut AppState, tab_id: &str) -> bool {
+        if let Some(tab) = parse_tab_id(tab_id) {
+            state.set_active_tab(tab);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn render(&self, ui: &mut egui::Ui, state: &mut AppState) {
+        draw_debug_console_view(ui, state);
+    }
+}
+
+struct PreferencesWorkbenchView;
+
+impl WorkbenchView for PreferencesWorkbenchView {
+    fn metadata(&self, _state: &AppState) -> WorkbenchMetadata {
+        WorkbenchMetadata::new(
+            Some("Preferencias".into()),
+            Some("Configura integraciones y flujos de trabajo".into()),
+        )
+    }
+
+    fn render(&self, ui: &mut egui::Ui, state: &mut AppState) {
+        draw_preferences_view(ui, state);
+    }
+}
+
+struct ResourceWorkbenchView;
+
+impl WorkbenchView for ResourceWorkbenchView {
+    fn metadata(&self, _state: &AppState) -> WorkbenchMetadata {
+        WorkbenchMetadata::new(
+            Some("Explorador de recursos".into()),
+            Some("Explora catálogos locales y remotos".into()),
+        )
+    }
+
+    fn render(&self, ui: &mut egui::Ui, state: &mut AppState) {
+        draw_resource_view(ui, state);
+    }
+}
+
+pub fn register_chat_workbench_view(registry: &mut WorkbenchRegistry) {
+    registry.register_view(MainView::ChatMultimodal, ChatWorkbenchView);
+}
+
+pub fn register_cron_workbench_view(registry: &mut WorkbenchRegistry) {
+    registry.register_view(MainView::CronScheduler, CronWorkbenchView);
+}
+
+pub fn register_activity_workbench_view(registry: &mut WorkbenchRegistry) {
+    registry.register_view(MainView::ActivityFeed, ActivityWorkbenchView);
+}
+
+pub fn register_debug_workbench_view(registry: &mut WorkbenchRegistry) {
+    registry.register_view(MainView::DebugConsole, DebugWorkbenchView);
+}
+
+pub fn register_preferences_workbench_view(registry: &mut WorkbenchRegistry) {
+    registry.register_view(MainView::Preferences, PreferencesWorkbenchView);
+}
+
+pub fn register_resource_workbench_view(registry: &mut WorkbenchRegistry) {
+    registry.register_view(MainView::ResourceBrowser, ResourceWorkbenchView);
 }
 
 fn tab_id(tab: MainTab) -> String {

@@ -10,6 +10,7 @@ pub mod resource_sidebar;
 pub mod sidebar;
 pub mod tabs;
 pub mod theme;
+pub mod workbench;
 
 pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
     if state.update_async_tasks() {

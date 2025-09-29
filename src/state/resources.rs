@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{
-    feature::{CommandRegistry, FeatureModule},
+    feature::{CommandRegistry, FeatureModule, WorkbenchRegistry},
     navigation::{NavigationNode, NavigationTarget},
     AnthropicModel, LocalLibraryState, LocalModelCard, LocalModelIdentifier, LocalModelProvider,
     LocalProviderState, NavigationRegistry, PersonalizationResourcesState, ProjectResourceCard,
@@ -268,5 +268,9 @@ impl FeatureModule for ResourceState {
             super::CustomCommandAction::ShowJarvisStatus,
             super::CustomCommandAction::ShowActiveProviders,
         ]);
+    }
+
+    fn register_workbench_views(&self, registry: &mut WorkbenchRegistry) {
+        crate::ui::chat::register_resource_workbench_view(registry);
     }
 }

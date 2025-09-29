@@ -2,7 +2,7 @@ use crate::api::{claude::AnthropicModel, github};
 use crate::local_providers::{LocalModelCard, LocalModelIdentifier, LocalModelProvider};
 use crate::state::{
     format_bytes, AppState, AutomationWorkflow, ChatMessage, DebugLogLevel, InstalledLocalModel,
-    IntegrationStatus, KnowledgeResourceCard, LogStatus, MainView, PreferencePanel,
+    IntegrationStatus, KnowledgeResourceCard, LogStatus, MainTab, MainView, PreferencePanel,
     ProjectResourceCard, ProjectResourceKind, ReminderStatus, RemoteModelCard, RemoteModelKey,
     RemoteProviderKind, ResourceSection, ScheduledTaskStatus, SyncHealth, WorkflowStatus,
     WorkflowStepKind, AVAILABLE_CUSTOM_ACTIONS,
@@ -12,9 +12,12 @@ use chrono::{DateTime, Local, Utc};
 use eframe::egui::{self, Color32, RichText, Spinner};
 use egui_extras::{Column, TableBuilder};
 use std::path::Path;
+use vscode_shell::components::{
+    self, MainContentAction, MainContentModel, MainContentProps, MainContentTab,
+};
 
 use super::{logs, tabs, theme};
-use crate::ui::theme::ThemeTokens;
+use crate::ui::{layout_bridge::shell_theme, theme::ThemeTokens};
 
 const ICON_USER: &str = "\u{f007}"; // user
 const ICON_SYSTEM: &str = "\u{f085}"; // cogs
@@ -95,67 +98,152 @@ fn with_centered_main_surface(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut 
 }
 
 pub fn draw_main_content(ctx: &egui::Context, state: &mut AppState) {
-    let tokens = state.theme.clone();
-    egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(Color32::from_rgb(20, 22, 26)))
-        .show(ctx, |ui| {
-            let frame_rect = ui.max_rect().shrink2(egui::vec2(0.0, 12.0));
-            if frame_rect.width() <= 0.0 || frame_rect.height() <= 0.0 {
-                return;
+    let layout = state.layout.clone();
+    let mut model = AppMainContent { state };
+    components::draw_main_content(ctx, &layout, &mut model);
+}
+
+struct AppMainContent<'a> {
+    state: &'a mut AppState,
+}
+
+impl AppMainContent<'_> {
+    fn active_title(&self) -> Option<String> {
+        Some(
+            match self.state.active_main_view {
+                MainView::ChatMultimodal => "Chat multimodal",
+                MainView::CronScheduler => "Cron Scheduler",
+                MainView::ActivityFeed => "Activity feed",
+                MainView::DebugConsole => "Debug console",
+                MainView::Preferences => "Preferencias",
+                MainView::ResourceBrowser => "Explorador de recursos",
             }
+            .to_string(),
+        )
+    }
 
-            let mut frame_ui = ui.child_ui(frame_rect, egui::Layout::top_down(egui::Align::LEFT));
-            frame_ui.set_clip_rect(frame_rect);
-            frame_ui.set_width(frame_rect.width());
-            frame_ui.set_min_height(frame_rect.height());
-            if matches!(
-                state.active_main_view,
-                MainView::ChatMultimodal
-                    | MainView::CronScheduler
-                    | MainView::ActivityFeed
-                    | MainView::DebugConsole
-            ) {
-                egui::TopBottomPanel::top("main_tabs_panel")
-                    .resizable(false)
-                    .show_separator_line(false)
-                    .frame(egui::Frame::none())
-                    .show_inside(&mut frame_ui, |ui| {
-                        if let Some(selected) =
-                            tabs::draw_tab_bar(ui, state.active_main_tab, tabs::CHAT_SECTION_TABS)
-                        {
-                            state.set_active_tab(selected);
-                        }
-                    });
+    fn active_subtitle(&self) -> Option<String> {
+        match self.state.active_main_view {
+            MainView::ChatMultimodal => Some("Coordina agentes, herramientas y documentos".into()),
+            MainView::CronScheduler => Some("Gestiona tareas automatizadas y cron jobs".into()),
+            MainView::ActivityFeed => Some("Audita eventos recientes del sistema".into()),
+            MainView::DebugConsole => Some("Monitorea registros y diagnósticos".into()),
+            MainView::Preferences => Some("Configura integraciones y flujos de trabajo".into()),
+            MainView::ResourceBrowser => Some("Explora catálogos locales y remotos".into()),
+        }
+    }
+
+    fn tabs(&self) -> Vec<MainContentTab> {
+        tabs::CHAT_SECTION_TABS
+            .iter()
+            .map(|definition| MainContentTab {
+                id: tab_id(definition.id),
+                label: definition.label.to_string(),
+                icon: definition.icon.map(|icon| icon.to_string()),
+            })
+            .collect()
+    }
+}
+
+impl MainContentModel for AppMainContent<'_> {
+    fn theme(&self) -> vscode_shell::layout::ShellTheme {
+        shell_theme(&self.state.theme)
+    }
+
+    fn props(&self) -> MainContentProps {
+        let mut props = MainContentProps {
+            title: self.active_title(),
+            subtitle: self.active_subtitle(),
+            actions: vec![
+                MainContentAction {
+                    id: "toggle-navigation".into(),
+                    label: if self.state.layout.navigation_collapsed() {
+                        "Mostrar navegación".into()
+                    } else {
+                        "Ocultar navegación".into()
+                    },
+                    icon: Some("📂".into()),
+                    enabled: true,
+                },
+                MainContentAction {
+                    id: "toggle-resources".into(),
+                    label: if self.state.layout.resource_collapsed() {
+                        "Mostrar recursos".into()
+                    } else {
+                        "Ocultar recursos".into()
+                    },
+                    icon: Some("📚".into()),
+                    enabled: true,
+                },
+            ],
+            tabs: Vec::new(),
+            active_tab: None,
+        };
+
+        if matches!(
+            self.state.active_main_view,
+            MainView::ChatMultimodal
+                | MainView::CronScheduler
+                | MainView::ActivityFeed
+                | MainView::DebugConsole
+        ) {
+            props.tabs = self.tabs();
+            props.active_tab = Some(tab_id(self.state.active_main_tab));
+        }
+
+        props
+    }
+
+    fn on_action(&mut self, action_id: &str) {
+        match action_id {
+            "toggle-navigation" => {
+                let next = !self.state.layout.navigation_collapsed();
+                self.state.layout.emit_navigation_signal(next);
             }
+            "toggle-resources" => {
+                let next = !self.state.layout.resource_collapsed();
+                self.state.layout.emit_resource_signal(next);
+            }
+            _ => {}
+        }
+    }
 
-            egui::CentralPanel::default()
-                .frame(egui::Frame::none())
-                .show_inside(&mut frame_ui, |ui| {
-                    egui::Frame::none()
-                        .fill(theme::color_panel())
-                        .stroke(theme::subtle_border(&tokens))
-                        .rounding(egui::Rounding::ZERO)
-                        .inner_margin(egui::Margin {
-                            left: 18.0,
-                            right: 12.0,
-                            top: 18.0,
-                            bottom: 14.0,
-                        })
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.set_min_height(ui.available_height());
+    fn on_tab_selected(&mut self, tab_id: &str) {
+        if let Some(tab) = parse_tab_id(tab_id) {
+            self.state.set_active_tab(tab);
+        }
+    }
 
-                            match state.active_main_view {
-                                MainView::ChatMultimodal => draw_chat_view(ui, state),
-                                MainView::CronScheduler => draw_cron_view(ui, state),
-                                MainView::ActivityFeed => draw_activity_view(ui, state),
-                                MainView::DebugConsole => draw_debug_console_view(ui, state),
-                                MainView::Preferences => draw_preferences_view(ui, state),
-                                MainView::ResourceBrowser => draw_resource_view(ui, state),
-                            }
-                        });
-                });
-        });
+    fn show_content(&mut self, ui: &mut egui::Ui) {
+        match self.state.active_main_view {
+            MainView::ChatMultimodal => draw_chat_view(ui, self.state),
+            MainView::CronScheduler => draw_cron_view(ui, self.state),
+            MainView::ActivityFeed => draw_activity_view(ui, self.state),
+            MainView::DebugConsole => draw_debug_console_view(ui, self.state),
+            MainView::Preferences => draw_preferences_view(ui, self.state),
+            MainView::ResourceBrowser => draw_resource_view(ui, self.state),
+        }
+    }
+}
+
+fn tab_id(tab: MainTab) -> String {
+    match tab {
+        MainTab::Chat => "tab:chat",
+        MainTab::Cron => "tab:cron",
+        MainTab::Activity => "tab:activity",
+        MainTab::DebugConsole => "tab:debug",
+    }
+    .into()
+}
+
+fn parse_tab_id(value: &str) -> Option<MainTab> {
+    Some(match value {
+        "tab:chat" => MainTab::Chat,
+        "tab:cron" => MainTab::Cron,
+        "tab:activity" => MainTab::Activity,
+        "tab:debug" => MainTab::DebugConsole,
+        _ => return None,
+    })
 }
 
 fn draw_chat_view(ui: &mut egui::Ui, state: &mut AppState) {

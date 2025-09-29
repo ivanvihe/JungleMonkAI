@@ -1,6 +1,10 @@
 use eframe::egui;
 use eframe::{App, CreationContext, Frame, NativeOptions};
 
+pub mod components;
+pub mod examples;
+pub mod layout;
+
 /// Trait que abstrae el estado y comportamiento de una shell basada en egui.
 pub trait AppShell: 'static {
     /// Inicializa el estado con el contexto de creación de eframe.

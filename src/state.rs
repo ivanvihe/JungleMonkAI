@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use vscode_shell::AppShell;
+use vscode_shell::{layout::LayoutConfig, AppShell};
 
 /// Define metadatos reutilizables para paneles y recursos navegables.
 #[derive(Clone, Copy, Debug)]
@@ -2300,12 +2300,10 @@ pub struct AppState {
     pub personalization_feedback: Option<String>,
     /// Preferencias de enrutamiento por hilo en el chat.
     pub chat_routing: ChatRoutingState,
-    /// Ancho actual del panel lateral izquierdo.
-    pub left_panel_width: f32,
-    /// Controla si el panel lateral derecho está visible.
-    pub right_panel_visible: bool,
-    /// Ancho actual del panel lateral derecho.
-    pub right_panel_width: f32,
+    /// Configuración de layout para los paneles del shell.
+    pub layout: LayoutConfig,
+    /// Solicitud diferida para copiar la conversación actual.
+    pub pending_copy_conversation: bool,
     /// Registros de actividad recientes.
     pub activity_logs: Vec<LogEntry>,
     /// Tablero con tareas programadas y filtros activos.
@@ -2537,9 +2535,8 @@ impl Default for AppState {
             personalization_resources,
             personalization_feedback: None,
             chat_routing,
-            left_panel_width: 280.0,
-            right_panel_visible: true,
-            right_panel_width: 280.0,
+            layout: LayoutConfig::default(),
+            pending_copy_conversation: false,
             activity_logs: default_logs(),
             cron_board: CronBoardState::with_tasks(default_scheduled_tasks()),
             automation_workflows,

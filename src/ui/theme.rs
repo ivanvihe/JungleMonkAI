@@ -328,10 +328,12 @@ pub fn color_primary() -> Color32 {
     theme_tokens().read().unwrap().palette.primary
 }
 
+#[allow(dead_code)]
 pub fn color_panel() -> Color32 {
     theme_tokens().read().unwrap().palette.root_background
 }
 
+#[allow(dead_code)]
 pub fn color_header() -> Color32 {
     theme_tokens().read().unwrap().palette.header_background
 }

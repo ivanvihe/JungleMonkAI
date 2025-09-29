@@ -3,6 +3,7 @@ use eframe::egui;
 
 pub mod chat;
 pub mod header;
+pub mod layout_bridge;
 pub mod logs;
 pub mod modals;
 pub mod resource_sidebar;
@@ -25,6 +26,12 @@ pub fn draw_ui(ctx: &egui::Context, state: &mut AppState) {
     sidebar::draw_sidebar(ctx, state);
     resource_sidebar::draw_resource_sidebar(ctx, state);
     chat::draw_main_content(ctx, state);
+
+    if state.layout.take_navigation_signal().is_some()
+        || state.layout.take_resource_signal().is_some()
+    {
+        ctx.request_repaint();
+    }
 
     modals::draw_settings_modal(ctx, state);
     modals::draw_functions_modal(ctx, state);

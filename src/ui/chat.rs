@@ -2080,80 +2080,35 @@ fn draw_chat_history(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 4.0;
         ui.label(
-            RichText::new("Proveedor activo")
-                .color(theme::color_text_weak())
-                .size(12.0),
+            RichText::new("Enrutamiento por alias")
+                .color(theme::color_text_primary())
+                .strong()
+                .size(13.0),
         );
 
-        let mut provider = state.chat_routing.active_thread_provider;
-        egui::ComboBox::from_id_source("chat_routing_provider")
-            .selected_text(provider.display_name())
-            .show_ui(ui, |ui| {
-                for candidate in [
-                    RemoteProviderKind::Anthropic,
-                    RemoteProviderKind::OpenAi,
-                    RemoteProviderKind::Groq,
-                ] {
-                    ui.selectable_value(&mut provider, candidate, candidate.display_name());
-                }
-            });
+        let status = state
+            .chat_routing
+            .status
+            .as_deref()
+            .unwrap_or("Menciona @alias de un proveedor para enviarle parte de tu mensaje.");
 
-        if provider != state.chat_routing.active_thread_provider {
-            state.chat_routing.active_thread_provider = provider;
-            state.chat_routing.update_status(Some(format!(
-                "Hilo configurado para {}",
-                provider.display_name()
-            )));
-        }
-
-        let mut toggle = state.chat_routing.route_every_message;
-        if ui
-            .checkbox(&mut toggle, "Enviar automáticamente")
-            .on_hover_text("Si está activo, cada mensaje se enviará al proveedor seleccionado")
-            .changed()
-        {
-            state.chat_routing.route_every_message = toggle;
-            if toggle {
-                state.chat_routing.update_status(Some(format!(
-                    "Todos los mensajes usarán {}",
-                    provider.display_name()
-                )));
-            } else {
-                state
-                    .chat_routing
-                    .update_status(Some("Selecciona proveedor por mensaje.".to_string()));
-            }
-        }
-
-        let lightning = egui::Button::new(
-            RichText::new(ICON_LIGHTNING)
-                .font(theme::icon_font(14.0))
-                .color(Color32::from_rgb(240, 240, 240)),
-        )
-        .min_size(egui::vec2(32.0, 24.0))
-        .fill(Color32::from_rgb(44, 46, 54))
-        .rounding(egui::Rounding::same(8.0));
-
-        if ui
-            .add(lightning)
-            .on_hover_text("Enviar solo el próximo mensaje con este proveedor")
-            .clicked()
-        {
-            state.chat_routing.set_override(provider);
-            state.chat_routing.update_status(Some(format!(
-                "El siguiente mensaje usará {}",
-                provider.display_name()
-            )));
-        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.label(
+                RichText::new(ICON_LIGHTNING)
+                    .font(theme::icon_font(13.0))
+                    .color(theme::color_primary()),
+            );
+            ui.label(
+                RichText::new(status)
+                    .color(theme::color_text_weak())
+                    .size(12.0),
+            );
+        });
     });
-
-    if let Some(status) = &state.chat_routing.status {
-        ui.add_space(4.0);
-        ui.colored_label(theme::color_text_weak(), status);
-    }
 
     if !state.chat_routing.suggestions.is_empty() {
         ui.add_space(6.0);
@@ -2176,13 +2131,10 @@ fn draw_model_routing_bar(ui: &mut egui::Ui, state: &mut AppState) {
 
                     if response.clicked() {
                         let provider = suggestion.provider;
-                        let title = suggestion.title.clone();
-                        state.chat_routing.active_thread_provider = provider;
-                        state.chat_routing.set_override(provider);
                         state.chat_routing.update_status(Some(format!(
-                            "Sugerencia aplicada: {} via {}",
-                            title,
-                            provider.display_name()
+                            "Recuerda mencionar @{} para {}.",
+                            provider.short_code(),
+                            suggestion.title.as_str()
                         )));
                     }
 
@@ -2273,7 +2225,7 @@ fn draw_message_bubble(
         let response = frame.show(ui, |ui| {
             ui.set_width(bubble_width);
             ui.vertical(|ui| {
-                draw_message_header(ui, state, message, icon, accent, pending_actions);
+                draw_message_header(ui, message, icon, accent, pending_actions);
                 ui.add_space(6.0);
                 draw_message_body(ui, message, accent);
                 draw_developer_artifacts(ui, message, &state.theme);
@@ -2291,7 +2243,6 @@ fn draw_message_bubble(
 
 fn draw_message_header(
     ui: &mut egui::Ui,
-    state: &AppState,
     message: &ChatMessage,
     icon: &str,
     accent: Color32,
@@ -2314,9 +2265,13 @@ fn draw_message_header(
                 .strong()
                 .color(theme::color_text_primary()),
         );
-        if message.sender != "User" && message.sender != "System" {
-            let provider = state.chat_routing.active_thread_provider.display_name();
-            ui.label(RichText::new(provider).color(accent).size(12.0).italics());
+        if let Some(origin) = message.origin {
+            ui.label(
+                RichText::new(origin.display_name())
+                    .color(accent)
+                    .size(12.0)
+                    .italics(),
+            );
         }
         ui.label(
             RichText::new(ICON_CLOCK)
@@ -3266,20 +3221,19 @@ fn submit_chat_message(state: &mut AppState) {
         state.handle_command(input);
     } else {
         state.chat.messages.push(ChatMessage::user(input.clone()));
-        if state.try_route_provider_message(&input) {
+        let residual = state.try_route_provider_message(&input);
+
+        if state.try_invoke_jarvis_alias(residual.as_str()) {
             return;
         }
 
-        if state.try_route_selected_provider(&input) {
-            return;
-        }
-
-        if state.try_invoke_jarvis_alias(&input) {
+        let trimmed_residual = residual.trim();
+        if trimmed_residual.is_empty() {
             return;
         }
 
         if state.resources.jarvis_respond_without_alias {
-            state.respond_with_jarvis(input);
+            state.respond_with_jarvis(trimmed_residual.to_string());
         }
     }
 }

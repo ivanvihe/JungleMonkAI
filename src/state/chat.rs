@@ -56,14 +56,13 @@ impl ChatState {
             next_provider_call_id: 0,
         };
 
-        let initial_provider = state
-            .routing
-            .message_override
-            .unwrap_or(state.routing.active_thread_provider);
-        state.messages.push(ChatMessage::system(format!(
-            "Canal predeterminado configurado en {}.",
-            initial_provider.display_name()
-        )));
+        let routing_hint = state.routing.status.clone().unwrap_or_else(|| {
+            "Menciona @claude, @openai o @groq para enrutar tus mensajes.".to_string()
+        });
+        state.routing.update_status(Some(routing_hint.clone()));
+        state
+            .messages
+            .push(ChatMessage::system(routing_hint.clone()));
 
         state
     }
@@ -72,11 +71,11 @@ impl ChatState {
         DEFAULT_CUSTOM_ACTIONS.iter().copied()
     }
 
-    pub fn current_route_display(&self) -> &'static str {
+    pub fn current_route_display(&self) -> String {
         self.routing
-            .message_override
-            .unwrap_or(self.routing.active_thread_provider)
-            .display_name()
+            .status
+            .clone()
+            .unwrap_or_else(|| "Rutas disponibles mediante menciones".to_string())
     }
 }
 

@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use chrono::{Local, NaiveDate};
+
 use super::{
     feature::{CommandRegistry, FeatureModule, WorkbenchRegistry},
     navigation::{NavigationNode, NavigationTarget},
@@ -38,6 +40,8 @@ pub struct ResourceState {
     pub personalization_resources: PersonalizationResourcesState,
     pub personalization_feedback: Option<String>,
     pub project_resources: Vec<ProjectResourceCard>,
+    pub provider_usage: BTreeMap<RemoteProviderKind, ProviderUsageState>,
+    pub deferred_requests: Vec<DeferredProviderRequest>,
 }
 
 impl ResourceState {
@@ -93,6 +97,20 @@ impl ResourceState {
 
         let personalization_resources =
             PersonalizationResourcesState::from_sources(profiles, projects, &Vec::new());
+
+        let mut provider_usage = BTreeMap::new();
+        provider_usage.insert(
+            RemoteProviderKind::Anthropic,
+            ProviderUsageState::from_limit(config.anthropic.daily_limit),
+        );
+        provider_usage.insert(
+            RemoteProviderKind::OpenAi,
+            ProviderUsageState::from_limit(config.openai.daily_limit),
+        );
+        provider_usage.insert(
+            RemoteProviderKind::Groq,
+            ProviderUsageState::from_limit(config.groq.daily_limit),
+        );
 
         Self {
             selected_resource: None,
@@ -150,6 +168,8 @@ impl ResourceState {
             personalization_resources,
             personalization_feedback: None,
             project_resources: super::default_project_resources(),
+            provider_usage,
+            deferred_requests: Vec::new(),
         }
     }
 
@@ -165,6 +185,109 @@ impl ResourceState {
             .filter(|card| card.kind == kind)
             .cloned()
             .collect()
+    }
+
+    pub fn usage_state_mut(&mut self, provider: RemoteProviderKind) -> &mut ProviderUsageState {
+        self.provider_usage
+            .entry(provider)
+            .or_insert_with(|| ProviderUsageState::from_limit(None))
+    }
+
+    pub fn try_acquire_provider_quota(
+        &mut self,
+        provider: RemoteProviderKind,
+        alias: &str,
+        prompt: &str,
+        model: &str,
+    ) -> Result<ProviderUsageSnapshot, ProviderQuotaExceeded> {
+        let usage = self.usage_state_mut(provider);
+        usage.refresh_if_needed();
+        if let Some(limit) = usage.daily_limit {
+            if usage.calls_today >= limit {
+                let exceeded = ProviderQuotaExceeded {
+                    limit,
+                    used: usage.calls_today,
+                    provider,
+                    alias: alias.to_string(),
+                    model: model.to_string(),
+                    prompt: prompt.to_string(),
+                    created_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                };
+                self.deferred_requests
+                    .push(DeferredProviderRequest::from_exceeded(&exceeded));
+                return Err(exceeded);
+            }
+        }
+
+        usage.calls_today += 1;
+        Ok(ProviderUsageSnapshot {
+            used: usage.calls_today,
+            limit: usage.daily_limit,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ProviderUsageState {
+    pub daily_limit: Option<u32>,
+    pub calls_today: u32,
+    pub last_reset: NaiveDate,
+}
+
+impl ProviderUsageState {
+    pub fn from_limit(limit: Option<u32>) -> Self {
+        Self {
+            daily_limit: limit,
+            calls_today: 0,
+            last_reset: Local::now().date_naive(),
+        }
+    }
+
+    fn refresh_if_needed(&mut self) {
+        let today = Local::now().date_naive();
+        if today != self.last_reset {
+            self.calls_today = 0;
+            self.last_reset = today;
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ProviderUsageSnapshot {
+    pub used: u32,
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProviderQuotaExceeded {
+    pub provider: RemoteProviderKind,
+    pub limit: u32,
+    pub used: u32,
+    pub alias: String,
+    pub model: String,
+    pub prompt: String,
+    pub created_at: String,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct DeferredProviderRequest {
+    pub provider: RemoteProviderKind,
+    pub alias: String,
+    pub model: String,
+    pub prompt: String,
+    pub created_at: String,
+}
+
+impl DeferredProviderRequest {
+    fn from_exceeded(exceeded: &ProviderQuotaExceeded) -> Self {
+        Self {
+            provider: exceeded.provider,
+            alias: exceeded.alias.clone(),
+            model: exceeded.model.clone(),
+            prompt: exceeded.prompt.clone(),
+            created_at: exceeded.created_at.clone(),
+        }
     }
 }
 

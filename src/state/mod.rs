@@ -1,12 +1,15 @@
 pub mod automation;
 pub mod chat;
 pub mod feature;
+pub mod jarvis_orchestrator;
 pub mod resources;
 
 pub use automation::AutomationState;
 pub use chat::ChatState;
 pub use feature::{CommandRegistry, FeatureModule, WorkbenchRegistry};
 pub use resources::ResourceState;
+
+use jarvis_orchestrator::JarvisOrchestrator;
 
 use crate::{
     api::{claude::AnthropicModel, local::JarvisRuntime},
@@ -18,11 +21,14 @@ use crate::{
     },
 };
 use chrono::{DateTime, Local, Utc};
+use resources::ProviderQuotaExceeded;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::{Duration, Instant};
 use vscode_shell::{layout::LayoutConfig, AppShell};
 
 pub use navigation::{
@@ -2847,14 +2853,43 @@ impl Default for ChatMessage {
 pub const MAX_COMMAND_DEPTH: usize = 5;
 
 #[derive(Clone, Debug)]
+pub struct ProviderCallTicket {
+    pub id: u64,
+    pub provider_kind: RemoteProviderKind,
+    pub provider_name: String,
+    pub alias: String,
+    pub model: String,
+    pub message_index: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct ProviderCallResult {
+    pub ticket: ProviderCallTicket,
+    pub outcome: std::result::Result<String, String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ProviderCallDispatch {
+    Pending(ProviderCallTicket),
+    Deferred {
+        provider_kind: RemoteProviderKind,
+        provider_name: String,
+        alias: String,
+        model: String,
+        limit: u32,
+        used: u32,
+        created_at: String,
+    },
+    MissingCredentials {
+        provider_kind: RemoteProviderKind,
+        provider_name: String,
+        alias: String,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct PendingProviderCall {
-    id: u64,
-    provider_kind: RemoteProviderKind,
-    provider_name: String,
-    alias: String,
-    model: String,
-    message_index: usize,
-    origin: RemoteProviderKind,
+    ticket: ProviderCallTicket,
 }
 
 #[derive(Debug)]
@@ -3618,58 +3653,71 @@ impl AppState {
             .find(|model| &model.identifier == identifier)
     }
 
+    fn apply_provider_response(
+        &mut self,
+        response: ProviderResponse,
+    ) -> Option<ProviderCallResult> {
+        if let Some(position) = self
+            .chat
+            .pending_provider_calls
+            .iter()
+            .position(|pending| pending.ticket.id == response.id)
+        {
+            let pending = self.chat.pending_provider_calls.remove(position);
+            let ticket = pending.ticket.clone();
+            let outcome = response.outcome;
+
+            match &outcome {
+                Ok(text) => {
+                    if let Some(message) = self.chat.messages.get_mut(ticket.message_index) {
+                        message.text = text.clone();
+                        message.status = ChatMessageStatus::Normal;
+                        message.timestamp = Local::now().format("%H:%M:%S").to_string();
+                        message.sender = ticket.alias.clone();
+                        message.origin = Some(ticket.provider_kind);
+                    }
+
+                    let char_count = text.chars().count();
+                    let snippet: String = text.chars().take(120).collect();
+                    *self.provider_status_slot(ticket.provider_kind) = Some(format!(
+                        "{} respondió correctamente ({} caracteres).",
+                        ticket.model, char_count
+                    ));
+                    self.push_activity_log(
+                        LogStatus::Ok,
+                        ticket.provider_name.clone(),
+                        format!("Respuesta recibida de '{}': {}", ticket.model, snippet),
+                    );
+                }
+                Err(err) => {
+                    *self.provider_status_slot(ticket.provider_kind) =
+                        Some(format!("Último error: {}", err));
+                    self.push_activity_log(
+                        LogStatus::Error,
+                        ticket.provider_name.clone(),
+                        format!("Fallo al invocar '{}': {}", ticket.model, err),
+                    );
+
+                    if let Some(message) = self.chat.messages.get_mut(ticket.message_index) {
+                        *message = ChatMessage::system(format!(
+                            "{}: error al solicitar respuesta: {}",
+                            ticket.alias, err
+                        ));
+                    }
+                }
+            }
+
+            Some(ProviderCallResult { ticket, outcome })
+        } else {
+            None
+        }
+    }
+
     pub fn update_async_tasks(&mut self) -> bool {
         let mut updated = false;
 
         while let Ok(response) = self.chat.provider_response_rx.try_recv() {
-            if let Some(position) = self
-                .chat
-                .pending_provider_calls
-                .iter()
-                .position(|pending| pending.id == response.id)
-            {
-                let pending = self.chat.pending_provider_calls.remove(position);
-
-                match response.outcome {
-                    Ok(text) => {
-                        if let Some(message) = self.chat.messages.get_mut(pending.message_index) {
-                            message.text = text.clone();
-                            message.status = ChatMessageStatus::Normal;
-                            message.timestamp = Local::now().format("%H:%M:%S").to_string();
-                            message.sender = pending.alias.clone();
-                            message.origin = Some(pending.origin);
-                        }
-
-                        let char_count = text.chars().count();
-                        let snippet: String = text.chars().take(120).collect();
-                        *self.provider_status_slot(pending.provider_kind) = Some(format!(
-                            "{} respondió correctamente ({} caracteres).",
-                            pending.model, char_count
-                        ));
-                        self.push_activity_log(
-                            LogStatus::Ok,
-                            pending.provider_name.clone(),
-                            format!("Respuesta recibida de '{}': {}", pending.model, snippet),
-                        );
-                    }
-                    Err(err) => {
-                        *self.provider_status_slot(pending.provider_kind) =
-                            Some(format!("Último error: {}", err));
-                        self.push_activity_log(
-                            LogStatus::Error,
-                            pending.provider_name.clone(),
-                            format!("Fallo al invocar '{}': {}", pending.model, err),
-                        );
-
-                        if let Some(message) = self.chat.messages.get_mut(pending.message_index) {
-                            *message = ChatMessage::system(format!(
-                                "{}: error al solicitar respuesta: {}",
-                                pending.alias, err
-                            ));
-                        }
-                    }
-                }
-
+            if self.apply_provider_response(response).is_some() {
                 updated = true;
             }
         }
@@ -3755,6 +3803,45 @@ impl AppState {
         }
 
         updated
+    }
+
+    pub fn wait_for_provider_calls(
+        &mut self,
+        tickets: &[ProviderCallTicket],
+        timeout: Duration,
+    ) -> Vec<ProviderCallResult> {
+        if tickets.is_empty() {
+            return Vec::new();
+        }
+
+        let mut remaining: HashSet<u64> = tickets.iter().map(|ticket| ticket.id).collect();
+        let mut results = Vec::new();
+        let deadline = Instant::now() + timeout;
+
+        while !remaining.is_empty() {
+            let now = Instant::now();
+            if let Some(wait) = deadline.checked_duration_since(now) {
+                if wait.is_zero() {
+                    break;
+                }
+
+                match self.chat.provider_response_rx.recv_timeout(wait) {
+                    Ok(response) => {
+                        if let Some(result) = self.apply_provider_response(response) {
+                            if remaining.remove(&result.ticket.id) {
+                                results.push(result);
+                            }
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => break,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            } else {
+                break;
+            }
+        }
+
+        results
     }
 
     fn normalize_string_option(value: &mut Option<String>) {
@@ -4008,7 +4095,7 @@ impl AppState {
             .expect("runtime recién cargado"))
     }
 
-    pub fn respond_with_jarvis(&mut self, prompt: String) {
+    pub fn generate_local_jarvis_reply(&mut self, prompt: &str) -> Result<String, String> {
         self.push_activity_log(
             LogStatus::Running,
             "Jarvis",
@@ -4017,12 +4104,11 @@ impl AppState {
                 prompt.chars().count()
             ),
         );
+
         match self.ensure_jarvis_runtime() {
             Ok(runtime) => {
                 let label = runtime.model_label();
-                let reply_result = runtime.generate_reply(&prompt);
-                let _ = runtime;
-                match reply_result {
+                match runtime.generate_reply(prompt) {
                     Ok(reply) => {
                         self.resources.jarvis_status =
                             Some(format!("Jarvis responde con el modelo {}.", label));
@@ -4031,17 +4117,9 @@ impl AppState {
                             "Jarvis",
                             format!("Respuesta generada por {}", label),
                         );
-                        let mut message = ChatMessage::new("Jarvis", reply);
-                        if let Some(tag) = self.jarvis_mention_tag() {
-                            message = message.with_mention(tag);
-                        }
-                        self.chat.messages.push(message);
+                        Ok(reply)
                     }
                     Err(err) => {
-                        self.chat.messages.push(ChatMessage::system(format!(
-                            "Jarvis no pudo generar respuesta: {}",
-                            err
-                        )));
                         self.resources.jarvis_status = Some(format!(
                             "Jarvis falló al generar respuesta ({label}): {}",
                             err
@@ -4051,22 +4129,25 @@ impl AppState {
                             "Jarvis",
                             format!("Error al generar respuesta con {}: {}", label, err),
                         );
+                        Err(err.to_string())
                     }
                 }
             }
             Err(err) => {
-                self.chat.messages.push(ChatMessage::system(format!(
-                    "Jarvis no está listo: {}",
-                    err
-                )));
                 self.resources.jarvis_status = Some(format!("Jarvis no está listo: {}", err));
                 self.push_activity_log(
                     LogStatus::Error,
                     "Jarvis",
                     format!("Runtime inalcanzable: {}", err),
                 );
+                Err(err.to_string())
             }
         }
+    }
+
+    pub fn respond_with_jarvis(&mut self, prompt: String) {
+        let mut orchestrator = JarvisOrchestrator::new(self);
+        orchestrator.execute(prompt);
     }
 
     fn provider_alias_display(alias: &str, fallback: &str) -> String {
@@ -4305,42 +4386,89 @@ impl AppState {
         api_key: Option<String>,
         model: String,
         caller: fn(&str, &str, &str) -> anyhow::Result<String>,
-    ) {
+    ) -> ProviderCallDispatch {
         if let Some(key) = api_key {
-            self.push_activity_log(
-                LogStatus::Running,
-                provider_name,
-                format!("Consultando '{}' con el alias '{}'.", model, alias),
-            );
-            let message_index = self.chat.messages.len();
-            let pending = ChatMessage::pending(
-                alias.clone(),
-                format!("Esperando respuesta de {}…", provider_name),
-                Some(provider_kind),
-            );
-            self.chat.messages.push(pending);
+            match self
+                .resources
+                .try_acquire_provider_quota(provider_kind, &alias, &prompt, &model)
+            {
+                Ok(usage) => {
+                    let mut status = format!("Consultando '{}' con el alias '{}'.", model, alias);
+                    if let Some(limit) = usage.limit {
+                        status.push_str(&format!(" Uso registrado: {}/{}.", usage.used, limit));
+                    }
+                    self.push_activity_log(LogStatus::Running, provider_name, status);
+                    let message_index = self.chat.messages.len();
+                    let pending = ChatMessage::pending(
+                        alias.clone(),
+                        format!("Esperando respuesta de {}…", provider_name),
+                        Some(provider_kind),
+                    );
+                    self.chat.messages.push(pending);
 
-            let call_id = self.chat.next_provider_call_id;
-            self.chat.next_provider_call_id += 1;
+                    let call_id = self.chat.next_provider_call_id;
+                    self.chat.next_provider_call_id += 1;
 
-            self.chat.pending_provider_calls.push(PendingProviderCall {
-                id: call_id,
-                provider_kind,
-                provider_name: provider_name.to_string(),
-                alias: alias.clone(),
-                model: model.clone(),
-                message_index,
-                origin: provider_kind,
-            });
+                    let ticket = ProviderCallTicket {
+                        id: call_id,
+                        provider_kind,
+                        provider_name: provider_name.to_string(),
+                        alias: alias.clone(),
+                        model: model.clone(),
+                        message_index,
+                    };
 
-            let tx = self.chat.provider_response_tx.clone();
-            std::thread::spawn(move || {
-                let outcome = caller(&key, &model, &prompt).map_err(|err| err.to_string());
-                let _ = tx.send(ProviderResponse {
-                    id: call_id,
-                    outcome,
-                });
-            });
+                    self.chat.pending_provider_calls.push(PendingProviderCall {
+                        ticket: ticket.clone(),
+                    });
+
+                    let tx = self.chat.provider_response_tx.clone();
+                    std::thread::spawn(move || {
+                        let outcome = caller(&key, &model, &prompt).map_err(|err| err.to_string());
+                        let _ = tx.send(ProviderResponse {
+                            id: call_id,
+                            outcome,
+                        });
+                    });
+
+                    ProviderCallDispatch::Pending(ticket)
+                }
+                Err(ProviderQuotaExceeded {
+                    limit,
+                    used,
+                    alias: exceeded_alias,
+                    model: exceeded_model,
+                    created_at,
+                    ..
+                }) => {
+                    self.chat.messages.push(ChatMessage::system(format!(
+                        "Se alcanzó el límite diario ({}/{}) para {}. La solicitud '{}' ({}) se diferirá.",
+                        used,
+                        limit,
+                        provider_name,
+                        exceeded_alias,
+                        exceeded_model
+                    )));
+                    self.push_activity_log(
+                        LogStatus::Warning,
+                        provider_name,
+                        format!(
+                            "Límite diario ({}/{}) alcanzado; solicitud diferida para '{}'.",
+                            used, limit, model
+                        ),
+                    );
+
+                    ProviderCallDispatch::Deferred {
+                        provider_kind,
+                        provider_name: provider_name.to_string(),
+                        alias,
+                        model,
+                        limit,
+                        used,
+                        created_at,
+                    }
+                }
+            }
         } else {
             self.chat.messages.push(ChatMessage::system(format!(
                 "Configura la API key de {} antes de usar el alias '{}'.",
@@ -4348,6 +4476,11 @@ impl AppState {
             )));
             *self.provider_status_slot(provider_kind) =
                 Some(format!("Falta la API key para {}.", provider_name));
+            ProviderCallDispatch::MissingCredentials {
+                provider_kind,
+                provider_name: provider_name.to_string(),
+                alias,
+            }
         }
     }
 
@@ -4359,7 +4492,11 @@ impl AppState {
         }
     }
 
-    fn invoke_provider_kind(&mut self, provider: RemoteProviderKind, prompt: String) {
+    pub fn invoke_provider_kind(
+        &mut self,
+        provider: RemoteProviderKind,
+        prompt: String,
+    ) -> ProviderCallDispatch {
         match provider {
             RemoteProviderKind::Anthropic => self.invoke_anthropic(prompt),
             RemoteProviderKind::OpenAi => self.invoke_openai(prompt),
@@ -4383,16 +4520,29 @@ impl AppState {
         self.resources
             .remote_catalog
             .update_status(Some(format!("Enviando prueba rápida a {}…", label)));
-        self.invoke_provider_kind(key.provider, formatted);
-        self.push_debug_event(
-            DebugLogLevel::Info,
-            format!("providers::{}", key.provider.short_code()),
-            format!("Quick test lanzado para {}", key.id),
-        );
-        Some(format!("Prueba rápida enviada a {}.", label))
+        match self.invoke_provider_kind(key.provider, formatted) {
+            ProviderCallDispatch::Pending(_) => {
+                self.push_debug_event(
+                    DebugLogLevel::Info,
+                    format!("providers::{}", key.provider.short_code()),
+                    format!("Quick test lanzado para {}", key.id),
+                );
+                Some(format!("Prueba rápida enviada a {}.", label))
+            }
+            ProviderCallDispatch::Deferred { limit, used, .. } => Some(format!(
+                "No se pudo ejecutar la prueba rápida: límite diario {}/{} alcanzado para {}.",
+                used,
+                limit,
+                key.provider.display_name()
+            )),
+            ProviderCallDispatch::MissingCredentials { .. } => Some(format!(
+                "Configura la API key de {} antes de ejecutar la prueba rápida.",
+                key.provider.display_name()
+            )),
+        }
     }
 
-    fn invoke_anthropic(&mut self, prompt: String) {
+    pub fn invoke_anthropic(&mut self, prompt: String) -> ProviderCallDispatch {
         let alias = Self::provider_alias_display(&self.resources.claude_alias, "claude");
         let key = self.config.anthropic.api_key.clone().and_then(|k| {
             let trimmed = k.trim();
@@ -4410,10 +4560,10 @@ impl AppState {
             key,
             self.resources.claude_default_model.clone(),
             crate::api::claude::send_message,
-        );
+        )
     }
 
-    fn invoke_openai(&mut self, prompt: String) {
+    pub fn invoke_openai(&mut self, prompt: String) -> ProviderCallDispatch {
         let alias = Self::provider_alias_display(&self.resources.openai_alias, "openai");
         let key = self.config.openai.api_key.clone().and_then(|k| {
             let trimmed = k.trim();
@@ -4431,10 +4581,10 @@ impl AppState {
             key,
             self.resources.openai_default_model.clone(),
             crate::api::openai::send_message,
-        );
+        )
     }
 
-    fn invoke_groq(&mut self, prompt: String) {
+    pub fn invoke_groq(&mut self, prompt: String) -> ProviderCallDispatch {
         let alias = Self::provider_alias_display(&self.resources.groq_alias, "groq");
         let key = self.config.groq.api_key.clone().and_then(|k| {
             let trimmed = k.trim();
@@ -4452,7 +4602,7 @@ impl AppState {
             key,
             self.resources.groq_default_model.clone(),
             crate::api::groq::send_message,
-        );
+        )
     }
 
     pub fn try_route_provider_message(&mut self, input: &str) -> String {
@@ -4467,8 +4617,9 @@ impl AppState {
                 continue;
             }
 
-            self.invoke_provider_kind(provider, prompt);
-            invoked.push(provider.display_name().to_string());
+            if let ProviderCallDispatch::Pending(_) = self.invoke_provider_kind(provider, prompt) {
+                invoked.push(provider.display_name().to_string());
+            }
         }
 
         if !invoked.is_empty() {
@@ -5039,7 +5190,10 @@ impl AppState {
                             .map(|call| {
                                 format!(
                                     "#{} {} · {} ({})",
-                                    call.id, call.provider_name, call.alias, call.model
+                                    call.ticket.id,
+                                    call.ticket.provider_name,
+                                    call.ticket.alias,
+                                    call.ticket.model
                                 )
                             })
                             .collect::<Vec<_>>()

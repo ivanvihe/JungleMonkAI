@@ -2,6 +2,7 @@ pub mod command_palette;
 pub mod header;
 pub mod main_content;
 pub mod resource_panel;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod split_panel;
 pub mod status_bar;
@@ -18,6 +19,7 @@ pub use main_content::{
 pub use resource_panel::{
     draw_resource_panel, ResourceItem, ResourcePanelModel, ResourcePanelProps, ResourceSectionProps,
 };
+pub use shortcuts::{Shortcut, ShortcutManager, ShortcutModifiers};
 pub use sidebar::{draw_sidebar, NavigationModel, SidebarItem, SidebarProps, SidebarSection};
 pub use split_panel::{
     draw_split_panel, PanelLeaf, PanelNode, PanelSplit, SplitDirection, SplitPanelModel,

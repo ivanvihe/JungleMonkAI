@@ -2,6 +2,7 @@ pub mod header;
 pub mod main_content;
 pub mod resource_panel;
 pub mod sidebar;
+pub mod split_panel;
 pub mod status_bar;
 pub mod tabs;
 pub mod tree_view;
@@ -14,6 +15,10 @@ pub use resource_panel::{
     draw_resource_panel, ResourceItem, ResourcePanelModel, ResourcePanelProps, ResourceSectionProps,
 };
 pub use sidebar::{draw_sidebar, NavigationModel, SidebarItem, SidebarProps, SidebarSection};
+pub use split_panel::{
+    draw_split_panel, PanelLeaf, PanelNode, PanelSplit, SplitDirection, SplitPanelModel,
+    SplitPanelState,
+};
 pub use status_bar::{
     draw_status_bar, StatusBarItem, StatusBarModel, StatusBarProps,
     // Helper functions

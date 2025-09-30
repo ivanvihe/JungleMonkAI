@@ -1,3 +1,4 @@
+pub mod command_palette;
 pub mod header;
 pub mod main_content;
 pub mod resource_panel;
@@ -7,6 +8,9 @@ pub mod status_bar;
 pub mod tabs;
 pub mod tree_view;
 
+pub use command_palette::{
+    draw_command_palette, Command, CommandPaletteModel, CommandPaletteProps,
+};
 pub use header::{draw_header, HeaderAction, HeaderModel, HeaderProps, SearchGroup, SearchResult};
 pub use main_content::{
     draw_main_content, MainContentAction, MainContentModel, MainContentProps, MainContentTab,

@@ -19,6 +19,12 @@
    - Casos de uso reales
    - Best practices y tips
 
+3. **Guía de Split Panels** (`SPLIT_PANEL_GUIDE.md`)
+   - Arquitectura de paneles divididos
+   - Ejemplos de layouts complejos
+   - API completa y serialización
+   - Integración con otros componentes
+
 ### 🧩 Nuevos Componentes
 
 #### 1. **Tabs System** (`templates/vscode_shell/src/components/tabs.rs`)
@@ -91,6 +97,37 @@ let tree = vec![
 - `find_node_mut()` - Encontrar nodo por ID
 - `collect_all_ids()` - Obtener todos los IDs
 
+#### 4. **Split Panels** (`templates/vscode_shell/src/components/split_panel.rs`) ⭐ NUEVO
+- Splits horizontales (izquierda | derecha)
+- Splits verticales (arriba / abajo)
+- Splits anidados (recursivos)
+- Divisores redimensionables con drag
+- Ratios ajustables (10% - 90%)
+- Serialización de estado
+
+**Uso:**
+```rust
+use vscode_shell::components::{SplitPanelState, SplitPanelModel, draw_split_panel};
+
+let mut state = SplitPanelState::new("editor");
+state.split_horizontal("main", "left".into(), "right".into(), 0.5);
+state.split_vertical("left", "code".into(), "terminal".into(), 0.7);
+
+// Resultado:
+// ┌─────────┬─────────┐
+// │  code   │         │
+// ├─────────┤  right  │
+// │terminal │         │
+// └─────────┴─────────┘
+```
+
+**Características:**
+- Arquitectura basada en árbol (PanelNode)
+- Drag & drop en divisores
+- Hover effects y cursor feedback
+- Estado persistible (serde)
+- Integrable con tabs
+
 ### 🔄 Actualizaciones
 
 **`templates/vscode_shell/src/components/mod.rs`**
@@ -127,6 +164,7 @@ header_height: 35.0
 status_bar_height: 22.0
 tab_height: 35.0
 indent_per_level: 16.0
+divider_thickness: 4.0          // Split panels
 ```
 
 ---
@@ -138,6 +176,7 @@ JungleMonkAI/
 ├── docs/
 │   ├── UI_DESIGN_SYSTEM.md          ✅ Sistema de diseño completo
 │   ├── COMPONENTS_USAGE_GUIDE.md    ✅ Guía de uso
+│   ├── SPLIT_PANEL_GUIDE.md         ✅ NUEVO - Guía de split panels
 │   └── UI_IMPROVEMENTS_SUMMARY.md   ✅ Este archivo
 │
 ├── templates/vscode_shell/
@@ -147,6 +186,7 @@ JungleMonkAI/
 │   │   │   ├── tabs.rs              ✅ NUEVO
 │   │   │   ├── status_bar.rs        ✅ NUEVO
 │   │   │   ├── tree_view.rs         ✅ NUEVO
+│   │   │   ├── split_panel.rs       ✅ NUEVO ⭐
 │   │   │   ├── header.rs            ✓ Existente
 │   │   │   ├── sidebar.rs           ✓ Existente
 │   │   │   ├── main_content.rs      ✓ Existente
@@ -177,6 +217,7 @@ use vscode_shell::components::{
     draw_tabs, Tab, TabsModel, TabsProps,
     draw_status_bar, StatusBarItem, StatusBarModel, StatusBarProps,
     draw_tree_view, TreeNode, TreeViewModel, TreeViewProps,
+    draw_split_panel, SplitPanelState, SplitPanelModel,  // NUEVO
     
     // Componentes existentes
     draw_header, HeaderModel,
@@ -202,7 +243,6 @@ impl TabsModel for MyApp {
 ```rust
 fn update(&mut self, ctx: &egui::Context) {
     draw_header(ctx, &self.layout, self);
-    draw_tabs(ctx, &self.layout, self);
     draw_status_bar(ctx, &self.layout, self);
     
     egui::SidePanel::left("sidebar").show(ctx, |ui| {
@@ -210,7 +250,11 @@ fn update(&mut self, ctx: &egui::Context) {
     });
     
     egui::CentralPanel::default().show(ctx, |ui| {
-        // Tu contenido principal
+        // Con split panels:
+        draw_split_panel(ui, &self.layout, self);
+        
+        // O con tabs tradicionales:
+        draw_tabs(ctx, &self.layout, self);
     });
 }
 ```
@@ -219,29 +263,36 @@ fn update(&mut self, ctx: &egui::Context) {
 
 ## 🎯 Casos de Uso
 
-### ✅ Editor de Código
-- **Tabs**: Múltiples archivos abiertos
-- **Tree View**: Explorador de archivos del proyecto
-- **Status Bar**: Línea/columna, errores, lenguaje
-- **Header**: Búsqueda global, acciones rápidas
+### ✅ Editor de Código con Split
+- **Split Panels**: Múltiples archivos lado a lado
+- **Tabs**: Dentro de cada panel
+- **Tree View**: Explorador de archivos
+- **Status Bar**: Info contextual por panel
 
-### ✅ Dashboard de Monitoreo
-- **Status Bar**: Indicadores de estado del sistema
-- **Tree View**: Navegación de recursos/servicios
-- **Tabs**: Múltiples vistas de métricas
+### ✅ IDE Completo
+- **Split Panels**: Editor + Terminal vertical
+- **Tree View**: Navegación de proyecto
+- **Status Bar**: Errores, branch, posición
+- **Header**: Búsqueda y comandos
 
-### ✅ Herramienta de Gestión
-- **Tree View**: Jerarquía de proyectos/tareas
-- **Tabs**: Diferentes áreas de trabajo
-- **Status Bar**: Notificaciones y estado de sincronización
+### ✅ Dashboard Multi-Vista
+- **Split Panels**: Gráficas en grid layout
+- **Status Bar**: Indicadores globales
+- **Tabs**: Diferentes vistas de datos
 
 ---
 
-## 📈 Roadmap Futuro
+## 📈 Roadmap
+
+### Componentes Completados ✅
+
+- [x] **Tabs System** - Sistema de pestañas
+- [x] **Status Bar** - Barra de estado
+- [x] **Tree View** - Vista jerárquica
+- [x] **Split Panels** - Paneles divididos ⭐
 
 ### Componentes Pendientes
 
-- [ ] **Split Panels** - Dividir editor horizontal/vertical
 - [ ] **Breadcrumbs** - Navegación contextual
 - [ ] **Command Palette** - Mejorado con fuzzy search
 - [ ] **Minimap** - Vista previa del contenido
@@ -250,13 +301,13 @@ fn update(&mut self, ctx: &egui::Context) {
 
 ### Mejoras Planificadas
 
-- [ ] Drag & drop en tabs
-- [ ] Reordenar tabs
-- [ ] Keyboard shortcuts system
+- [ ] Drag & drop entre split panels
+- [ ] Keyboard shortcuts system completo
 - [ ] Context menus mejorados
 - [ ] Notifications/toasts system
 - [ ] File icons por extensión
 - [ ] Temas adicionales (Monokai, Solarized, etc.)
+- [ ] Tab groups en split panels
 
 ---
 
@@ -275,28 +326,37 @@ fn update(&mut self, ctx: &egui::Context) {
 - ✅ Compatible con `egui 0.27.2`
 - ✅ Funciona con el workspace actual de JungleMonkAI
 
+### Dependencias Adicionales
+Para usar Split Panels, agregar a `Cargo.toml`:
+```toml
+uuid = { version = "1.0", features = ["v4", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+```
+
 ### Performance
 - Los componentes son eficientes y no re-renderizan innecesariamente
 - Tree View soporta lazy loading para grandes jerarquías
 - Tabs system escalable para múltiples pestañas
+- Split Panels usa renderizado recursivo optimizado
 
 ### Extensibilidad
 - Todos los componentes usan el patrón trait-based
 - Builder pattern para configuración flexible
 - Colores y estilos customizables vía `ShellTheme`
+- Estado de split panels serializable
 
 ---
 
 ## 🎉 Resumen
 
-**Total de archivos creados/modificados:** 6
+**Total de archivos creados/modificados:** 9
 
-- ✅ 3 Componentes nuevos (Tabs, StatusBar, TreeView)
-- ✅ 2 Documentos completos de diseño
-- ✅ 1 Guía de uso práctica
+- ✅ 4 Componentes nuevos (Tabs, StatusBar, TreeView, SplitPanel)
+- ✅ 3 Documentos completos de diseño
+- ✅ 1 Guía específica de Split Panels
 - ✅ 1 Archivo de módulo actualizado
 
-**Líneas de código:** ~2,500 líneas de Rust + documentación
+**Líneas de código:** ~3,700 líneas de Rust + documentación
 
 **Estado del proyecto:** 
 🟢 **Listo para usar** - Todos los componentes son funcionales y están documentados
@@ -304,5 +364,6 @@ fn update(&mut self, ctx: &egui::Context) {
 ---
 
 **Creado:** 2025-09-30  
-**Versión:** 1.0  
+**Versión:** 1.1  
+**Última actualización:** 2025-09-30  
 **Autor:** Claude Code + ivanvihe
